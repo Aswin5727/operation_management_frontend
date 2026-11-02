@@ -161,6 +161,340 @@
   display: none;
 }
 
+/* Shared account/helpdesk surfaces used by both admin workspaces. */
+.helpdesk-support-panel,
+.account-settings-panel {
+  display: grid;
+  gap: 20px;
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: clamp(18px, 2.4vw, 30px);
+  border: 1px solid #dce7f3;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #f8fbff 0%, #ffffff 62%);
+  box-shadow: 0 12px 30px rgba(28, 74, 130, 0.07);
+}
+
+.helpdesk-support-header,
+.account-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.helpdesk-support-kicker,
+.account-settings-kicker {
+  margin: 0 0 6px;
+  color: #2d6bd8;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.helpdesk-support-header h2,
+.account-settings-header h2 {
+  margin: 0;
+  color: #102b55;
+  font-size: clamp(1.25rem, 2.3vw, 1.85rem);
+  letter-spacing: -0.035em;
+}
+
+.helpdesk-support-header p:not(.helpdesk-support-kicker),
+.account-settings-header p:not(.account-settings-kicker) {
+  max-width: 66ch;
+  margin: 7px 0 0;
+  color: #70829c;
+  font-size: 0.92rem;
+}
+
+.helpdesk-support-header-icon,
+.account-settings-header-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid #cfe0f7;
+  border-radius: 14px;
+  background: #eaf3ff;
+  color: #2e73df;
+}
+
+.helpdesk-support-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.helpdesk-support-card {
+  display: grid;
+  min-height: 190px;
+  align-content: start;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid #dce7f3;
+  border-radius: 16px;
+  background: #fff;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.helpdesk-support-card:hover,
+.helpdesk-support-card.is-selected {
+  border-color: #a8c7f2;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.1);
+  transform: translateY(-2px);
+}
+
+.helpdesk-support-card-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 11px;
+  background: #eef5ff;
+  color: #2d6bd8;
+}
+
+.helpdesk-support-card h3 {
+  margin: 2px 0 0;
+  color: #17345f;
+  font-size: 1rem;
+}
+
+.helpdesk-support-card p {
+  min-height: 48px;
+  margin: 0;
+  color: #71839c;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.helpdesk-support-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: auto;
+  color: #2d6bd8;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.helpdesk-support-note,
+.account-settings-help {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  padding: 13px 15px;
+  border: 1px solid #d9e8fb;
+  border-radius: 12px;
+  background: #f4f8ff;
+  color: #5f7593;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.helpdesk-support-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #2d6bd8;
+}
+
+.account-settings-card {
+  overflow: hidden;
+  border: 1px solid #dce7f3;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.account-settings-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #e7eef7;
+}
+
+.account-settings-avatar {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eaf3ff;
+  color: #2d6bd8;
+  font-weight: 800;
+}
+
+.account-settings-identity strong,
+.account-settings-identity span {
+  display: block;
+}
+
+.account-settings-identity strong {
+  color: #193860;
+  font-size: 0.96rem;
+}
+
+.account-settings-identity span {
+  margin-top: 2px;
+  color: #7c8da5;
+  font-size: 0.78rem;
+}
+
+.account-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.account-settings-row:last-child { border-bottom: 0; }
+
+.account-settings-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #71839c;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.account-settings-row-label svg { color: #2d6bd8; }
+
+.account-settings-value {
+  max-width: 58%;
+  overflow: hidden;
+  color: #263e61;
+  font-size: 0.86rem;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-settings-reset-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid #c7daf5;
+  border-radius: 9px;
+  background: #f6faff;
+  color: #2867d2;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.account-settings-reset-button:hover,
+.account-settings-reset-button:focus-visible {
+  border-color: #8fb6ed;
+  background: #eaf3ff;
+  outline: none;
+}
+
+.account-settings-help { display: block; }
+
+.super-admin-reports-panel {
+  display: grid;
+  gap: 20px;
+  width: min(100%, 1160px);
+  margin: 0 auto;
+  padding: clamp(18px, 2.4vw, 30px);
+  border: 1px solid #dce7f3;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #f8fbff 0%, #ffffff 64%);
+  box-shadow: 0 12px 30px rgba(28, 74, 130, 0.07);
+}
+
+.super-admin-reports-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.super-admin-reports-header h1 { margin: 0; color: #102b55; font-size: clamp(1.35rem, 2.5vw, 2rem); letter-spacing: -0.035em; }
+.super-admin-reports-header p:not(.branch-management-kicker) { margin: 7px 0 0; color: #70829c; font-size: 0.92rem; }
+.super-admin-reports-header-icon { display: grid; flex: 0 0 auto; width: 48px; height: 48px; place-items: center; border: 1px solid #cfe0f7; border-radius: 14px; background: #eaf3ff; color: #2d6bd8; }
+.super-admin-reports-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.super-admin-reports-summary > div { display: grid; gap: 4px; padding: 15px 17px; border: 1px solid #dce7f3; border-radius: 13px; background: #fff; }
+.super-admin-reports-summary span { color: #7587a0; font-size: 0.76rem; font-weight: 700; }
+.super-admin-reports-summary strong { color: #183a68; font-size: 1.4rem; }
+.super-admin-reports-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.super-admin-report-card { display: grid; min-height: 166px; align-content: start; gap: 9px; width: 100%; padding: 18px; border: 1px solid #dce7f3; border-radius: 15px; background: #fff; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease; }
+.super-admin-report-card:hover, .super-admin-report-card.is-selected { border-color: #a8c7f2; box-shadow: 0 12px 24px rgba(37, 99, 235, 0.1); transform: translateY(-2px); }
+.super-admin-report-card-icon { display: grid; width: 37px; height: 37px; place-items: center; border-radius: 11px; background: #eef5ff; color: #2d6bd8; }
+.super-admin-report-card h2 { margin: 1px 0 0; color: #17345f; font-size: 0.97rem; }
+.super-admin-report-card p { min-height: 42px; margin: 0; color: #71839c; font-size: 0.82rem; line-height: 1.5; }
+.super-admin-report-card-status { margin-top: auto; color: #2d6bd8; font-size: 0.74rem; font-weight: 800; }
+.super-admin-report-card.tone-green .super-admin-report-card-icon { background: #e9f9f2; color: #15926b; }
+.super-admin-report-card.tone-violet .super-admin-report-card-icon { background: #f1edff; color: #7858c8; }
+.super-admin-report-card.tone-amber .super-admin-report-card-icon { background: #fff7df; color: #bf8b18; }
+.super-admin-report-card.tone-orange .super-admin-report-card-icon { background: #fff0e6; color: #dc6d28; }
+.super-admin-report-card.tone-rose .super-admin-report-card-icon { background: #fff0f1; color: #ce5b68; }
+
+.super-admin-sales-crm-panel { display: grid; gap: 18px; padding: 24px; border: 1px solid #dbe6f2; border-radius: 18px; background: #fff; box-shadow: 0 14px 32px rgba(23, 52, 95, .06); }
+.super-admin-sales-crm-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.super-admin-sales-crm-header h1 { margin: 4px 0 6px; color: #17345f; font-size: clamp(1.5rem, 2.5vw, 2rem); }
+.super-admin-sales-crm-header p:last-child { margin: 0; color: #71839c; }
+.super-admin-sales-crm-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.super-admin-outline-action, .super-admin-primary-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 0 14px; border-radius: 10px; font: inherit; font-size: .8rem; font-weight: 800; cursor: pointer; text-decoration: none; }
+.super-admin-outline-action { border: 1px solid #cad8e8; background: #fff; color: #345475; }
+.super-admin-primary-action { border: 1px solid #2563eb; background: #2563eb; color: #fff; }
+.super-admin-outline-action:disabled, .super-admin-primary-action:disabled { cursor: wait; opacity: .65; }
+.super-admin-sales-crm-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.super-admin-sales-crm-toolbar > span { color: #71839c; font-size: .8rem; font-weight: 800; white-space: nowrap; }
+.super-admin-sales-crm-search { display: flex; align-items: center; gap: 8px; width: min(420px, 100%); min-height: 42px; padding: 0 12px; border: 1px solid #d4e0ee; border-radius: 10px; color: #6d829b; }
+.super-admin-sales-crm-search input { min-width: 0; flex: 1; border: 0; outline: 0; color: #17345f; font: inherit; font-size: .82rem; }
+.super-admin-sales-crm-table-wrap { overflow: auto; border: 1px solid #dbe6f2; border-radius: 12px; }
+.super-admin-sales-crm-table { width: 100%; min-width: 920px; border-collapse: collapse; }
+.super-admin-sales-crm-table th, .super-admin-sales-crm-table td { padding: 13px 14px; border-bottom: 1px solid #edf2f7; text-align: left; vertical-align: top; white-space: nowrap; color: #365475; font-size: .8rem; }
+.super-admin-sales-crm-table th { background: #f5f8fc; color: #657b96; font-size: .7rem; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.super-admin-sales-crm-table tbody tr:last-child td { border-bottom: 0; }
+.super-admin-sales-crm-table td strong { display: block; color: #173d6c; }
+.super-admin-sales-crm-table td small { display: block; margin-top: 3px; color: #91a4bb; }
+.super-admin-sales-crm-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #eef5ff; color: #2d6bd8; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
+.super-admin-sales-crm-empty, .super-admin-sales-crm-loading { padding: 36px 18px !important; text-align: center !important; color: #7890aa !important; }
+
+@media (max-width: 760px) {
+  .super-admin-sales-crm-panel { padding: 18px; }
+  .super-admin-sales-crm-header, .super-admin-sales-crm-toolbar { align-items: stretch; flex-direction: column; }
+  .super-admin-sales-crm-actions { width: 100%; }
+  .super-admin-outline-action, .super-admin-primary-action { flex: 1; }
+  .super-admin-sales-crm-search { width: 100%; }
+}
+.super-admin-reports-selected { display: flex; align-items: center; gap: 11px; padding: 14px 16px; border: 1px solid #d9e8fb; border-radius: 12px; background: #f4f8ff; }
+.super-admin-reports-selected-icon { display: grid; flex: 0 0 auto; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: #e5f0ff; color: #2d6bd8; }
+.super-admin-reports-selected strong, .super-admin-reports-selected span { display: block; }
+.super-admin-reports-selected strong { color: #193860; font-size: 0.86rem; }
+.super-admin-reports-selected div > span { margin-top: 2px; color: #71839c; font-size: 0.78rem; }
+
+@media (max-width: 760px) {
+  .super-admin-reports-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .super-admin-reports-panel { padding: 16px; border-radius: 16px; }
+  .super-admin-reports-summary { grid-template-columns: 1fr; }
+  .super-admin-reports-grid { grid-template-columns: 1fr; }
+  .super-admin-reports-header-icon { width: 42px; height: 42px; border-radius: 12px; }
+}
+
+@media (max-width: 760px) {
+  .helpdesk-support-grid { grid-template-columns: 1fr; }
+  .helpdesk-support-card { min-height: 0; }
+}
+
+@media (max-width: 520px) {
+  .helpdesk-support-panel,
+  .account-settings-panel { padding: 16px; border-radius: 16px; }
+  .helpdesk-support-header-icon,
+  .account-settings-header-icon { width: 42px; height: 42px; border-radius: 12px; }
+  .account-settings-row { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .account-settings-value { max-width: 100%; text-align: left; }
+}
+
 .super-admin-sidebar-section {
   display: grid;
   gap: 6px;

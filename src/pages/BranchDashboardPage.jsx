@@ -36,9 +36,11 @@ import {
   Download,
   IndianRupee,
   FileText,
+  FileSpreadsheet,
   Tag,
   BadgeInfo,
   BadgePercent,
+  BarChart3,
   PieChart,
   UserRound,
   Search,
@@ -54,6 +56,8 @@ import {
   GraduationCap,
   PhoneCall,
   BriefcaseBusiness,
+  Headset,
+  Settings,
 } from 'lucide-react'
 
 import { CourseExcelUpload } from '../components/CourseExcelUpload'
@@ -134,6 +138,9 @@ import { calculateBatchCourseEndDate, getBatchAvailability } from '../lib/batchA
 import { StudentCalendarPage } from './StudentCalendarPage'
 import CompletedStudentsPage from './CompletedStudentsPage'
 import { BranchMonthlyReportModal } from '../components/BranchMonthlyReportModal'
+import { BranchReportsAnalyticsPage } from './BranchReportsAnalyticsPage'
+import { HelpdeskSupportPanel } from '../components/HelpdeskSupportPanel'
+import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
 import RecordPayment from '../components/payments/RecordPayment'
 import { buildModernPaymentReceiptHtml } from '../components/payments/RecordPayment'
 import { hasSalesCollectedAmount } from '../components/payments/receiptPaymentSource'
@@ -2915,6 +2922,8 @@ function getBranchDashboardSectionFromPath(pathname = '', search = '') {
   if (section === 'sales-crm-admitted-students') return 'sales-crm-admitted-students'
   if (section === 'sales-admin-directory') return 'sales-admin-directory'
   if (section === 'sales-crm-reports') return 'sales-crm-reports'
+  if (section === 'branch-reports') return 'branch-reports'
+  if (section === 'reports') return 'branch-reports'
   if (section === 'institute-leave') return 'institute-leave'
   if (section === 'faculty-leave') return 'faculty-leave'
   if (section === 'progress-notifications') return 'progress-notifications'
@@ -2936,6 +2945,8 @@ function getBranchDashboardSectionFromPath(pathname = '', search = '') {
   if (section === 'exams-results') return 'exams-results'
   if (section === 'academic-tests') return 'academic-tests'
   if (section === 'academic-test-reports') return 'academic-tests'
+  if (section === 'helpdesk' || section === 'helpdesk-tickets' || section === 'helpdesk-knowledge-base' || section === 'helpdesk-contact-support') return section
+  if (section === 'settings') return 'settings'
 
   return ''
 }
@@ -4264,7 +4275,7 @@ export function BranchDashboardPage({ embeddedMode = false, branchData = null, i
   const hasLeadManagementAccess = String(resolvedBranchRoleAccess || user?.roleAccess || session?.user?.roleAccess || '').toUpperCase() === 'BRANCH_ADMIN_SALES_ADMIN'
 
   useEffect(() => {
-    if (['lead-management', 'sales-crm-admissions', 'sales-crm-reports'].includes(activeSection) && !hasLeadManagementAccess) {
+    if (['lead-management', 'sales-crm-admissions'].includes(activeSection) && !hasLeadManagementAccess) {
       navigate('/branch-dashboard', { replace: true })
     }
   }, [activeSection, hasLeadManagementAccess, navigate])
@@ -4347,7 +4358,7 @@ export function BranchDashboardPage({ embeddedMode = false, branchData = null, i
   }, [isSidebarFlyoutMode, openSidebarFlyout])
 
   useEffect(() => {
-    const parentByChild = { faculty: 'faculty', 'sales-admin-directory': 'faculty', 'sales-crm-admitted-students': 'sales-crm', 'sales-crm-admissions': 'lead-management', 'sales-crm-reports': 'lead-management', 'lead-management': 'lead-management', students: 'academic', 'student-management': 'academic', 'completed-students': 'academic', courses: 'academic', batches: 'academic', installments: 'academic', payments: 'payments', 'exams-results': 'academic', 'academic-tests': 'academic', 'institute-leave': 'academic', 'faculty-leave': 'academic', 'progress-notifications': 'academic', 'faculty-edit-requests': 'academic', discontinuations: 'academic' }
+  const parentByChild = { faculty: 'faculty', 'sales-admin-directory': 'faculty', 'sales-crm-admitted-students': 'sales-crm', 'sales-crm-admissions': 'lead-management', 'sales-crm-reports': 'reports', 'branch-reports': 'reports', 'lead-management': 'lead-management', students: 'academic', 'student-management': 'academic', 'completed-students': 'academic', courses: 'academic', batches: 'academic', installments: 'academic', payments: 'payments', 'exams-results': 'academic', 'academic-tests': 'academic', 'institute-leave': 'academic', 'faculty-leave': 'academic', 'progress-notifications': 'academic', 'faculty-edit-requests': 'academic', discontinuations: 'academic', 'helpdesk-tickets': 'helpdesk', 'helpdesk-knowledge-base': 'helpdesk', 'helpdesk-contact-support': 'helpdesk' }
     const parent = parentByChild[activeSection]
     if (!parent) return
     setExpandedSidebarGroups((current) => current[parent] ? current : { ...current, [parent]: true })
@@ -11464,9 +11475,14 @@ useEffect(() => {
           ...(hasLeadManagementAccess ? [{ id: 'lead-management', label: 'Lead Management', icon: BriefcaseBusiness, children: [
             { id: 'lead-management', label: 'Lead Management', icon: BriefcaseBusiness },
             { id: 'sales-crm-admissions', label: 'Student Admission', icon: GraduationCap },
-            { id: 'sales-crm-reports', label: 'Monthly Reports', icon: FileText },
           ] }] : []),
+          { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, children: [
+            { id: 'sales-crm-reports', label: 'Lead Monthly Report', icon: FileText },
+            { id: 'branch-reports', label: 'Report Downloads', icon: FileSpreadsheet },
+          ] },
+          { id: 'helpdesk', label: 'Helpdesk & Support', icon: Headset, children: [] },
           { id: 'notifications', label: 'Notifications', icon: Bell },
+          { id: 'settings', label: 'Settings', icon: Settings },
           { id: 'profile', label: 'Profile', icon: CircleUserRound },
         ].map((item) => {
           const Icon = item.icon
@@ -12337,6 +12353,13 @@ useEffect(() => {
               {activeSection === 'lead-management' ? <LeadManagementPage /> : null}
               {activeSection === 'sales-crm-admissions' ? <SalesAdminAdmissionsPage key={location.search} /> : null}
               {activeSection === 'sales-crm-reports' ? <SalesCrmReportPage /> : null}
+              {activeSection === 'branch-reports' ? (
+                <BranchReportsAnalyticsPage
+                  students={branchStudentsForDisplay}
+                  batchGroups={branchBatchGroups}
+                  branchId={branchProfile?.id || branchProfile?.branchId || branchData?.id || branchData?.branchId || ''}
+                />
+              ) : null}
               {activeSection === 'exams-results' ? <BranchExamResultsPage branchId={branchProfile?.id || branchProfile?.branchId || branchData?.id || branchData?.branchId || ''} /> : null}
               {activeSection === 'academic-tests' ? <AcademicTestPage /> : null}
               {activeSection === 'notifications' ? (
@@ -15376,6 +15399,22 @@ else {
 
 ) : null}
               
+              {activeSection === 'helpdesk' || activeSection.startsWith('helpdesk-') ? (
+                <HelpdeskSupportPanel
+                  roleLabel="your branch workspace"
+                  activeView={activeSection}
+                />
+              ) : null}
+
+              {activeSection === 'settings' ? (
+                <AccountSettingsPanel
+                  displayName={branchAdminDisplay}
+                  email={branchEmail}
+                  roleLabel={hasLeadManagementAccess ? 'Branch Admin and Sales Admin' : 'Branch Admin'}
+                  onForgotPassword={openForgotPassword}
+                />
+              ) : null}
+
               {activeSection === 'profile' ? (
                 <BranchDashboardSection title="Profile" description="Manage your branch profile and account information.">
                   {!branchProfile && !branchData ? <BranchProfileSkeleton /> : <>

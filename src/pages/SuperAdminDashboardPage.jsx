@@ -49,6 +49,11 @@ import { SuperAdminMetricDetailPage } from '../components/SuperAdminMetricDetail
 import { SuperAdminSidebarNav } from '../components/SuperAdminSidebarNav'
 import { SuperAdminDiscontinuationPage } from './SuperAdminDiscontinuationPage'
 import { SalesAdminManagementPage } from './SalesAdminManagementPage'
+import { HelpdeskSupportPanel } from '../components/HelpdeskSupportPanel'
+import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
+import { BranchReportsAnalyticsPage } from './BranchReportsAnalyticsPage'
+import { SalesCrmReportPage } from './SalesCrmReportPage'
+import { SuperAdminSalesCrmPanel } from '../components/SuperAdminSalesCrmPanel'
 import { loadBranchStudents } from '../lib/branchStudentStore'
 import { loadBranchPaymentHistoryEntries } from '../lib/branchPaymentHistoryStore'
 import { buildModernPaymentReceiptHtml } from '../components/payments/RecordPayment'
@@ -564,7 +569,7 @@ function validateBranchForm(form, existingBranches = [], ignoreBranchId = null) 
 function getInitialSuperAdminSection(search = '') {
   const params = new URLSearchParams(search)
   const section = params.get('section')
-  return ['branches', 'branch-admin', 'faculty', 'sales-admin', 'students', 'leave-management', 'faculty-leave', 'discontinuations', 'metric-branches', 'metric-students', 'metric-admissions', 'metric-total-payment', 'metric-month-payment', 'metric-outstanding', 'metric-month-due', 'metric-today-due', 'metric-overdue', 'metric-due-students', 'metric-today-collection'].includes(section) ? section : 'dashboard'
+  return ['branches', 'branch-admin', 'faculty', 'sales-admin', 'students', 'exams-results', 'academic-tests', 'leave-management', 'faculty-leave', 'discontinuations', 'helpdesk', 'settings', 'profile', 'reports', 'metric-branches', 'metric-students', 'metric-admissions', 'metric-total-payment', 'metric-month-payment', 'metric-outstanding', 'metric-month-due', 'metric-today-due', 'metric-overdue', 'metric-due-students', 'metric-today-collection'].includes(section) ? section : 'dashboard'
 }
 
 export function SuperAdminDashboardPage() {
@@ -1812,6 +1817,11 @@ const filteredBranches = useMemo(() => {
   const profileEmail = user?.email || 'superadmin.manager@cispro.com'
   const selectedBranch = viewTargetBranch
   const closeMobileSidebar = () => setIsMobileSidebarOpen(false)
+  const openSuperAdminForgotPassword = () => {
+    setIsSuperAdminProfileOpen(false)
+    const suffix = profileEmail ? `?email=${encodeURIComponent(profileEmail)}` : ''
+    navigate(`/forgot-password${suffix}`)
+  }
 
   useEffect(() => {
     try { window.localStorage.setItem('cispro.super-admin-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* ignore storage failures */ }
@@ -2907,6 +2917,8 @@ const filteredBranches = useMemo(() => {
                   </div>
                 </div>
               </section>
+            ) : activeSection === 'sales-admin' && ['leads', 'admissions'].includes(new URLSearchParams(location.search).get('view')) ? (
+              <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} />
             ) : activeSection === 'sales-admin' ? (
               <SalesAdminManagementPage />
             ) : activeSection === 'branch-admin' ? (
@@ -2940,6 +2952,31 @@ const filteredBranches = useMemo(() => {
                   {filteredGlobalFaculty.length > globalFacultyRowsPerPage ? <PaginationBar className="super-admin-pagination" currentPage={safeGlobalFacultyPage} totalPages={globalFacultyTotalPages} onPageChange={setGlobalFacultyPage} label="Faculty pagination" previousLabel="Prev" nextLabel="Next" visiblePageCount={3} /> : null}</>
                 )}
               </section>
+            ) : activeSection === 'reports' ? (
+              new URLSearchParams(location.search).get('view') === 'lead-monthly' ? <SalesCrmReportPage /> : <BranchReportsAnalyticsPage
+                students={allBranchStudents}
+                batchGroups={[{ batches: allBranchBatches }]}
+                branchId=""
+              />
+            ) : activeSection === 'helpdesk' ? (
+              <HelpdeskSupportPanel
+                roleLabel="your Super Admin workspace"
+                activeView={new URLSearchParams(location.search).get('view') || 'helpdesk'}
+              />
+            ) : activeSection === 'settings' ? (
+              <AccountSettingsPanel
+                displayName="Super Admin"
+                email={profileEmail}
+                roleLabel="Super Admin"
+                onForgotPassword={openSuperAdminForgotPassword}
+              />
+            ) : activeSection === 'profile' ? (
+              <AccountSettingsPanel
+                displayName="Super Admin"
+                email={profileEmail}
+                roleLabel="Super Admin"
+                onForgotPassword={openSuperAdminForgotPassword}
+              />
              ) : activeSection === 'students' ? (
                <section className="super-admin-global-panel">
                  <div className="super-admin-global-header"><div><p className="branch-management-kicker">Academic Operations</p><h1>Student Management</h1><p>All students registered across every active branch.</p></div><div className="super-admin-global-header-actions"><label className="super-admin-student-search"><input type="search" value={globalStudentSearch} onChange={(event) => { setGlobalStudentSearch(event.target.value); setGlobalStudentPage(1) }} placeholder="Search student or ID" aria-label="Search students" /></label><SuperAdminOptionSelect value={globalStudentSort} onChange={setGlobalStudentSort} ariaLabel="Sort students" options={[{ value: 'createdAt', label: 'Newest' }, { value: 'name', label: 'Name' }, { value: 'branch', label: 'Branch' }]} width={116} /><div className="super-admin-global-filter-field"><BranchFilterSelect value={globalStudentBranchFilter} branches={globalBranchFilterOptions} onChange={(nextValue) => setGlobalStudentBranchFilter(nextValue)} ariaLabel="Filter students by branch" /></div><span className="super-admin-global-count">{filteredGlobalStudents.length} students</span></div></div>

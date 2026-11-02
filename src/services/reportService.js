@@ -1,4 +1,4 @@
-import { requestBlob } from './apiClient'
+import { request, requestBlob } from './apiClient'
 
 function buildQueryString(query = {}) {
   const params = new URLSearchParams()
@@ -70,4 +70,15 @@ export async function downloadAllFacultyAttendanceReport(query = {}) {
 
 export async function downloadBranchMonthlyStudentReport(query = {}, fileName = '') {
   return downloadReport('/reports/branch-monthly-students', query, 'branch-monthly-report.xlsx', fileName)
+}
+
+export async function listReportBranches() {
+  const response = await request('/reports/branch-options', { method: 'GET' })
+  return Array.isArray(response?.data) ? response.data : []
+}
+
+export async function getBranchReportOptions(branchId = '') {
+  const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : ''
+  const response = await request(`/reports/branch-report-options${query}`, { method: 'GET' })
+  return response?.data || { branchId, students: [], batches: [] }
 }
