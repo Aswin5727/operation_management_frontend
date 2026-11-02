@@ -275,6 +275,15 @@ export function FacultyCalendar({ faculty, facultyProfile, assignedBatches, week
     const grouped = events.reduce((map, event) => { const key = String(event.date || '').slice(0, 10); const status = normalizeStatus(event); if (status === 'FACULTY_WEEKLY_OFF' && map[key]?.some((item) => normalizeStatus(item) === status)) return map; (map[key] ||= []).push(event); return map }, {})
     Object.keys(grouped).forEach((date) => {
       const dateEvents = grouped[date]
+      // An approved faculty interruption is the authoritative status for the
+      // day. Do not show attendance/class statuses alongside Permission or Leave.
+      const interruptionStatus = ['PERMISSION', 'HALF_DAY', 'LEAVE'].find((status) =>
+        dateEvents.some((event) => normalizeStatus(event) === status),
+      )
+      if (interruptionStatus) {
+        grouped[date] = dateEvents.filter((event) => normalizeStatus(event) === interruptionStatus)
+        return
+      }
       const hasClass = dateEvents.some((event) => ['CLASS', 'SCHEDULED', 'COMPLETED', 'PRESENT', 'REASSIGNED', 'COMBINED', 'RESCHEDULED', 'RESCHEDULED_ORIGINAL'].includes(normalizeStatus(event)))
       const hasHalfDay = dateEvents.some((event) => normalizeStatus(event) === 'HALF_DAY')
       if (hasClass || hasHalfDay) {
@@ -303,6 +312,8 @@ export function FacultyCalendar({ faculty, facultyProfile, assignedBatches, week
     return [date, statuses]
   })), [eventsByDate])
   const batchesByDate = useMemo(() => Object.fromEntries(Object.keys(eventsByDate).map((date) => {
+    const hasInterruption = eventsByDate[date]?.some((event) => ['PERMISSION', 'HALF_DAY', 'LEAVE'].includes(normalizeStatus(event)))
+    if (hasInterruption) return [date, []]
     const eventBatches = eventsByDate[date]
       .filter((event) => event.batchRecordId || event.batchId)
       .map((event) => batchLookup.get(String(event.batchRecordId || event.batchId).trim()) || event)
@@ -339,6 +350,7 @@ export function FacultyCalendar({ faculty, facultyProfile, assignedBatches, week
   const selectedBoundaryBatches = selected ? boundaryBatchesByDate[selected.date] || [] : []
   useEffect(() => {
     if (!selected || !selectedBoundaryBatches.length) return
+    if (selected.events.some((event) => ['PERMISSION', 'HALF_DAY', 'LEAVE'].includes(normalizeStatus(event)))) return
     const currentKeys = new Set(selected.events.map((event) => String(event.batchName || event.batchId || '').trim().toLowerCase()).filter(Boolean))
     const missing = selectedBoundaryBatches
       .filter((batch) => !currentKeys.has(String(batch.batchName || batch.batchId || '').trim().toLowerCase()))

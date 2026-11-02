@@ -54,6 +54,14 @@ function formatAttendanceDuration(seconds) {
   return `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m`
 }
 
+function formatAttendanceRemaining(seconds) {
+  const total = Math.max(0, Math.ceil(Number(seconds) || 0))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const remainingSeconds = total % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+}
+
 function getAttendanceDateRange() {
   const now = new Date()
   const toDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
@@ -1765,7 +1773,7 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
                         <strong>{viewAttendance.status === 'LOGIN_REQUIRED' ? 'Permission Completed' : attendanceStatusLabel(displayAttendanceStatus(viewAttendance))}</strong>
                         <span>{viewAttendance.interruptionStartTime} – {viewAttendance.interruptionEndTime}</span>
                         {viewAttendance.interruptionReason && <span>Reason: {viewAttendance.interruptionReason}</span>}
-                        {viewAttendance.status === 'ON_PERMISSION' && <span>Remaining: {Math.ceil((Number(viewAttendance.remainingSeconds) || 0) / 60)} minutes</span>}
+                        {viewAttendance.status === 'ON_PERMISSION' && <span>Remaining: {formatAttendanceRemaining(viewAttendance.remainingSeconds)}</span>}
                         {viewAttendance.status === 'LOGIN_REQUIRED' && <span>Re-login required.</span>}
                       </div>
                     )}
