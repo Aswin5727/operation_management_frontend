@@ -1803,15 +1803,6 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
                   BATCHES &amp; STUDENTS
                   <span>{facultyBatchDetails.length}</span>
                 </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={viewFacultyTab === 'attendance'}
-                  className={viewFacultyTab === 'attendance' ? 'is-active' : ''}
-                  onClick={() => setViewFacultyTab('attendance')}
-                >
-                  ATTENDANCE
-                </button>
               </div>
 
               {/* Details Table */}
