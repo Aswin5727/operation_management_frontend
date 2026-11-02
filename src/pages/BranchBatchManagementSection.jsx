@@ -44,7 +44,9 @@ function normalizeText(value = '') {
 
 function cycleCourseDateUpdateKey(batch = {}, group = {}) {
   const batchKey = normalizeText(batch?.batchId || batch?.id || group?.batchId || group?.id).toLowerCase()
-  const cycleKey = normalizeText(batch?.currentCycleId || group?.currentCycleId || batch?.currentCycleNumber || group?.currentCycleNumber).toLowerCase()
+  // Cycle IDs can be regenerated when the batch is refreshed after an update.
+  // The cycle number is stable for the lifetime of the cycle, so use it first.
+  const cycleKey = normalizeText(batch?.currentCycleNumber || group?.currentCycleNumber || batch?.currentCycleId || group?.currentCycleId).toLowerCase()
   return batchKey && cycleKey ? `cispro:batch-course-date-updated:${batchKey}:${cycleKey}` : ''
 }
 
@@ -52,7 +54,20 @@ function isCycleCourseDateUpdated(batch = {}, group = {}) {
   const cycleNumber = Number(batch?.currentCycleNumber || group?.currentCycleNumber || 0)
   if (cycleNumber <= 1) return true
   const key = cycleCourseDateUpdateKey(batch, group)
-  return Boolean(key && window.localStorage.getItem(key) === 'true')
+  const batchKey = normalizeText(batch?.batchId || batch?.id || group?.batchId || group?.id).toLowerCase()
+  const legacyCycleKey = normalizeText(batch?.currentCycleId || group?.currentCycleId).toLowerCase()
+  const legacyKey = batchKey && legacyCycleKey
+    ? `cispro:batch-course-date-updated:${batchKey}:${legacyCycleKey}`
+    : ''
+  return Boolean(
+    (key && window.localStorage.getItem(key) === 'true')
+    || (legacyKey && window.localStorage.getItem(legacyKey) === 'true'),
+  )
+}
+
+function markCycleCourseDateUpdated(batch = {}, group = {}) {
+  const key = cycleCourseDateUpdateKey(batch, group)
+  if (key && typeof window !== 'undefined') window.localStorage.setItem(key, 'true')
 }
 
 function BranchBatchFilterSelect({ value, options, onChange, ariaLabel, width = 150 }) {
@@ -1976,10 +1991,14 @@ export function BranchBatchManagementSection({
 
         if (existingGroup) {
           const existingBatch = getPrimaryBatchForGroup(existingGroup)
-          const updateKey = cycleCourseDateUpdateKey(existingBatch, existingGroup)
-          if (updateKey && Number(existingBatch?.currentCycleNumber || existingGroup?.currentCycleNumber || 0) > 1) {
-            window.localStorage.setItem(updateKey, 'true')
-          }
+          const savedBatch = getPrimaryBatchForGroup(savedGroup || {})
+          const cycleSources = [[existingBatch, existingGroup], [savedBatch, savedGroup || {}]]
+          cycleSources.forEach(([cycleBatch, cycleGroup]) => {
+            const updateKey = cycleCourseDateUpdateKey(cycleBatch, cycleGroup)
+            if (updateKey && Number(cycleBatch?.currentCycleNumber || cycleGroup?.currentCycleNumber || 0) > 1) {
+              window.localStorage.setItem(updateKey, 'true')
+            }
+          })
         }
 
         const normalizedSavedGroup = {
@@ -2955,7 +2974,7 @@ export function BranchBatchManagementSection({
     if (!saveSuccessPopup || typeof document === 'undefined') return null
 
     return createPortal(
-      <div className="branch-modal-backdrop batch-modal-backdrop" role="presentation" onClick={() => setSaveSuccessPopup(null)}>
+      <div className="branch-modal-backdrop batch-modal-backdrop" role="presentation" onClick={() => { markCycleCourseDateUpdated(getPrimaryBatchForGroup(saveSuccessPopup.group), saveSuccessPopup.group); setSaveSuccessPopup(null) }}>
         <div
           className="batch-success-modal"
           role="dialog"
@@ -2963,7 +2982,7 @@ export function BranchBatchManagementSection({
           aria-labelledby="batch-success-title"
           onClick={(event) => event.stopPropagation()}
         >
-          <button type="button" className="batch-success-close" aria-label="Close success popup" onClick={() => setSaveSuccessPopup(null)}>
+          <button type="button" className="batch-success-close" aria-label="Close success popup" onClick={() => { markCycleCourseDateUpdated(getPrimaryBatchForGroup(saveSuccessPopup.group), saveSuccessPopup.group); setSaveSuccessPopup(null) }}>
             <X size={20} strokeWidth={2.2} />
           </button>
 
@@ -2981,7 +3000,7 @@ export function BranchBatchManagementSection({
           </div>
 
           <div className="batch-success-actions">
-            <button type="button" className="batch-success-secondary" onClick={() => setSaveSuccessPopup(null)}>
+            <button type="button" className="batch-success-secondary" onClick={() => { markCycleCourseDateUpdated(getPrimaryBatchForGroup(saveSuccessPopup.group), saveSuccessPopup.group); setSaveSuccessPopup(null) }}>
               Close
             </button>
             <button
