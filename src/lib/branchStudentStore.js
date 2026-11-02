@@ -1,5 +1,7 @@
 import { request } from '../services/apiClient'
 
+const BRANCH_STUDENT_SAVE_TIMEOUT_MS = 120000
+
 /**
  * Branch Student Store
  * local cache + backend sync for branch student records.
@@ -309,6 +311,7 @@ async function syncBranchStudentToBackend(student) {
   try {
     const response = await request('/branch-students', {
       method: 'POST',
+      timeoutMs: BRANCH_STUDENT_SAVE_TIMEOUT_MS,
       body: JSON.stringify(payload),
     })
 
