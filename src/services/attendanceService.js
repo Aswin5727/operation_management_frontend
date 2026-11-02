@@ -256,6 +256,19 @@ export async function getBranchFacultyAttendanceStatus(facultyReference) {
   return unwrapFacultyAttendanceResponse(response)
 }
 
+export async function getBranchFacultyAttendanceHistory(facultyReference, options = {}) {
+  const reference = String(facultyReference || '').trim()
+  if (!reference) throw new Error('Faculty reference is required')
+  const params = new URLSearchParams()
+  const from = String(options?.from || options?.startDate || '').trim()
+  const to = String(options?.to || options?.endDate || '').trim()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const query = params.toString() ? `?${params.toString()}` : ''
+  const response = await request(`/faculty/attendance/admin-history/${encodeURIComponent(reference)}${query}`)
+  return unwrapFacultyAttendanceResponse(response)
+}
+
 export async function loginFacultyAttendance(payload = {}) {
   try {
     const response = await request('/faculty/attendance/login', { method: 'POST' })
