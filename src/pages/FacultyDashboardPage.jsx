@@ -879,13 +879,10 @@ function getStudentAttendanceStatus(statuses = {}, student = {}) {
   const savedStatus = getStudentAttendanceKeys(student).map((key) => statuses[key]).find(Boolean) || ''
   if (isAttendanceMarkedStatus(savedStatus)) return savedStatus
 
-  const directStatus = String(
-    student?.attendanceStatus
-      || student?.attendanceStatusLabel
-      || student?.todayAttendanceStatus
-      || student?.attendance?.status
-      || '',
-  ).trim().toUpperCase()
+  // `attendanceStatus` and `attendance.status` can be the latest historical
+  // value from the student list. They must not be reused for another date.
+  // Only trust an explicitly date-scoped today value here.
+  const directStatus = String(student?.todayAttendanceStatus || '').trim().toUpperCase()
   if (isAttendanceMarkedStatus(directStatus)) return directStatus
 
   const today = getAttendanceDateKey()
