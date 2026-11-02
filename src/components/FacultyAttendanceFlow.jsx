@@ -61,6 +61,19 @@ function responseStatus(payload) {
 function requestError(error, fallback) { return error?.body?.message || error?.message || fallback }
 function clock(value, seconds = false) {
   if (!value) return '-'
+  const timeValue = String(value).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?$/i)
+  if (timeValue) {
+    let hour = Number(timeValue[1])
+    const minute = timeValue[2]
+    const second = timeValue[3] || '00'
+    const period = timeValue[4]?.toUpperCase()
+    if (period) {
+      if (hour < 1 || hour > 12) return '-'
+      hour = hour % 12 + (period === 'PM' ? 12 : 0)
+    } else if (hour > 23) return '-'
+    const displayHour = hour % 12 || 12
+    return `${String(displayHour).padStart(2, '0')}:${minute}${seconds ? `:${second}` : ''} ${hour >= 12 ? 'PM' : 'AM'}`
+  }
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '-'
   return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: seconds ? '2-digit' : '2-digit', second: seconds ? '2-digit' : undefined, hour12: true }).format(date)

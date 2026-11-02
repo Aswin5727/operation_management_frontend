@@ -9,6 +9,7 @@ import {
   Trash2,
   Edit,
   Eye,
+  RefreshCw,
 } from 'lucide-react'
 import { getCitiesOfState, getCountries, getStatesOfCountry } from '@countrystatecity/countries-browser'
 import '../styles/BranchFacultyPage.css'
@@ -19,9 +20,10 @@ import {
   updateBranchFaculty,
   deleteBranchFaculty,
 } from '../services/branchFacultyService'
-import { getBranchFacultyAttendanceStatus } from '../services/attendanceService'
+import { getBranchFacultyAttendanceHistory, getBranchFacultyAttendanceStatus } from '../services/attendanceService'
 import { getMatchingStudents } from '../lib/facultyFlow'
 import { getPageNumberWindow } from '../components/PaginationBar'
+import { FacultyAttendanceReportModal } from '../components/FacultyAttendanceReportModal'
 
 // Prefix constant for Faculty ID
 const FACULTY_ID_PREFIX = 'FC-'
@@ -46,11 +48,38 @@ function formatAttendanceTime(value) {
   return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }).format(date)
 }
 
+function hasResumedAttendanceSession(attendance = {}) {
+  const first = new Date(attendance.firstLoginAt || '').getTime()
+  const latest = new Date(attendance.currentSession?.loginAt || '').getTime()
+  return Number.isFinite(first) && Number.isFinite(latest) && latest > first + 1000
+}
+
 function formatAttendanceDuration(seconds) {
   const total = Math.max(0, Number(seconds) || 0)
   const hours = Math.floor(total / 3600)
   const minutes = Math.floor((total % 3600) / 60)
   return `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m`
+}
+
+function formatAttendanceRemaining(seconds) {
+  const total = Math.max(0, Math.ceil(Number(seconds) || 0))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const remainingSeconds = total % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+}
+
+function getAttendanceDateRange() {
+  const now = new Date()
+  const toDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+  return { fromDate: `${toDate.slice(0, 8)}01`, toDate }
+}
+
+function formatAttendanceDate(value) {
+  if (!value) return 'N/A'
+  const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return String(value)
+  return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(parsed)
 }
 
 function attendanceStatusLabel(status) {
@@ -136,10 +165,17 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
   const [successAlert, setSuccessAlert] = useState(null) // { title, message }
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null) // faculty object
   const [viewFaculty, setViewFaculty] = useState(null) // faculty object for details drawer
+  const [attendanceReportOpen, setAttendanceReportOpen] = useState(false)
   const [viewFacultyTab, setViewFacultyTab] = useState('details')
   const [viewAttendance, setViewAttendance] = useState(null)
   const [viewAttendanceLoading, setViewAttendanceLoading] = useState(false)
   const [viewAttendanceError, setViewAttendanceError] = useState('')
+  const [viewAttendanceHistory, setViewAttendanceHistory] = useState(null)
+  const [viewAttendanceHistoryLoading, setViewAttendanceHistoryLoading] = useState(false)
+  const [viewAttendanceHistoryError, setViewAttendanceHistoryError] = useState('')
+  const [attendanceHistoryRange, setAttendanceHistoryRange] = useState(() => getAttendanceDateRange())
+  const [attendanceHistoryDraft, setAttendanceHistoryDraft] = useState(() => getAttendanceDateRange())
+  const [attendanceHistoryRefreshToken, setAttendanceHistoryRefreshToken] = useState(0)
 
   // Actions dropdown
   const [openActionId, setOpenActionId] = useState('')
@@ -259,6 +295,8 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
     if (!viewFaculty) {
       setViewAttendance(null)
       setViewAttendanceError('')
+      setViewAttendanceHistory(null)
+      setViewAttendanceHistoryError('')
       return undefined
     }
 
@@ -284,6 +322,31 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
       cancelled = true
     }
   }, [viewFaculty?.id, viewFaculty?.dbId])
+
+  useEffect(() => {
+    if (!viewFaculty) return undefined
+    let cancelled = false
+    const reference = viewFaculty.id || viewFaculty.dbId
+    const loadHistory = async () => {
+      setViewAttendanceHistoryLoading(true)
+      try {
+        const data = await getBranchFacultyAttendanceHistory(reference, {
+          from: attendanceHistoryRange.fromDate,
+          to: attendanceHistoryRange.toDate,
+        })
+        if (!cancelled) {
+          setViewAttendanceHistory(data)
+          setViewAttendanceHistoryError('')
+        }
+      } catch (error) {
+        if (!cancelled) setViewAttendanceHistoryError(error?.message || 'Unable to load attendance history')
+      } finally {
+        if (!cancelled) setViewAttendanceHistoryLoading(false)
+      }
+    }
+    loadHistory()
+    return () => { cancelled = true }
+  }, [viewFaculty?.id, viewFaculty?.dbId, attendanceHistoryRange.fromDate, attendanceHistoryRange.toDate, attendanceHistoryRefreshToken])
 
   // Load states on country code change
   useEffect(() => {
@@ -1675,17 +1738,27 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
 </button>
                   </div>
 
-                  <button
-                    type="button"
-                    className="branch-course-view-edit"
-                    onClick={() => {
-                      const facultyToEdit = viewFaculty
-                      setViewFaculty(null)
-                      openEditModal(facultyToEdit)
-                    }}
-                  >
-                    Edit Faculty
-                  </button>
+                  <div className="branch-course-view-header-buttons">
+                    <button
+                      type="button"
+                      className="branch-course-view-attendance-button"
+                      onClick={() => setAttendanceReportOpen(true)}
+                    >
+                      Attendance
+                    </button>
+
+                    <button
+                      type="button"
+                      className="branch-course-view-edit"
+                      onClick={() => {
+                        const facultyToEdit = viewFaculty
+                        setViewFaculty(null)
+                        openEditModal(facultyToEdit)
+                      }}
+                    >
+                      Edit Faculty
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1707,8 +1780,9 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
                   <p className="branch-faculty-attendance-error">{viewAttendanceError}</p>
                 ) : viewAttendance ? (
                   <>
-                    <div className="branch-faculty-attendance-metrics">
+                    <div className={`branch-faculty-attendance-metrics${hasResumedAttendanceSession(viewAttendance) ? ' has-resume-login' : ''}`}>
                       <div><span>Login Time</span><strong>{formatAttendanceTime(viewAttendance.firstLoginAt)}</strong></div>
+                      {hasResumedAttendanceSession(viewAttendance) && <div><span>Re-Login Time</span><strong>{formatAttendanceTime(viewAttendance.currentSession.loginAt)}</strong></div>}
                       <div><span>Logout Time</span><strong>{formatAttendanceTime(viewAttendance.finalLogoutAt)}</strong></div>
                       <div><span>{viewAttendance.status === 'LOGGED_OUT' ? 'Total Working Time' : 'Current Working Time'}</span><strong>{formatAttendanceDuration(viewAttendance.workingSeconds)}</strong></div>
                     </div>
@@ -1718,7 +1792,7 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
                         <strong>{viewAttendance.status === 'LOGIN_REQUIRED' ? 'Permission Completed' : attendanceStatusLabel(displayAttendanceStatus(viewAttendance))}</strong>
                         <span>{viewAttendance.interruptionStartTime} – {viewAttendance.interruptionEndTime}</span>
                         {viewAttendance.interruptionReason && <span>Reason: {viewAttendance.interruptionReason}</span>}
-                        {viewAttendance.status === 'ON_PERMISSION' && <span>Remaining: {Math.ceil((Number(viewAttendance.remainingSeconds) || 0) / 60)} minutes</span>}
+                        {viewAttendance.status === 'ON_PERMISSION' && <span>Remaining: {formatAttendanceRemaining(viewAttendance.remainingSeconds)}</span>}
                         {viewAttendance.status === 'LOGIN_REQUIRED' && <span>Re-login required.</span>}
                       </div>
                     )}
@@ -1934,6 +2008,143 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
                   ))}
                 </section>
 
+                <section className="faculty-attendance-history" aria-labelledby="faculty-attendance-history-title" hidden={viewFacultyTab !== 'attendance'}>
+                  <div className="faculty-attendance-history-heading">
+                    <div>
+                      <p className="section-kicker">ATTENDANCE HISTORY</p>
+                      <h3 id="faculty-attendance-history-title">Work log by day</h3>
+                      <p>Review this faculty member's branch-scoped attendance sessions and batch work.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="faculty-attendance-refresh-button"
+                      onClick={() => {
+                        setAttendanceHistoryRange({ ...attendanceHistoryDraft })
+                        setAttendanceHistoryRefreshToken((value) => value + 1)
+                      }}
+                      disabled={viewAttendanceHistoryLoading}
+                      aria-label="Refresh attendance history"
+                    >
+                      <RefreshCw size={15} className={viewAttendanceHistoryLoading ? 'is-spinning' : ''} />
+                      Refresh
+                    </button>
+                  </div>
+
+                  <div className="faculty-attendance-history-filters">
+                    <label>
+                      From date
+                      <input
+                        type="date"
+                        value={attendanceHistoryDraft.fromDate}
+                        max={attendanceHistoryDraft.toDate}
+                        onChange={(event) => setAttendanceHistoryDraft((current) => ({ ...current, fromDate: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      To date
+                      <input
+                        type="date"
+                        value={attendanceHistoryDraft.toDate}
+                        min={attendanceHistoryDraft.fromDate}
+                        onChange={(event) => setAttendanceHistoryDraft((current) => ({ ...current, toDate: event.target.value }))}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="faculty-attendance-apply-button"
+                      onClick={() => {
+                        setAttendanceHistoryRange({ ...attendanceHistoryDraft })
+                        setAttendanceHistoryRefreshToken((value) => value + 1)
+                      }}
+                      disabled={!attendanceHistoryDraft.fromDate || !attendanceHistoryDraft.toDate || viewAttendanceHistoryLoading}
+                    >
+                      Apply range
+                    </button>
+                  </div>
+
+                  {viewAttendanceHistoryError ? (
+                    <div className="faculty-attendance-history-state is-error">
+                      <strong>Attendance history unavailable</strong>
+                      <span>{viewAttendanceHistoryError}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttendanceHistoryRange({ ...attendanceHistoryDraft })
+                          setAttendanceHistoryRefreshToken((value) => value + 1)
+                        }}
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  ) : viewAttendanceHistoryLoading && !viewAttendanceHistory ? (
+                    <div className="faculty-attendance-history-state">Loading attendance history...</div>
+                  ) : (
+                    <>
+                      <div className="faculty-attendance-summary-grid">
+                        <div><span>Present days</span><strong>{viewAttendanceHistory?.summary?.presentDays ?? 0}</strong></div>
+                        <div><span>Sessions</span><strong>{viewAttendanceHistory?.summary?.totalSessions ?? 0}</strong></div>
+                        <div><span>Total working time</span><strong>{formatAttendanceDuration(viewAttendanceHistory?.summary?.totalWorkingSeconds)}</strong></div>
+                        <div><span>Permission days</span><strong>{viewAttendanceHistory?.summary?.permissionDays ?? 0}</strong></div>
+                      </div>
+
+                      <div className="faculty-attendance-history-range">
+                        {formatAttendanceDate(viewAttendanceHistory?.range?.fromDate || attendanceHistoryRange.fromDate)}
+                        <span>to</span>
+                        {formatAttendanceDate(viewAttendanceHistory?.range?.toDate || attendanceHistoryRange.toDate)}
+                      </div>
+
+                      {Array.isArray(viewAttendanceHistory?.days) && viewAttendanceHistory.days.length ? (
+                        <div className="faculty-attendance-history-table-wrap">
+                          <table className="faculty-attendance-history-table">
+                            <thead>
+                              <tr>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>First login</th>
+                                <th>Final logout</th>
+                                <th>Working time</th>
+                                <th>Session timeline</th>
+                                <th>Batch work</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {viewAttendanceHistory.days.map((day) => (
+                                <tr key={day.attendanceDate}>
+                                  <td><strong>{formatAttendanceDate(day.attendanceDate)}</strong></td>
+                                  <td><span className={`faculty-attendance-history-status ${String(day.status || '').toLowerCase().replaceAll('_', '-')}`}>{attendanceStatusLabel(day.status)}</span></td>
+                                  <td>{formatAttendanceTime(day.firstLoginAt)}</td>
+                                  <td>{formatAttendanceTime(day.finalLogoutAt)}</td>
+                                  <td><strong>{formatAttendanceDuration(day.totalWorkingSeconds)}</strong></td>
+                                  <td>
+                                    <div className="faculty-attendance-session-list">
+                                      {day.sessions?.length ? day.sessions.map((session) => (
+                                        <span key={session.id}>
+                                          {formatAttendanceTime(session.loginAt)} - {formatAttendanceTime(session.logoutAt)}
+                                        </span>
+                                      )) : <span>-</span>}
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <div className="faculty-attendance-batch-work-list">
+                                      {day.batchWork?.length ? day.batchWork.map((work) => (
+                                        <span key={work.id} title={work.workSummary || work.batchName}>
+                                          {work.batchName || work.batchId}
+                                        </span>
+                                      )) : <span>-</span>}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="faculty-attendance-history-state">No attendance records found for the selected date range.</div>
+                      )}
+                    </>
+                  )}
+                </section>
+
               </div>
             </aside>
           </div>,
@@ -1941,6 +2152,13 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
         )
         : null
     }
+
+    <FacultyAttendanceReportModal
+      isOpen={attendanceReportOpen && Boolean(viewFaculty)}
+      mode="single"
+      faculty={viewFaculty ? { ...viewFaculty, id: viewFaculty.dbId || viewFaculty.id, facultyId: viewFaculty.id, facultyName: viewFaculty.name } : null}
+      onClose={() => setAttendanceReportOpen(false)}
+    />
 
     {/* Delete Confirmation Modal */}
     {

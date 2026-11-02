@@ -653,6 +653,27 @@
   gap: 20px;
 }
 
+/* Keep the reset screen visually consistent with the login screen. */
+.reset-password-page:not(.reset-password-state) {
+  width: min(1380px, calc(100vw - 48px));
+  min-height: calc(100dvh - 48px);
+  margin: 24px auto;
+  border: 1px solid rgba(141, 175, 225, 0.28);
+  border-radius: 36px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+  align-content: center;
+  padding: clamp(36px, 5vw, 72px) 52% clamp(36px, 5vw, 72px) clamp(36px, 7vw, 108px);
+  background:
+    linear-gradient(90deg, #ffffff 0%, #ffffff 49%, transparent 49%),
+    url('/cispro.png') right 14px center / 48% calc(100% - 28px) no-repeat,
+    #ffffff;
+}
+
+.reset-password-page:not(.reset-password-state) .reset-password-header,
+.reset-password-page:not(.reset-password-state) .reset-password-form {
+  width: min(100%, 470px);
+}
+
 .reset-password-shell::before,
 .reset-password-shell::after {
   content: none;
@@ -666,6 +687,28 @@
 
 .reset-password-state-success {
   padding-top: clamp(56px, 8vh, 96px);
+}
+
+.reset-password-state-success .reset-password-actions {
+  margin-top: 18px;
+}
+
+.reset-password-state-success > * {
+  transform: translateY(110px);
+}
+
+.reset-password-page.reset-password-state {
+  width: min(1380px, calc(100vw - 48px));
+  min-height: calc(100dvh - 48px);
+  margin: 24px auto;
+  border: 1px solid rgba(141, 175, 225, 0.28);
+  border-radius: 36px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+  padding: clamp(36px, 5vw, 72px) 52% clamp(36px, 5vw, 72px) clamp(36px, 7vw, 108px);
+  background:
+    linear-gradient(90deg, #ffffff 0%, #ffffff 49%, transparent 49%),
+    url('/cispro.png') right 14px center / 48% calc(100% - 28px) no-repeat,
+    #ffffff;
 }
 
 .reset-password-header {
@@ -1483,6 +1526,31 @@
   .login-visual-image {
     min-height: 280px;
     border-radius: 24px;
+  }
+
+  .reset-password-page:not(.reset-password-state) {
+    width: 100%;
+    min-height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    padding: 36px 24px;
+    background: #ffffff;
+  }
+
+  .reset-password-page.reset-password-state {
+    width: 100%;
+    min-height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    padding: 36px 24px;
+    background: #ffffff;
+  }
+
+  .reset-password-page:not(.reset-password-state) .reset-password-header,
+  .reset-password-page:not(.reset-password-state) .reset-password-form {
+    width: 100%;
   }
 
   .auth-card.forgot-page {
