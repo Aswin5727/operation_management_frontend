@@ -1735,6 +1735,7 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
     ? student.courseEnrollments
     : Array.isArray(student.courses) ? student.courses : []
   const isSequentialReceipt = String(student.arrangementType || student.enrollmentType || '').trim().toUpperCase() === 'SEQUENTIAL'
+  const isParallelReceipt = String(student.arrangementType || student.enrollmentType || '').trim().toUpperCase() === 'PARALLEL' && studentEnrollments.length > 1
   const selectedSequentialEnrollment = isSequentialReceipt
     ? studentEnrollments.find((enrollment) => (
         (payment.courseId && String(enrollment?.courseId || enrollment?.id || '').trim() === String(payment.courseId).trim()) ||
@@ -1752,6 +1753,14 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
         installmentSchedule: getBranchSequentialCourseInstallments(student, studentEnrollments, selectedSequentialEnrollment),
       }
     : student
+  const receiptCourseName = isParallelReceipt
+    ? studentEnrollments
+        .map((enrollment) => enrollment?.courseName || enrollment?.course?.name || enrollment?.name || '')
+        .map((name) => String(name).trim())
+        .filter(Boolean)
+        .filter((name, index, names) => names.indexOf(name) === index)
+        .join(' + ') || receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-'
+    : receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-'
   const paymentSummary = computeBranchStudentPaymentSummary(receiptStudent)
   const receiptBatchNames = [
     ...(isSequentialReceipt
@@ -1801,7 +1810,7 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
     branchEmail: context.branchEmail || '-',
     studentName: receiptStudent.studentName || payment.studentName || 'Student',
     studentId: receiptStudent.studentId || payment.studentId || '-',
-    courseName: receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-',
+    courseName: receiptCourseName,
     batchName: receiptBatchNames.join(' + ') || student.batchId || '-',
     studentPhone: receiptStudent.mobileNumber || '-',
     receiptNumber,

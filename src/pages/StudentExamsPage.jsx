@@ -27,12 +27,28 @@ function formatRemaining(seconds) {
   return [hours, minutes, secs].map((part) => String(part).padStart(2, '0')).join(':')
 }
 
+function StudentReportLoadingSkeleton({ rows = 3 }) {
+  return <div className="student-report-loading-skeleton" aria-label="Loading report" aria-busy="true">
+    {Array.from({ length: rows }, (_, row) => <div className="student-report-loading-row" key={row}>
+      {Array.from({ length: 6 }, (_, column) => <span key={column} />)}
+    </div>)}
+  </div>
+}
+
+function StudentExamTableSkeleton({ columns = 8, rows = 3 }) {
+  return <div className="student-exam-table-loading-skeleton" aria-label="Loading tests" aria-busy="true">
+    {Array.from({ length: rows }, (_, row) => <div className="student-exam-table-loading-row" key={row}>
+      {Array.from({ length: columns }, (_, column) => <span key={column} />)}
+    </div>)}
+  </div>
+}
+
 function StudentAssessmentReportTableView({ embedded, student, navigate, loading, error, reports, selectedModuleId, onSelectModule }) {
   const module = reports?.modules?.find((item) => item.moduleId === selectedModuleId) || reports?.modules?.[0]
   return <section className={`exam-page ${embedded ? 'exam-page-embedded' : ''}`}>
     <div className="student-report-tabs"><button type="button" onClick={() => navigate('/student-new-dashboard/exams?tab=reports&report=tests')}>Test Report</button><button type="button" className="is-active">Assessment Report</button></div>
     {error && <div className="exam-error">{error}</div>}
-    <div className="exam-card student-reports-card"><div className="exam-card-heading"><div><h2>Assessment Report</h2><p>Module-wise results for evaluated assessments.</p></div></div>{loading ? <div className="exam-muted">Loading assessment reports...</div> : reports?.modules?.length ? <><div className="student-assessment-module-tabs">{reports.modules.map((item) => <button type="button" key={item.moduleId} className={item.moduleId === module?.moduleId ? 'is-active' : ''} onClick={() => onSelectModule(item.moduleId)}>{item.moduleName}</button>)}</div>{module && <div className="exam-table-wrap"><table className="student-module-report-table student-assessment-report-table"><thead><tr><th>Student Name</th><th>Batch Name</th><th>Course Name</th><th>Module Name</th><th>Total Assessments</th>{module.assessments.map((item, index) => <th key={item.assessmentId}>{item.assessmentName || `Assessment ${index + 1}`}<small>{item.totalMarks} marks</small></th>)}<th>Overall Marks</th><th>Overall Percentage</th></tr></thead><tbody><tr><td>{reports.student?.name || student?.studentName || 'Student'}</td><td>{module.batchName || '-'}</td><td>{module.courseName || '-'}</td><td><strong>{module.moduleName}</strong></td><td><strong>{module.totalAssessments}</strong></td>{module.assessments.map((item) => <td key={item.assessmentId}>{item.status === 'EVALUATED' ? <div className="student-module-test-cell"><strong>{item.marksObtained} / {item.totalMarks}</strong><b>{Number(item.percentage || 0).toFixed(2)}%</b></div> : <span className="exam-muted-cell">{item.status === 'PENDING_EVALUATION' ? 'Pending Evaluation' : 'Not Submitted'}</span>}</td>)}<td>{module.overallTotalMarks ? `${module.overallMarksObtained} / ${module.overallTotalMarks}` : 'Pending Evaluation'}</td><td>{module.overallPercentage != null ? <strong className="student-module-overall">{module.overallPercentage.toFixed(2)}%</strong> : <span className="exam-muted-cell">Pending Evaluation</span>}</td></tr></tbody></table></div>}</> : <div className="exam-muted">No assessment reports available.</div>}</div>
+<div className="exam-card student-reports-card"><div className="exam-card-heading"><div><h2>Assessment Report</h2><p>Module-wise results for evaluated assessments.</p></div></div>{loading ? <StudentReportLoadingSkeleton /> : reports?.modules?.length ? <><div className="student-assessment-module-tabs">{reports.modules.map((item) => <button type="button" key={item.moduleId} className={item.moduleId === module?.moduleId ? 'is-active' : ''} onClick={() => onSelectModule(item.moduleId)}>{item.moduleName}</button>)}</div>{module && <div className="exam-table-wrap"><table className="student-module-report-table student-assessment-report-table"><thead><tr><th>Student Name</th><th>Batch Name</th><th>Course Name</th><th>Module Name</th><th>Total Assessments</th>{module.assessments.map((item, index) => <th key={item.assessmentId}>{item.assessmentName || `Assessment ${index + 1}`}<small>{item.totalMarks} marks</small></th>)}<th>Overall Marks</th><th>Overall Percentage</th></tr></thead><tbody><tr><td>{reports.student?.name || student?.studentName || 'Student'}</td><td>{module.batchName || '-'}</td><td>{module.courseName || '-'}</td><td><strong>{module.moduleName}</strong></td><td><strong>{module.totalAssessments}</strong></td>{module.assessments.map((item) => <td key={item.assessmentId}>{item.status === 'EVALUATED' ? <div className="student-module-test-cell"><strong>{item.marksObtained} / {item.totalMarks}</strong><b>{Number(item.percentage || 0).toFixed(2)}%</b></div> : <span className="exam-muted-cell">{item.status === 'PENDING_EVALUATION' ? 'Pending Evaluation' : 'Not Submitted'}</span>}</td>)}<td>{module.overallTotalMarks ? `${module.overallMarksObtained} / ${module.overallTotalMarks}` : 'Pending Evaluation'}</td><td>{module.overallPercentage != null ? <strong className="student-module-overall">{module.overallPercentage.toFixed(2)}%</strong> : <span className="exam-muted-cell">Pending Evaluation</span>}</td></tr></tbody></table></div>}</> : <div className="exam-muted">No assessment reports available.</div>}</div>
   </section>
 }
 
@@ -57,6 +73,7 @@ export function StudentExamsPage({ embedded = false, student = null, courseId = 
   const [submitting, setSubmitting] = useState(false)
   const examTab = requestedTab
   const [reportLoading, setReportLoading] = useState(false)
+  const [testsLoading, setTestsLoading] = useState(true)
   const [reportError, setReportError] = useState('')
   const [reportPage, setReportPage] = useState(1)
   const [testsPage, setTestsPage] = useState(1)
@@ -71,7 +88,8 @@ export function StudentExamsPage({ embedded = false, student = null, courseId = 
 
   useEffect(() => {
     let mounted = true
-    listStudentTests(courseId).then((items) => { if (mounted) setTests(items) }).catch((e) => { if (mounted) setError(e.message) })
+    setTestsLoading(true)
+    listStudentTests(courseId).then((items) => { if (mounted) setTests(items) }).catch((e) => { if (mounted) setError(e.message) }).finally(() => { if (mounted) setTestsLoading(false) })
     return () => { mounted = false }
   }, [courseId])
 
@@ -282,7 +300,7 @@ export function StudentExamsPage({ embedded = false, student = null, courseId = 
     {error && <div className="exam-error">{error}</div>}
     {resultError && <div className="exam-error">{resultError}</div>}
     {examTab === 'reports' && <div className="student-report-tabs"><button type="button" className={requestedReportTab === 'tests' ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=reports&report=tests')}>Test Report</button><button type="button" onClick={() => navigate('/student-new-dashboard/exams?tab=reports&report=assessments')}>Assessment Report</button></div>}
-    {examTab === 'tests' ? <div className="exam-card"><div className="exam-table-wrap"><table><thead><tr><th>Test Name</th><th>Course</th><th>Module</th><th>Date</th><th>Timing</th><th>Total</th><th>Status</th><th>Action</th></tr></thead><tbody>{tableRows.length ? pagedTableRows.map((test) => {
+    {examTab === 'tests' ? <div className="exam-card"><div className="exam-table-wrap"><table><thead><tr><th>Test Name</th><th>Course</th><th>Module</th><th>Date</th><th>Timing</th><th>Total</th><th>Status</th><th>Action</th></tr></thead><tbody>{testsLoading ? <tr><td colSpan="8"><StudentExamTableSkeleton /></td></tr> : tableRows.length ? pagedTableRows.map((test) => {
       const submitted = test.attempt?.status === 'SUBMITTED'
       return <tr key={test.id}><td>{test.title || test.name || test.exam?.title || 'MCQ Test'}</td><td>{test.course?.name}</td><td>{test.module?.title}</td><td>{dateLabel(test.testDate)}</td><td>{test.startTime} - {test.endTime}</td><td>{test.totalMarks}</td><td>{submitted ? 'Submitted' : test.status === 'CANCELLED' ? 'Cancelled' : test.status}</td><td>{submitted ? <button className="exam-link" onClick={() => viewResult(test)} disabled={resultLoading && selectedResultTest?.id === test.id}>{resultLoading && selectedResultTest?.id === test.id ? 'Loading...' : 'View Result'}</button> : <button className={`exam-link ${test.status === 'CANCELLED' ? 'exam-cancelled-action' : ''}`} disabled={test.status !== 'AVAILABLE'} onClick={() => open(test)}>{test.status === 'AVAILABLE' ? 'Start Test' : test.status === 'CANCELLED' ? 'Test Cancelled' : test.status === 'EXPIRED' ? 'Expired' : 'Upcoming'}</button>}</td></tr>
     }) : <tr><td colSpan="8" className="exam-empty">No tests available</td></tr>}</tbody></table></div></div> : <div className="exam-card student-reports-card"><div className="exam-card-heading"><div><h2>Reports</h2><p>Module-wise results for submitted tests.</p></div></div>{reportError && <div className="exam-error">{reportError}</div>}{reportLoading ? <div className="exam-muted">Loading reports...</div> : moduleReports.length ? <><div className="exam-table-wrap"><table className="student-module-report-table"><thead><tr><th>Student Name</th><th>Batch Name</th><th>Course Name</th><th>Module Name</th><th>Total Tests</th>{reportTestColumns.map((number) => <th key={number}>Test {number}</th>)}<th>Overall Percentage</th></tr></thead><tbody>{pagedModuleReports.map((group) => <tr key={`${group.courseName}-${group.moduleName}-${group.batchName}`}><td>{student?.studentName || student?.name || 'Student'}</td><td>{group.batchName}</td><td>{group.courseName}</td><td><strong>{group.moduleName}</strong></td><td><strong>{group.tests.length}</strong></td>{reportTestColumns.map((number) => { const test = group.tests[number - 1]; return <td key={number}>{test ? <div className="student-module-test-cell"><strong>{test.obtained} / {test.maximum}</strong><b>{test.percentage.toFixed(2)}%</b></div> : <span className="exam-muted-cell">—</span>}</td> })}<td><strong className="student-module-overall">{group.overall.toFixed(2)}%</strong></td></tr>)}</tbody></table></div><div className="student-report-pagination"><span>Page {currentReportPage} of {reportPageCount}</span><button className="exam-secondary" disabled={currentReportPage === 1} onClick={() => setReportPage((page) => Math.max(1, page - 1))}>Previous</button><button className="exam-primary" disabled={currentReportPage === reportPageCount} onClick={() => setReportPage((page) => Math.min(reportPageCount, page + 1))}>Next</button></div></> : <div className="exam-muted">No submitted test reports available.</div>}</div>}
