@@ -18070,6 +18070,11 @@ td .faculty-my-batches-empty {
   gap: 14px;
 }
 
+.faculty-attendance-report-modal .attendance-report-header h3 {
+  font-size: 1.55rem;
+  line-height: 1.2;
+}
+
 .attendance-report-summary {
   display: grid;
   gap: 6px;

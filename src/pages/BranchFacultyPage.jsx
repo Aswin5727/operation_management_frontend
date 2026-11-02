@@ -23,6 +23,7 @@ import {
 import { getBranchFacultyAttendanceHistory, getBranchFacultyAttendanceStatus } from '../services/attendanceService'
 import { getMatchingStudents } from '../lib/facultyFlow'
 import { getPageNumberWindow } from '../components/PaginationBar'
+import { FacultyAttendanceReportModal } from '../components/FacultyAttendanceReportModal'
 
 // Prefix constant for Faculty ID
 const FACULTY_ID_PREFIX = 'FC-'
@@ -45,6 +46,12 @@ function formatAttendanceTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
   return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }).format(date)
+}
+
+function hasResumedAttendanceSession(attendance = {}) {
+  const first = new Date(attendance.firstLoginAt || '').getTime()
+  const latest = new Date(attendance.currentSession?.loginAt || '').getTime()
+  return Number.isFinite(first) && Number.isFinite(latest) && latest > first + 1000
 }
 
 function formatAttendanceDuration(seconds) {
@@ -158,6 +165,7 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
   const [successAlert, setSuccessAlert] = useState(null) // { title, message }
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null) // faculty object
   const [viewFaculty, setViewFaculty] = useState(null) // faculty object for details drawer
+  const [attendanceReportOpen, setAttendanceReportOpen] = useState(false)
   const [viewFacultyTab, setViewFacultyTab] = useState('details')
   const [viewAttendance, setViewAttendance] = useState(null)
   const [viewAttendanceLoading, setViewAttendanceLoading] = useState(false)
@@ -1730,17 +1738,27 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
 </button>
                   </div>
 
-                  <button
-                    type="button"
-                    className="branch-course-view-edit"
-                    onClick={() => {
-                      const facultyToEdit = viewFaculty
-                      setViewFaculty(null)
-                      openEditModal(facultyToEdit)
-                    }}
-                  >
-                    Edit Faculty
-                  </button>
+                  <div className="branch-course-view-header-buttons">
+                    <button
+                      type="button"
+                      className="branch-course-view-attendance-button"
+                      onClick={() => setAttendanceReportOpen(true)}
+                    >
+                      Attendance
+                    </button>
+
+                    <button
+                      type="button"
+                      className="branch-course-view-edit"
+                      onClick={() => {
+                        const facultyToEdit = viewFaculty
+                        setViewFaculty(null)
+                        openEditModal(facultyToEdit)
+                      }}
+                    >
+                      Edit Faculty
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1762,8 +1780,9 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
                   <p className="branch-faculty-attendance-error">{viewAttendanceError}</p>
                 ) : viewAttendance ? (
                   <>
-                    <div className="branch-faculty-attendance-metrics">
+                    <div className={`branch-faculty-attendance-metrics${hasResumedAttendanceSession(viewAttendance) ? ' has-resume-login' : ''}`}>
                       <div><span>Login Time</span><strong>{formatAttendanceTime(viewAttendance.firstLoginAt)}</strong></div>
+                      {hasResumedAttendanceSession(viewAttendance) && <div><span>Re-Login Time</span><strong>{formatAttendanceTime(viewAttendance.currentSession.loginAt)}</strong></div>}
                       <div><span>Logout Time</span><strong>{formatAttendanceTime(viewAttendance.finalLogoutAt)}</strong></div>
                       <div><span>{viewAttendance.status === 'LOGGED_OUT' ? 'Total Working Time' : 'Current Working Time'}</span><strong>{formatAttendanceDuration(viewAttendance.workingSeconds)}</strong></div>
                     </div>
@@ -2133,6 +2152,13 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
         )
         : null
     }
+
+    <FacultyAttendanceReportModal
+      isOpen={attendanceReportOpen && Boolean(viewFaculty)}
+      mode="single"
+      faculty={viewFaculty ? { ...viewFaculty, id: viewFaculty.dbId || viewFaculty.id, facultyId: viewFaculty.id, facultyName: viewFaculty.name } : null}
+      onClose={() => setAttendanceReportOpen(false)}
+    />
 
     {/* Delete Confirmation Modal */}
     {
