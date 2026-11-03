@@ -553,6 +553,13 @@ function isCourseCompletionComplete(student = {}, courseId = '', courseName = ''
     return (normalizedCourseId && entryCourseId === normalizedCourseId)
       || (normalizedCourseName && entryCourseName === normalizedCourseName)
   })
+  // The backend status is calculated from the enrollment's cycle-scoped
+  // course progress, academic tests, projects, and pending count. Use it as
+  // the authoritative result once the displayed course progress is 100%.
+  const backendCompletion = matchingEnrollments.find((entry) => (
+    String(entry?.courseCompletion || entry?.courseCompletionStatus || '').trim().toUpperCase() === 'COMPLETED'
+  ))
+  if (Number(progress) >= 100 && backendCompletion) return true
   const activeEnrollment = matchingEnrollments.find((entry) => {
     const status = String(entry?.status || entry?.recordStatus || '').trim().toUpperCase()
     const enrollmentProgress = Number(entry?.courseProgress ?? entry?.courseCompletionPercentage ?? entry?.progress)
@@ -562,11 +569,6 @@ function isCourseCompletionComplete(student = {}, courseId = '', courseName = ''
   if (activeEnrollment) {
     const activeProgress = Number(activeEnrollment.courseProgress ?? activeEnrollment.courseCompletionPercentage ?? activeEnrollment.progress)
     if (Number.isFinite(activeProgress) && activeProgress < 100) return false
-    if (activeEnrollment.courseCompletedAt || activeEnrollment.completedAt) return true
-  } else {
-    const completedEnrollment = matchingEnrollments[0]
-    if (completedEnrollment?.courseCompletedAt || completedEnrollment?.completedAt
-      || (normalizedCourseId && String(student?.courseId || '').trim().toLowerCase() === normalizedCourseId && student?.courseCompletedAt)) return true
   }
   return Number(progress) >= 100
     && hasRequiredAcademicResult
@@ -667,6 +669,24 @@ function isCompletedStudentReportRecord(student = {}) {
   // Imported report rows are historical completed records. Keep a student
   // with an active enrollment visible if it also has an older completed course.
   return isDiscontinued || (hasCompletedDate && !hasActiveEnrollment) || hasCompletedLifecycleStatus
+}
+
+function isBatchFreezeActiveForStudent(student = {}, batchGroups = []) {
+  const studentBatchKeys = new Set([
+    student?.batchId,
+    student?.batchEntryId,
+    student?.batchName,
+    ...(Array.isArray(student?.courseEnrollments) ? student.courseEnrollments.flatMap((entry) => [entry?.batchId, entry?.batchName]) : []),
+  ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))
+  if (!studentBatchKeys.size) return false
+  const batches = (Array.isArray(batchGroups) ? batchGroups : []).flatMap((group) => Array.isArray(group?.batches) && group.batches.length ? group.batches : [group])
+  return batches.some((batch) => {
+    const batchKeys = [batch?.id, batch?.batchId, batch?.batchName].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+    if (!batchKeys.some((key) => studentBatchKeys.has(key))) return false
+    return String(batch?.currentCycleStatus || '').trim().toUpperCase() === 'COMPLETED'
+      && batch?.freezeUntil
+      && new Date(batch.freezeUntil).getTime() > Date.now()
+  })
 }
 
 function getBranchEntityPrefix(branchCode, entityPrefix) {
@@ -1269,6 +1289,10 @@ function validateStudentForm(form, students = []) {
   const getStudentMobile = (student) => String(
     student?.mobileNumber || student?.phoneNumber || student?.phone || student?.studentPhone || '',
   ).replace(/\D/g, '')
+  const getStudentParentNumber = (student) => String(
+    student?.parentSpouseNumber || student?.parentNumber || student?.alternativeNumber || '',
+  ).replace(/\D/g, '')
+  const getStudentPhoneNumbers = (student) => [getStudentMobile(student), getStudentParentNumber(student)].filter(Boolean)
   const studentIdSuffixError = getStudentIdSuffixError(form, students)
   if (studentIdSuffixError) errors.studentIdSuffix = studentIdSuffixError
   if (!safeTrim(form.studentName)) errors.studentName = 'Student Name is required.'
@@ -1321,6 +1345,7 @@ function validateStudentForm(form, students = []) {
   ).trim().toLowerCase()
   const normalizedEmail = String(form.emailAddress || '').trim().toLowerCase()
   const normalizedMobile = String(form.mobileNumber || '').replace(/\D/g, '')
+  const normalizedParentNumber = String(form.parentSpouseNumber || '').replace(/\D/g, '')
 
   if (resolvedStudentId) {
     const duplicateStudentId = students.find((student) => {
@@ -1346,12 +1371,22 @@ function validateStudentForm(form, students = []) {
 
   if (normalizedMobile) {
     const duplicateMobile = students.find((student) => {
-      const studentMobile = getStudentMobile(student)
-      return studentMobile && studentMobile === normalizedMobile && !isCurrentStudentRecord(student, form)
+      return getStudentPhoneNumbers(student).includes(normalizedMobile) && !isCurrentStudentRecord(student, form)
     })
 
     if (duplicateMobile) {
       errors.mobileNumber = 'Mobile number already exists.'
+    }
+  }
+
+  if (normalizedParentNumber) {
+    const duplicateParentNumber = students.find((student) => (
+      getStudentPhoneNumbers(student).includes(normalizedParentNumber)
+      && !isCurrentStudentRecord(student, form)
+    ))
+
+    if (duplicateParentNumber) {
+      errors.parentSpouseNumber = 'Parent/Spouse number already exists.'
     }
   }
 
@@ -1704,6 +1739,7 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
     ? student.courseEnrollments
     : Array.isArray(student.courses) ? student.courses : []
   const isSequentialReceipt = String(student.arrangementType || student.enrollmentType || '').trim().toUpperCase() === 'SEQUENTIAL'
+  const isParallelReceipt = String(student.arrangementType || student.enrollmentType || '').trim().toUpperCase() === 'PARALLEL' && studentEnrollments.length > 1
   const selectedSequentialEnrollment = isSequentialReceipt
     ? studentEnrollments.find((enrollment) => (
         (payment.courseId && String(enrollment?.courseId || enrollment?.id || '').trim() === String(payment.courseId).trim()) ||
@@ -1721,6 +1757,14 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
         installmentSchedule: getBranchSequentialCourseInstallments(student, studentEnrollments, selectedSequentialEnrollment),
       }
     : student
+  const receiptCourseName = isParallelReceipt
+    ? studentEnrollments
+        .map((enrollment) => enrollment?.courseName || enrollment?.course?.name || enrollment?.name || '')
+        .map((name) => String(name).trim())
+        .filter(Boolean)
+        .filter((name, index, names) => names.indexOf(name) === index)
+        .join(' + ') || receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-'
+    : receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-'
   const paymentSummary = computeBranchStudentPaymentSummary(receiptStudent)
   const receiptBatchNames = [
     ...(isSequentialReceipt
@@ -1770,7 +1814,7 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
     branchEmail: context.branchEmail || '-',
     studentName: receiptStudent.studentName || payment.studentName || 'Student',
     studentId: receiptStudent.studentId || payment.studentId || '-',
-    courseName: receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-',
+    courseName: receiptCourseName,
     batchName: receiptBatchNames.join(' + ') || student.batchId || '-',
     studentPhone: receiptStudent.mobileNumber || '-',
     receiptNumber,
@@ -4773,6 +4817,8 @@ export function BranchDashboardPage({ embeddedMode = false, branchData = null, i
   const studentFeePreviewKeyRef = useRef('')
   const studentEditDueDatesRef = useRef(null)
   const [studentFormTouched, setStudentFormTouched] = useState({})
+  const [studentPhoneRemoteDuplicates, setStudentPhoneRemoteDuplicates] = useState({ mobile: false, parent: false })
+  const mobileDuplicateCheckRequestRef = useRef(0)
   const [isStudentSetupRequiredOpen, setIsStudentSetupRequiredOpen] = useState(false)
   const [studentDeleteTarget, setStudentDeleteTarget] = useState(null)
   const [recordPaymentStudent, setRecordPaymentStudent] = useState(null)
@@ -8232,7 +8278,10 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
 
     setIsBranchStudentsLoading(true)
     try {
-      const freshRecords = await refreshBranchStudents(branchStudentScope, { includeProgress: false })
+      // Course Completion is derived from the backend's academic/project
+      // progress snapshot. Do not omit that snapshot on the main Students
+      // table, otherwise a 100% course is rendered as In Progress.
+      const freshRecords = await refreshBranchStudents(branchStudentScope, { includeProgress: true })
       if (requestId === branchStudentReloadRequestRef.current) {
         setBranchStudents(freshRecords)
       }
@@ -9532,7 +9581,7 @@ const studentCourseOptions = useMemo(() => {
   }, [dashboardData.students])
 
   const paymentModeFilterOptions = useMemo(() => {
-    const presetModes = ['Cash', 'UPI', 'Card', 'Bank', 'Cheque']
+    const presetModes = ['Cash', 'UPI', 'Card', 'Bank', 'Cheque', 'Other']
     const uniqueModes = new Set(presetModes)
 
     allPaymentHistoryRecords.forEach((record) => {
@@ -10235,7 +10284,7 @@ useEffect(() => {
     if (!isBranchAcademicProgressLoaded) return []
     const q = appliedStudentSearchTerm.trim().toLowerCase()
     return branchStudentsForDisplay
-      .filter((student) => !isCompletedStudentReportRecord(student))
+      .filter((student) => isBatchFreezeActiveForStudent(student, branchBatchGroups) || !isCompletedStudentReportRecord(student))
       .filter((student) => {
         if (!q) return true
         return [student?.studentId, student?.studentName, student?.email, student?.phone]
@@ -10279,7 +10328,7 @@ useEffect(() => {
         const comparison = String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' })
         return studentSortOrder === 'asc' ? comparison : -comparison
       })
-  }, [appliedStudentSearchTerm, branchStudentsForDisplay, courseCompletedStudentKeys, isBranchAcademicProgressLoaded, isCourseCompletedFilter, studentCourseFilter, studentSortBy, studentSortOrder, studentStatusFilter])
+  }, [appliedStudentSearchTerm, branchBatchGroups, branchStudentsForDisplay, courseCompletedStudentKeys, isBranchAcademicProgressLoaded, isCourseCompletedFilter, studentCourseFilter, studentSortBy, studentSortOrder, studentStatusFilter])
 
   const totalStudentPages = isCourseCompletedFilter
     ? 1
@@ -10483,7 +10532,7 @@ useEffect(() => {
         courseProgress: entry?.courseProgress ?? entry?.courseCompletionPercentage ?? entry?.progress ?? student?.courseProgress,
       }))
     })
-  }, [branchAcademicProgressByStudent, branchCourseCards, branchStudentsForDisplay, facultyTodayWorkEntries, isBranchAcademicProgressLoaded])
+  }, [branchAcademicProgressByStudent, branchBatchGroups, branchCourseCards, branchStudentsForDisplay, facultyTodayWorkEntries, isBranchAcademicProgressLoaded])
 
   const branchStudentProgressByNotificationKey = useMemo(() => {
     const progressByStudentKey = new Map()
@@ -10738,6 +10787,107 @@ useEffect(() => {
       ? (studentFormStepStatus[2] ? 3 : 2)
       : 1
   const shouldShowStudentError = (field) => Boolean(studentFormTouched[field] && studentFormValidationErrors[field])
+  useEffect(() => {
+    const normalizedMobile = String(studentForm.mobileNumber || '').replace(/\D/g, '')
+    const normalizedParentNumber = String(studentForm.parentSpouseNumber || '').replace(/\D/g, '')
+    const requestId = mobileDuplicateCheckRequestRef.current + 1
+    mobileDuplicateCheckRequestRef.current = requestId
+
+    if (
+      !isStudentFormOpen
+      || studentFormMode === 'view'
+      || (!/^\d{10}$/.test(normalizedMobile) && !/^\d{10}$/.test(normalizedParentNumber))
+      || (!branchStudentScope.id && !branchStudentScope.branchCode)
+    ) {
+      setStudentPhoneRemoteDuplicates({ mobile: false, parent: false })
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const numbers = [...new Set([normalizedMobile, normalizedParentNumber].filter((number) => /^\d{10}$/.test(number)))]
+        const duplicateResults = await Promise.all(numbers.map(async (number) => {
+          const params = new URLSearchParams({
+            search: number,
+            page: '1',
+            limit: '20',
+            ...(branchStudentScope.id ? { branchId: branchStudentScope.id } : {}),
+          })
+          const response = await request(`/branch-students?${params.toString()}`, {
+            method: 'GET',
+            impersonateBranchId: branchStudentScope.id || undefined,
+          })
+          const payload = response?.data ?? response
+          const records = Array.isArray(payload)
+            ? payload
+            : Array.isArray(payload?.items)
+              ? payload.items
+              : Array.isArray(payload?.rows)
+                ? payload.rows
+                : []
+          return [number, records.some((student) => {
+            const candidateNumbers = [
+              student?.mobileNumber || student?.phoneNumber || student?.phone || student?.studentPhone || '',
+              student?.parentSpouseNumber || student?.parentNumber || student?.alternativeNumber || '',
+            ].map((value) => String(value).replace(/\D/g, ''))
+            return candidateNumbers.includes(number) && !isCurrentStudentRecord(student, studentForm)
+          })]
+        }))
+        const duplicateByNumber = new Map(duplicateResults)
+        if (requestId === mobileDuplicateCheckRequestRef.current) {
+          setStudentPhoneRemoteDuplicates({
+            mobile: Boolean(duplicateByNumber.get(normalizedMobile)),
+            parent: Boolean(duplicateByNumber.get(normalizedParentNumber)),
+          })
+        }
+      } catch {
+        if (requestId === mobileDuplicateCheckRequestRef.current) {
+          setStudentPhoneRemoteDuplicates({ mobile: false, parent: false })
+        }
+      }
+    }, 250)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [
+    branchStudentScope.branchCode,
+    branchStudentScope.id,
+    isStudentFormOpen,
+    studentForm.emailAddress,
+    studentForm.mobileNumber,
+    studentForm.parentSpouseNumber,
+    studentForm.originalStudentId,
+    studentForm.recordId,
+    studentFormMode,
+  ])
+
+  const studentMobileFieldError = (() => {
+    const normalizedMobile = String(studentForm.mobileNumber || '').replace(/\D/g, '')
+    if (studentPhoneRemoteDuplicates.mobile || /^\d{10}$/.test(normalizedMobile)) {
+      const duplicate = studentPhoneRemoteDuplicates.mobile || branchStudents.some((student) => {
+        const candidateNumbers = [
+          student?.mobileNumber || student?.phoneNumber || student?.phone || student?.studentPhone || '',
+          student?.parentSpouseNumber || student?.parentNumber || student?.alternativeNumber || '',
+        ].map((value) => String(value).replace(/\D/g, ''))
+        return candidateNumbers.includes(normalizedMobile) && !isCurrentStudentRecord(student, studentForm)
+      })
+      if (duplicate) return 'Mobile number already exists.'
+    }
+    return shouldShowStudentError('mobileNumber') ? studentFormValidationErrors.mobileNumber : ''
+  })()
+  const studentParentNumberFieldError = (() => {
+    const normalizedParentNumber = String(studentForm.parentSpouseNumber || '').replace(/\D/g, '')
+    if (studentPhoneRemoteDuplicates.parent || /^\d{10}$/.test(normalizedParentNumber)) {
+      const duplicate = studentPhoneRemoteDuplicates.parent || branchStudents.some((student) => {
+        const candidateNumbers = [
+          student?.mobileNumber || student?.phoneNumber || student?.phone || student?.studentPhone || '',
+          student?.parentSpouseNumber || student?.parentNumber || student?.alternativeNumber || '',
+        ].map((value) => String(value).replace(/\D/g, ''))
+        return candidateNumbers.includes(normalizedParentNumber) && !isCurrentStudentRecord(student, studentForm)
+      })
+      if (duplicate) return 'Parent/Spouse number already exists.'
+    }
+    return shouldShowStudentError('parentSpouseNumber') ? studentFormValidationErrors.parentSpouseNumber : ''
+  })()
 
   const updateStudentField = (field, value) => {
     setStudentForm((c) => ({
@@ -13221,7 +13371,8 @@ else {
             && isCourseCompletionComplete(stu, stu.courseId, stu.courseName || stu.courseInterested, studentCourseProgress, branchAcademicProgressByStudent, effectiveCourse)
             
           if (isCourseCompletedFilter && !singleCourseCompleted) return null
-          if (!isCourseCompletedFilter && (isStudentDiscontinued || singleCourseCompleted || isCompletedStudentReportRecord(stu))) return null
+          const batchFreezeActive = isBatchFreezeActiveForStudent(stu, branchBatchGroups)
+          if (!isCourseCompletedFilter && !batchFreezeActive && (isStudentDiscontinued || singleCourseCompleted || isCompletedStudentReportRecord(stu))) return null
 
           return (
             <tr
@@ -18570,11 +18721,7 @@ else {
         <Field
           label="Mobile Number"
           required
-          error={
-            shouldShowStudentError('mobileNumber')
-              ? studentFormValidationErrors.mobileNumber
-              : ''
-          }
+          error={studentMobileFieldError}
         >
           <input
             type="text"
@@ -18604,23 +18751,23 @@ else {
         <Field
           label="Parent / Spouse Number"
           required
-          error={
-            shouldShowStudentError('parentSpouseNumber')
-              ? studentFormValidationErrors.parentSpouseNumber
-              : ''
-          }
+          error={studentParentNumberFieldError}
         >
           <input
             type="text"
             inputMode="numeric"
             placeholder="10 digit number"
             value={studentForm.parentSpouseNumber}
-            onChange={(e) =>
+            onChange={(e) => {
               updateStudentField(
                 'parentSpouseNumber',
                 e.target.value.replace(/\D/g, '').slice(0, 10)
               )
-            }
+              setStudentFormTouched((current) => ({
+                ...current,
+                parentSpouseNumber: true,
+              }))
+            }}
             onBlur={() =>
               setStudentFormTouched((c) => ({
                 ...c,

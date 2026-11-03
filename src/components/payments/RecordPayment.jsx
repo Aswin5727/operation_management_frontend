@@ -577,11 +577,20 @@ const RecordPayment = ({ student, students = [], onClose, branchProfile = null, 
     activeStudent?.name ||
     "Student Name";
 
+  const parallelCourseNames = isParallelArrangement
+    ? paymentEnrollments
+        .map((enrollment) => enrollment?.courseName || enrollment?.course?.name || enrollment?.name || '')
+        .map((name) => String(name).trim())
+        .filter(Boolean)
+        .filter((name, index, names) => names.indexOf(name) === index)
+    : [];
   const courseName =
-    activeStudent?.courseName ||
-    activeStudent?.course ||
-    activeStudent?.selectedCourse ||
-    "Data Analytics";
+    parallelCourseNames.length > 0
+      ? parallelCourseNames.join(' + ')
+      : activeStudent?.courseName ||
+        activeStudent?.course ||
+        activeStudent?.selectedCourse ||
+        "Data Analytics";
 
   const branchAddress =
     branchProfile?.branchAddress ||
@@ -2395,6 +2404,10 @@ const RecordPayment = ({ student, students = [], onClose, branchProfile = null, 
 
                 <option value="Cheque">
                   Cheque
+                </option>
+
+                <option value="Other">
+                  Other
                 </option>
 
               </select>

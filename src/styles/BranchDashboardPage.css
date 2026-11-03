@@ -7744,7 +7744,7 @@ body.branch-notification-menu-open .main-area {
 
 .course-added-submodule-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px 28px;
+  grid-template-columns: 28px minmax(0, 1fr) auto 28px 28px;
   align-items: center;
   gap: 10px;
   min-height: 54px;
@@ -12972,7 +12972,7 @@ body.branch-notification-menu-open .main-area {
   }
 
   .course-added-submodule-row {
-    grid-template-columns: 28px minmax(0, 1fr) 28px 28px;
+    grid-template-columns: 28px minmax(0, 1fr) auto 28px 28px;
   }
 }
 
