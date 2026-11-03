@@ -634,9 +634,12 @@ function isCompletedStudentReportRecord(student = {}) {
   })
   const hasVisibleEnrollment = enrollments.some((entry) => {
     const status = String(entry?.status || entry?.recordStatus || entry?.studentStatus || '').trim().toUpperCase()
+    const completionStatus = String(entry?.courseCompletion || entry?.courseCompletionStatus || '').trim().toUpperCase()
+    // courseCompletedAt can be stale or set before academic completion.
+    // Keep the enrollment in Students until the authoritative academic
+    // completion status is COMPLETED.
     return !['COMPLETED', 'DISCONTINUED'].includes(status)
-      && !entry?.courseCompletedAt
-      && !entry?.completedAt
+      && completionStatus !== 'COMPLETED'
   })
 
   if (enrollments.length) return !hasVisibleEnrollment
@@ -10278,7 +10281,6 @@ useEffect(() => {
           Number.isFinite(workProgress) ? workProgress : 0,
         )
         return isCourseCompletionComplete(student, courseId, courseName, progress, branchAcademicProgressByStudent, catalogCourse)
-          || Boolean(entry?.courseCompletedAt || entry?.completedAt)
       })
       if (isCompleted) completedKeys.add(String(student?.studentId || student?.id || '').trim().toLowerCase())
     })
