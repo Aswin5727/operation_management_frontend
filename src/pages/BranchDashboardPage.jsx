@@ -166,7 +166,11 @@ import '../styles/BranchDashboardPage.css'
 // React StrictMode replay, focus, visibility and section changes). Keep a
 // short recent-result window in addition to the in-flight lock so those
 // signals cannot issue the same live request repeatedly.
-const BRANCH_LIVE_REFRESH_DEDUPE_MS = 2000
+// Initial mount, focus/visibility events and auth/profile hydration can all
+// arrive within a few seconds. Keep one shared result window so a slow API
+// response is not followed by a duplicate request before the dashboard has
+// finished settling.
+const BRANCH_LIVE_REFRESH_DEDUPE_MS = 5000
 // Follow-up reminders are created by the backend scheduler. Poll only while
 // the dashboard is visible so due reminders appear without manual refreshes.
 const BRANCH_NOTIFICATION_POLL_MS = 30 * 1000
@@ -1924,7 +1928,11 @@ function isUploadedCompletedStudentReportRecord(student = {}) {
   ].map((value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' '))
   const reportStudentStatusMarker = uploadedStudentStatuses.some((value) => ['completed student', 'completed students', 'discontinued student', 'discontinued students'].includes(value))
 
-  return importMarker || sourceMarker || reportFieldMarker || importedLifecycleMarker || reportStudentStatusMarker
+  // Legacy completed-student uploads created before the import marker was
+  // persisted may only have a completed lifecycle/date and no enrollment
+  // metadata. Reuse the report-record classifier as a safe fallback so those
+  // old rows cannot recreate progress alerts after login.
+  return importMarker || sourceMarker || reportFieldMarker || importedLifecycleMarker || reportStudentStatusMarker || isCompletedStudentReportRecord(student)
 }
 
 function isSuccessfulDashboardPayment(payment = {}) {
@@ -5120,7 +5128,12 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         const controller = new AbortController()
         const timeoutId = window.setTimeout(() => controller.abort(), BRANCH_NOTIFICATIONS_TIMEOUT_MS)
         try {
-          const response = await request('/notifications?limit=100&page=1', {
+          // The dashboard only needs the latest notifications for its bell
+          // and summary. Load the full page only when the user opens the
+          // notifications section, so login is not blocked by a large
+          // historical response.
+          const notificationLimit = activeSection === 'notifications' ? 100 : 20
+          const response = await request(`/notifications?limit=${notificationLimit}&page=1`, {
             method: 'GET',
             signal: controller.signal,
           })
@@ -5152,9 +5165,25 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
             return notification
           })
           const mergedIds = new Set(mergedNotifications.map((notification) => String(notification.id || '').trim()))
+          const importedCompletedStudentIds = new Set(
+            branchStudents
+              .filter((student) => isUploadedCompletedStudentReportRecord(student))
+              .flatMap((student) => [student?.studentId, student?.id])
+              .map((value) => String(value || '').trim().toLowerCase())
+              .filter(Boolean),
+          )
+          const activeBranchStudentIds = new Set(
+            branchStudents
+              .flatMap((student) => [student?.studentId, student?.id])
+              .map((value) => String(value || '').trim().toLowerCase())
+              .filter(Boolean),
+          )
+          const hasBranchStudentSnapshot = !isBranchStudentsLoading
           const storedProgressNotifications = storedNotifications.filter(
             (notification) =>
               String(notification.kind || '').trim() === 'branch-progress-status' &&
+              !importedCompletedStudentIds.has(String(notification.studentId || '').trim().toLowerCase()) &&
+              (!hasBranchStudentSnapshot || activeBranchStudentIds.has(String(notification.studentId || '').trim().toLowerCase())) &&
               doesBranchNotificationBelongToBranch(notification, activeBranchScope),
           )
           const preservedNotifications = storedNotifications.filter((notification) => {
@@ -5181,10 +5210,27 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
             branchId: String(branchProfile?.branchId || branchData?.branchId || branchProfile?.id || branchData?.id || '').trim(),
             branchEmail: String(branchProfile?.branchEmail || branchData?.branchEmail || user?.email || '').trim().toLowerCase(),
           }
+          const importedCompletedStudentIds = new Set(
+            branchStudents
+              .filter((student) => isUploadedCompletedStudentReportRecord(student))
+              .flatMap((student) => [student?.studentId, student?.id])
+              .map((value) => String(value || '').trim().toLowerCase())
+              .filter(Boolean),
+          )
+          const activeBranchStudentIds = new Set(
+            branchStudents
+              .flatMap((student) => [student?.studentId, student?.id])
+              .map((value) => String(value || '').trim().toLowerCase())
+              .filter(Boolean),
+          )
+          const hasBranchStudentSnapshot = !isBranchStudentsLoading
           const fallbackNotifications = mergeNotificationsWithStoredState(loadNotifications()).filter((notification) => {
             const kind = String(notification.kind || '').trim()
             if (['lead-follow-up-scheduled', 'lead-follow-up-due', 'lead-follow-up-overdue'].includes(kind)) return false
-            return kind !== 'branch-progress-status' || doesBranchNotificationBelongToBranch(notification, activeBranchScope)
+            return kind !== 'branch-progress-status'
+              || (!importedCompletedStudentIds.has(String(notification.studentId || '').trim().toLowerCase())
+                && (!hasBranchStudentSnapshot || activeBranchStudentIds.has(String(notification.studentId || '').trim().toLowerCase()))
+                && doesBranchNotificationBelongToBranch(notification, activeBranchScope))
           })
           setBranchNotificationRecords(fallbackNotifications)
         } finally {
@@ -5198,12 +5244,15 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     })
   }, [
     admissionOnlyMode,
+    activeSection,
     branchData?.branchEmail,
     branchData?.branchId,
     branchData?.id,
     branchProfile?.branchEmail,
     branchProfile?.branchId,
     branchProfile?.id,
+    branchStudents,
+    isBranchStudentsLoading,
     embeddedMode,
     loadApprovedDiscontinuationRequests,
     user?.email,
@@ -5475,9 +5524,25 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         branchId: String(branchProfile?.branchId || branchData?.branchId || branchProfile?.id || branchData?.id || '').trim(),
         branchEmail: String(branchProfile?.branchEmail || user?.email || '').trim().toLowerCase(),
       }
+      const importedCompletedStudentIds = new Set(
+        branchStudents
+          .filter((student) => isUploadedCompletedStudentReportRecord(student))
+          .flatMap((student) => [student?.studentId, student?.id])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const activeBranchStudentIds = new Set(
+        branchStudents
+          .flatMap((student) => [student?.studentId, student?.id])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const hasBranchStudentSnapshot = !isBranchStudentsLoading
       const localProgressNotifications = loadNotifications().filter(
         (notification) =>
           String(notification.kind || '').trim() === 'branch-progress-status' &&
+          !importedCompletedStudentIds.has(String(notification.studentId || '').trim().toLowerCase()) &&
+          (!hasBranchStudentSnapshot || activeBranchStudentIds.has(String(notification.studentId || '').trim().toLowerCase())) &&
           doesBranchNotificationBelongToBranch(notification, activeBranchScope),
       )
       setBranchNotificationRecords((current) => [
@@ -5487,7 +5552,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     })
 
     return unsubscribe
-  }, [branchData?.branchId, branchData?.id, branchProfile?.branchEmail, branchProfile?.branchId, branchProfile?.id, user?.email])
+  }, [branchData?.branchId, branchData?.id, branchProfile?.branchEmail, branchProfile?.branchId, branchProfile?.id, branchStudents, isBranchStudentsLoading, user?.email])
 
   useEffect(() => {
     const unsubscribe = subscribeBranchCourseSnapshot(() => {
@@ -5918,10 +5983,29 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     () => {
       const seenCourseEditNotifications = new Set()
       const seenFacultyLoginNotifications = new Set()
+      const importedCompletedStudentIds = new Set(
+        branchStudents
+          .filter((student) => isUploadedCompletedStudentReportRecord(student))
+          .flatMap((student) => [student?.studentId, student?.id])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const activeBranchStudentIds = new Set(
+        branchStudents
+          .flatMap((student) => [student?.studentId, student?.id])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const hasBranchStudentSnapshot = !isBranchStudentsLoading
       return branchNotificationRecords
         .map(normalizeBranchNotification)
         .filter(
           (notification) =>
+            !(String(notification.kind || '').trim().toLowerCase() === 'branch-progress-status'
+              && importedCompletedStudentIds.has(String(notification.studentId || '').trim().toLowerCase())) &&
+            !(String(notification.kind || '').trim().toLowerCase() === 'branch-progress-status'
+              && hasBranchStudentSnapshot
+              && !activeBranchStudentIds.has(String(notification.studentId || '').trim().toLowerCase())) &&
             !isProgressGeneratedCourseModuleNotification(notification) &&
             String(notification.kind || '').trim() !== 'branch-login' && (
               String(notification.kind || '').startsWith('branch-') ||
@@ -5999,8 +6083,42 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         })
         .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     },
-    [branchNotificationRecords, branchScope, hasLeadManagementAccess, user?.id],
+    [branchNotificationRecords, branchScope, branchStudents, hasLeadManagementAccess, isBranchStudentsLoading, user?.id],
   )
+
+  useEffect(() => {
+    if (isBranchStudentsLoading) return
+
+    const importedCompletedStudentIds = new Set(
+      branchStudents
+        .filter((student) => isUploadedCompletedStudentReportRecord(student))
+        .flatMap((student) => [student?.studentId, student?.id])
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
+    const activeBranchStudentIds = new Set(
+      branchStudents
+        .flatMap((student) => [student?.studentId, student?.id])
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
+
+    const isStaleBranchProgressNotification = (notification) => (
+      String(notification?.kind || '').trim().toLowerCase() === 'branch-progress-status' &&
+      (importedCompletedStudentIds.has(String(notification?.studentId || '').trim().toLowerCase()) ||
+        !activeBranchStudentIds.has(String(notification?.studentId || '').trim().toLowerCase()))
+    )
+    const storedNotifications = loadNotifications()
+    const cleanedNotifications = storedNotifications.filter((notification) => !isStaleBranchProgressNotification(notification))
+    if (cleanedNotifications.length !== storedNotifications.length) {
+      saveNotifications(cleanedNotifications, { emit: false })
+    }
+    setBranchNotificationRecords((current) => {
+      const next = current.filter((notification) => !isStaleBranchProgressNotification(notification))
+      return next.length === current.length ? current : next
+    })
+  }, [branchStudents, isBranchStudentsLoading])
+
   const branchNotificationSections = useMemo(
     () => {
       const searchTerm = branchNotificationSearch.trim().toLowerCase()
@@ -10469,6 +10587,10 @@ useEffect(() => {
 
   const branchProgressComparisonNotifications = useMemo(() => {
     return branchStudentsForDisplay
+      // Historical/completed students uploaded through the Excel import are
+      // report records. They must not participate in the live progress-alert
+      // workflow, otherwise an import of N rows creates N payment alerts.
+      .filter((student) => !isUploadedCompletedStudentReportRecord(student))
       .map((stu) => {
         const studentIdLabel = String(stu.studentId || stu.id || '-').trim()
         const studentName = String(stu.studentName || '-').trim()

@@ -151,6 +151,7 @@ export function buildProgressComparisonNotification({
 
 export function syncProgressComparisonNotifications(notifications = [], audience = 'faculty') {
   const normalizedAudience = String(audience || 'faculty').trim().toLowerCase() === 'branch' ? 'branch' : 'faculty'
+  const progressPrefix = PROGRESS_NOTIFICATION_PREFIX_BY_AUDIENCE[normalizedAudience]
   const currentNotifications = (Array.isArray(notifications) ? notifications : [])
     .map((notification) => buildProgressComparisonNotification({
       ...notification,
@@ -159,9 +160,16 @@ export function syncProgressComparisonNotifications(notifications = [], audience
     .filter(Boolean)
 
   const storedNotifications = loadNotifications()
+  const currentNotificationIds = new Set(currentNotifications.map((notification) => String(notification.id || '').trim()).filter(Boolean))
   const existingNotifications = storedNotifications.filter((notification) => {
     const kind = String(notification?.kind || '').trim().toLowerCase()
     if (!kind.startsWith('faculty-progress-status') && !kind.startsWith('branch-progress-status')) return true
+    // Progress alerts are a live projection of the current operational
+    // students. Remove alerts that are no longer eligible (for example,
+    // historical students excluded after an Excel import) instead of keeping
+    // stale rows in local storage indefinitely. Keep the other audience's
+    // alerts intact because its dashboard may be mounted separately.
+    if (kind.startsWith(progressPrefix) && !currentNotificationIds.has(String(notification?.id || '').trim())) return false
     const courseProgress = normalizeProgressValue(notification?.courseProgress)
     const paidProgress = normalizeProgressValue(notification?.paidProgress)
     const isMatchedEndpoint = courseProgress === paidProgress && (courseProgress === 0 || courseProgress === 100)
