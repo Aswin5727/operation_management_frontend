@@ -11760,18 +11760,19 @@ useEffect(() => {
 
   const renderTopbar = () => (
     <header className="super-admin-topbar">
-      <div className="branch-dashboard-topbar-title">
-        <button
-          type="button"
-          className={`branch-dashboard-mobile-menu ${isSidebarCollapsed ? 'is-desktop-expand-toggle' : ''}`.trim()}
-          aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Open navigation menu'}
-          onClick={() => isSidebarCollapsed ? setIsSidebarCollapsed(false) : setIsMobileSidebarOpen(true)}
-        >
-          {isSidebarCollapsed ? <PanelLeftOpen size={18} strokeWidth={2.3} /> : <Menu size={20} strokeWidth={2.2} />}
-        </button>
-        <h1>{activeSection === 'course-import' ? 'Course Management' : 'Branch Dashboard'}</h1>
-      </div>
-      <div className="super-admin-topbar-right">
+      <div className="branch-dashboard-topbar-row">
+        <div className="branch-dashboard-topbar-title">
+          <button
+            type="button"
+            className={`branch-dashboard-mobile-menu ${isSidebarCollapsed ? 'is-desktop-expand-toggle' : ''}`.trim()}
+            aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Open navigation menu'}
+            onClick={() => isSidebarCollapsed ? setIsSidebarCollapsed(false) : setIsMobileSidebarOpen(true)}
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen size={18} strokeWidth={2.3} /> : <Menu size={20} strokeWidth={2.2} />}
+          </button>
+          <h1>{activeSection === 'course-import' ? 'Course Management' : 'Branch Dashboard'}</h1>
+        </div>
+        <div className="super-admin-topbar-right">
         <>
           <div ref={notificationMenuRef} className="notification-menu branch-dashboard-notification-menu">
             <button
@@ -11971,6 +11972,7 @@ useEffect(() => {
             ) : null}
           </div>
         )}
+        </div>
       </div>
     </header>
   )
