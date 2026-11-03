@@ -190,7 +190,8 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
   }, [loadBranchPerformance])
 
   useEffect(() => {
-    if (!Array.isArray(branches) || !branches.length) {
+    const search = branchQuery.trim()
+    if (!Array.isArray(branches) || !branches.length || selectedBranch || search.length < 2) {
       setAllStudents([])
       return undefined
     }
@@ -202,7 +203,7 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
         let page = 1
         let totalPages = 1
         do {
-          const response = await request(`/branch-students?page=${page}&limit=100&summary=1&sortBy=createdAt&sortOrder=desc`)
+          const response = await request(`/branch-students?page=${page}&limit=100&summary=1&includeProgress=0&search=${encodeURIComponent(search)}&sortBy=createdAt&sortOrder=desc`)
           const payload = response?.data ?? response
           const pageRows = Array.isArray(payload)
             ? payload
@@ -217,6 +218,7 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
           const meta = response?.meta || payload?.meta || payload?.pagination || payload?.pageInfo
           totalPages = Math.min(Number(meta?.totalPages || 1), 100)
           page += 1
+          if (!pageRows.length) break
         } while (page <= totalPages)
 
         const normalizedRows = rows.map((student) => {
@@ -242,7 +244,7 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
     return () => {
       cancelled = true
     }
-  }, [branches])
+  }, [branches, branchQuery, selectedBranch])
 
   useEffect(() => {
     const handlePaymentHistoryChange = () => { void load() }

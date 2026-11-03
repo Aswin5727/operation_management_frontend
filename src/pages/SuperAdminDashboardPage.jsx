@@ -758,7 +758,7 @@ export function SuperAdminDashboardPage() {
   }, [superAdminStudentView])
 
   useEffect(() => {
-    if (!branches.length) {
+    if (activeSection !== 'students' || !branches.length) {
       setIsGlobalStudentsLoading(false)
       setAllBranchStudents([])
       return undefined
@@ -768,31 +768,36 @@ export function SuperAdminDashboardPage() {
     setIsGlobalStudentsLoading(true)
     const loadStudents = async () => {
       try {
-        const results = await Promise.all(
-          [1].map(async () => {
-            const firstResponse = await request('/branch-students?page=1&limit=100&summary=1&sortBy=createdAt&sortOrder=desc')
-            const firstPayload = firstResponse?.data ?? firstResponse
-            const firstRows = Array.isArray(firstPayload) ? firstPayload : []
-            const totalPages = Math.min(100, Math.max(1, Number(firstResponse?.meta?.totalPages || 1)))
-            const remainingResponses = await Promise.all(
-              Array.from({ length: totalPages - 1 }, (_, index) => request(`/branch-students?page=${index + 2}&limit=100&summary=1&sortBy=createdAt&sortOrder=desc`)),
-            )
-            return [
-              ...firstRows,
-              ...remainingResponses.flatMap((response) => {
-                const payload = response?.data ?? response
-                return Array.isArray(payload) ? payload : []
-              }),
-            ].map((student) => ({
-              ...student,
-              branchRecord: branches.find((branch) => {
-                const branchKeys = [branch.id, branch.branchId, branch.branchCode].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
-                const studentKeys = [student.branchId, student.branchCode, student.branch?.id, student.branch?.branchId, student.branch?.branchCode].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
-                return studentKeys.some((key) => branchKeys.includes(key))
-              }) || null,
-            }))
-          }),
-        )
+        const rows = []
+        let page = 1
+        let totalPages = 1
+        do {
+          const response = await request(`/branch-students?page=${page}&limit=100&summary=1&includeProgress=0&sortBy=createdAt&sortOrder=desc`)
+          const payload = response?.data ?? response
+          const pageRows = Array.isArray(payload)
+            ? payload
+            : Array.isArray(payload?.data)
+              ? payload.data
+              : Array.isArray(payload?.items)
+                ? payload.items
+                : Array.isArray(payload?.records)
+                  ? payload.records
+                  : []
+          rows.push(...pageRows)
+          const meta = response?.meta || payload?.meta || payload?.pagination || payload?.pageInfo
+          totalPages = Math.min(100, Math.max(1, Number(meta?.totalPages || 1)))
+          page += 1
+          if (!pageRows.length) break
+        } while (page <= totalPages)
+
+        const results = [rows.map((student) => ({
+          ...student,
+          branchRecord: branches.find((branch) => {
+            const branchKeys = [branch.id, branch.branchId, branch.branchCode].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+            const studentKeys = [student.branchId, student.branchCode, student.branch?.id, student.branch?.branchId, student.branch?.branchCode].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+            return studentKeys.some((key) => branchKeys.includes(key))
+          }) || null,
+        }))]
 
         if (!cancelled) {
           setAllBranchStudents(results.flat())
@@ -810,7 +815,7 @@ export function SuperAdminDashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [branches, globalStudentRefreshKey])
+  }, [activeSection, branches, globalStudentRefreshKey])
 
   useEffect(() => {
     const refreshStudents = () => setGlobalStudentRefreshKey((current) => current + 1)

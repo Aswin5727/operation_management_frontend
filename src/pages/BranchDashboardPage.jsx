@@ -634,9 +634,12 @@ function isCompletedStudentReportRecord(student = {}) {
   })
   const hasVisibleEnrollment = enrollments.some((entry) => {
     const status = String(entry?.status || entry?.recordStatus || entry?.studentStatus || '').trim().toUpperCase()
+    const completionStatus = String(entry?.courseCompletion || entry?.courseCompletionStatus || '').trim().toUpperCase()
+    // courseCompletedAt can be stale or set before academic completion.
+    // Keep the enrollment in Students until the authoritative academic
+    // completion status is COMPLETED.
     return !['COMPLETED', 'DISCONTINUED'].includes(status)
-      && !entry?.courseCompletedAt
-      && !entry?.completedAt
+      && completionStatus !== 'COMPLETED'
   })
 
   if (enrollments.length) return !hasVisibleEnrollment
@@ -1963,6 +1966,11 @@ function isUploadedCompletedStudentReportRecord(student = {}) {
     ...(Array.isArray(student.courseEnrollments) ? student.courseEnrollments.map((entry) => entry?.importedLifecycleStatus) : []),
   ]
   const importedLifecycleMarker = importedLifecycleValues.some((value) => ['COMPLETED', 'DISCONTINUED'].includes(String(value || '').trim().toUpperCase()))
+  const importedAcademicResultsMarker = Boolean(
+    student.importedAcademicResults &&
+    typeof student.importedAcademicResults === 'object' &&
+    !Array.isArray(student.importedAcademicResults),
+  )
   const uploadedStudentStatuses = [
     student.studentStatus,
     student.status,
@@ -1976,7 +1984,7 @@ function isUploadedCompletedStudentReportRecord(student = {}) {
   // persisted may only have a completed lifecycle/date and no enrollment
   // metadata. Reuse the report-record classifier as a safe fallback so those
   // old rows cannot recreate progress alerts after login.
-  return importMarker || sourceMarker || reportFieldMarker || importedLifecycleMarker || reportStudentStatusMarker || isCompletedStudentReportRecord(student)
+  return importMarker || sourceMarker || reportFieldMarker || importedLifecycleMarker || importedAcademicResultsMarker || reportStudentStatusMarker || isCompletedStudentReportRecord(student)
 }
 
 function isSuccessfulDashboardPayment(payment = {}) {
@@ -10273,7 +10281,6 @@ useEffect(() => {
           Number.isFinite(workProgress) ? workProgress : 0,
         )
         return isCourseCompletionComplete(student, courseId, courseName, progress, branchAcademicProgressByStudent, catalogCourse)
-          || Boolean(entry?.courseCompletedAt || entry?.completedAt)
       })
       if (isCompleted) completedKeys.add(String(student?.studentId || student?.id || '').trim().toLowerCase())
     })
