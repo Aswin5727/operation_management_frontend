@@ -758,7 +758,7 @@ export function SuperAdminDashboardPage() {
   }, [superAdminStudentView])
 
   useEffect(() => {
-    if (!branches.length) {
+    if (activeSection !== 'students' || !branches.length) {
       setIsGlobalStudentsLoading(false)
       setAllBranchStudents([])
       return undefined
@@ -815,7 +815,7 @@ export function SuperAdminDashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [branches, globalStudentRefreshKey])
+  }, [activeSection, branches, globalStudentRefreshKey])
 
   useEffect(() => {
     const refreshStudents = () => setGlobalStudentRefreshKey((current) => current + 1)
