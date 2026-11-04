@@ -1252,3 +1252,6 @@ body:has(.lead-followup-backdrop) .branch-dashboard-app-shell .super-admin-sideb
 .lead-actions-menu{display:none;grid-auto-flow:row;align-content:start;min-height:max-content}
 .lead-actions:hover .lead-actions-menu,.lead-actions.is-open .lead-actions-menu{display:grid!important}
 .lead-actions-menu>button{position:static!important;inset:auto!important;display:block!important;width:100%!important;height:34px!important;min-height:34px!important;margin:0!important;transform:none!important;float:none!important}
+
+/* The list switch belongs on the leads table, not inside the lead profile view. */
+body:has(.lead-profile-modal) .lead-list-tabs{display:none}
