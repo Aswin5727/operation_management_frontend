@@ -9236,14 +9236,32 @@ const studentCourseOptions = useMemo(() => {
     )
   }, [isStudentFormOpen, studentFormMode, studentForm.courseStartDate])
 
+  // Completed Student Excel imports are historical/report records. They must
+  // remain available to the Completed Students page, but must not participate
+  // in operational views such as Payments, Students, batches, or dashboard
+  // totals.
+  const operationalBranchStudents = useMemo(
+    () => branchStudents.filter((student) => !isUploadedCompletedStudentReportRecord(student)),
+    [branchStudents],
+  )
+
   const branchPaymentRows = useMemo(
-  () => branchStudents.flatMap((stu) => getBranchStudentCourseRows(stu)),
-  [branchStudents],
+  () => operationalBranchStudents.flatMap((stu) => getBranchStudentCourseRows(stu)),
+  [operationalBranchStudents],
 )
 
   const allPaymentHistoryRecords = useMemo(() => {
     const records = new Map()
+    const importedStudentKeys = new Set(
+      branchStudents
+        .filter((student) => isUploadedCompletedStudentReportRecord(student))
+        .flatMap((student) => [student.studentId, student.id, student._id, student.recordId])
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
     const addRecord = (record = {}) => {
+      const recordStudentKey = String(record.studentId || record.studentRecordId || record.branchStudentId || '').trim().toLowerCase()
+      if (recordStudentKey && importedStudentKeys.has(recordStudentKey)) return
       const id = String(
         record.id ||
         record.receiptNumber ||
@@ -9292,7 +9310,7 @@ const studentCourseOptions = useMemo(() => {
       })
     })
 
-    branchStudents.forEach((stu) => {
+    operationalBranchStudents.forEach((stu) => {
       // Stored payment history is authoritative. The installment schedule is
       // only a fallback for students without recorded payment transactions;
       // otherwise a due/updated schedule row can appear as a fake payment.
@@ -9347,7 +9365,7 @@ const studentCourseOptions = useMemo(() => {
       })
     })
 
-    const studentById = new Map(branchStudents.flatMap((student) => [
+    const studentById = new Map(operationalBranchStudents.flatMap((student) => [
       [String(student.studentId || '').trim().toLowerCase(), student],
       [String(student.id || '').trim().toLowerCase(), student],
     ].filter(([key]) => key)))
@@ -9357,7 +9375,7 @@ const studentCourseOptions = useMemo(() => {
         studentById.get(String(record.studentId || '').trim().toLowerCase()) || {},
       ))
       .sort((a, b) => new Date(b.dateRaw || 0) - new Date(a.dateRaw || 0))
-  }, [branchStudents, storedPaymentHistoryRecords])
+  }, [branchStudents, operationalBranchStudents, storedPaymentHistoryRecords])
 
   const dashboardFilterOptions = useMemo(() => {
     const coursesById = new Map()
@@ -9368,7 +9386,7 @@ const studentCourseOptions = useMemo(() => {
     }
 
     branchCourseCards.forEach((course) => addCourse(course))
-    branchStudents.forEach((student) => addCourse(student, student.courseName || student.courseInterested, student.courseName || student.courseInterested))
+    operationalBranchStudents.forEach((student) => addCourse(student, student.courseName || student.courseInterested, student.courseName || student.courseInterested))
 
     const batchesById = new Map()
     const addBatch = (batch = {}, fallback = {}) => {
@@ -9392,7 +9410,7 @@ const studentCourseOptions = useMemo(() => {
       if (!batches.length) addBatch(group, { courseId: groupCourseId, courseName: groupCourseName })
     })
     if (!branchBatchGroups.length) {
-      branchStudents.forEach((student) => addBatch(student, {
+      operationalBranchStudents.forEach((student) => addBatch(student, {
         courseId: student.courseId || student.courseName || student.courseInterested,
         batchId: student.batchId || student.batchName || student.batch,
         batchName: student.batchName || student.batch,
@@ -9433,7 +9451,7 @@ const studentCourseOptions = useMemo(() => {
       courses: [...uniqueCoursesByName.values()].sort((left, right) => left.label.localeCompare(right.label)),
       batches,
     }
-  }, [branchBatchGroups, branchCourseCards, branchStudents, dashboardCourseDraft])
+  }, [branchBatchGroups, branchCourseCards, dashboardCourseDraft, operationalBranchStudents])
 
   const dashboardData = useMemo(() => {
     const selectedDate = dashboardDateTo || dashboardDateFrom || ''
@@ -9479,7 +9497,7 @@ const studentCourseOptions = useMemo(() => {
     )
     const matchesStudentFilters = (student) => matchesBaseStudentFilters(student) && inSelectedDateRange(studentAdmissionDate(student))
 
-    const students = branchStudents.filter(matchesStudentFilters)
+    const students = operationalBranchStudents.filter(matchesStudentFilters)
     const studentIds = new Set(students.flatMap((student) => [student.id, student.studentId].map((id) => String(id || '').trim()).filter(Boolean)))
     const currentBranchIds = new Set(
       [branchStudentScope.id, branchStudentScope.branchId, branchStudentScope.branchCode]
@@ -9585,7 +9603,7 @@ const studentCourseOptions = useMemo(() => {
       trendMax,
       statusValues: [totalCollected, Math.max(totalFee - totalCollected - overdue.reduce((sum, item) => sum + Math.max(item.amount - item.paidAmount, 0), 0), 0), overdue.reduce((sum, item) => sum + Math.max(item.amount - item.paidAmount, 0), 0)],
     }
-  }, [allPaymentHistoryRecords, branchStudentScope, branchStudents, dashboardBatchFilter, dashboardCourseFilter, dashboardDateFrom, dashboardDateTo, dashboardFilterOptions, dashboardTrendMode, discontinuedFinancialSummary])
+  }, [allPaymentHistoryRecords, branchStudentScope, dashboardBatchFilter, dashboardCourseFilter, dashboardDateFrom, dashboardDateTo, dashboardFilterOptions, dashboardTrendMode, discontinuedFinancialSummary, operationalBranchStudents])
 
   const trendingCourses = useMemo(() => {
     const courseMap = new Map()
@@ -10309,8 +10327,7 @@ useEffect(() => {
   const filteredBranchStudents = useMemo(() => {
     if (!isBranchAcademicProgressLoaded) return []
     const q = appliedStudentSearchTerm.trim().toLowerCase()
-    return branchStudentsForDisplay
-      .filter((student) => isBatchFreezeActiveForStudent(student, branchBatchGroups) || !isCompletedStudentReportRecord(student))
+    return operationalBranchStudents
       .filter((student) => {
         if (!q) return true
         return [student?.studentId, student?.studentName, student?.email, student?.phone]
@@ -10354,7 +10371,7 @@ useEffect(() => {
         const comparison = String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' })
         return studentSortOrder === 'asc' ? comparison : -comparison
       })
-  }, [appliedStudentSearchTerm, branchBatchGroups, branchStudentsForDisplay, courseCompletedStudentKeys, isBranchAcademicProgressLoaded, isCourseCompletedFilter, studentCourseFilter, studentSortBy, studentSortOrder, studentStatusFilter])
+  }, [appliedStudentSearchTerm, courseCompletedStudentKeys, isBranchAcademicProgressLoaded, isCourseCompletedFilter, operationalBranchStudents, studentCourseFilter, studentSortBy, studentSortOrder, studentStatusFilter])
 
   const totalStudentPages = isCourseCompletedFilter
     ? 1
@@ -12093,14 +12110,14 @@ useEffect(() => {
                 <Student360Page
                   key={student360Id}
                   studentId={decodeURIComponent(student360Id)}
-                  student={branchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(student360Id)).trim().toLowerCase()))}
+                  student={operationalBranchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(student360Id)).trim().toLowerCase()))}
                   facultyTodayWorkEntries={facultyTodayWorkEntries}
                   branchCourseCards={branchCourseCards}
                   branchBatchGroups={branchBatchGroups}
                   isAssignmentBatchFull={(batch) => {
                     const targetStudentId = String(decodeURIComponent(student360Id)).trim().toLowerCase()
-                    const targetStudent = branchStudents.find((record) => [record?.studentId, record?.studentCode, record?.id, record?._id].some((value) => String(value || '').trim().toLowerCase() === targetStudentId))
-                    return getBatchSeatSummary(batch, branchStudents, getStudentSeatKeys(targetStudent || {})).isFull
+                    const targetStudent = operationalBranchStudents.find((record) => [record?.studentId, record?.studentCode, record?.id, record?._id].some((value) => String(value || '').trim().toLowerCase() === targetStudentId))
+                    return getBatchSeatSummary(batch, operationalBranchStudents, getStudentSeatKeys(targetStudent || {})).isFull
                   }}
                   resolveCourseEndDate={(startDate, batch, course) => calculateBatchCourseEndDate(startDate, batch.weekType, batch.mode, course?.hours || course?.duration, batch, instituteLeaves)}
                   branch={branchProfile || branchData}
@@ -12129,9 +12146,9 @@ useEffect(() => {
               {activeSection === 'student-calendar' ? (
                 <StudentCalendarPage
                   studentId={decodeURIComponent(studentCalendarId)}
-                  student={branchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(studentCalendarId)).trim().toLowerCase()))}
+                  student={operationalBranchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(studentCalendarId)).trim().toLowerCase()))}
                   facultyProfile={getBranchStudentCalendarFaculty(
-                    branchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(studentCalendarId)).trim().toLowerCase())),
+                    operationalBranchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(studentCalendarId)).trim().toLowerCase())),
                     branchFacultyRecords,
                     branchBatchGroups,
                   )}
@@ -14083,7 +14100,7 @@ else {
     branchCourses={branchCourseCards}
     branchFacultyRecords={branchFacultyRecords}
     facultyList={facultyList}
-    branchStudents={branchStudents}
+    branchStudents={operationalBranchStudents}
     facultyTodayWorkEntries={facultyTodayWorkEntries}
     onDownloadAttendance={(batch) => setAttendanceReportTarget({ mode: 'batch', record: batch })}
   />
@@ -14118,7 +14135,7 @@ else {
       <RecordPayment
         key={`${recordPaymentStudent?.id || ''}-${recordPaymentStudent?.studentId || ''}-${recordPaymentStudent?.studentName || recordPaymentStudent?.name || ''}`}
         student={recordPaymentStudent}
-        students={branchStudents}
+        students={operationalBranchStudents}
         branchProfile={branchProfile}
         branchAdminName={branchAdminDisplay}
         onClose={() => {
