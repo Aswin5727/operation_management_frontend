@@ -261,7 +261,7 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
       setResult(importedResult)
       if (importedResult?.importedRows) {
         setBusy(false)
-        await onImported?.()
+        await onImported?.(importedResult)
       }
     } catch (requestError) {
       const validationData = requestError?.body?.data
@@ -308,7 +308,7 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
       setResult(importedResult)
       if (importedResult?.importedRows) {
         setBusy(false)
-        await onImported?.()
+        await onImported?.(importedResult)
       }
     } catch (requestError) {
       const validationData = requestError?.body?.data
@@ -374,7 +374,7 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
             <div className="completed-upload-instructions course-import-instructions"><strong>Before you upload</strong><p>Complete the student report template, then upload the .xlsx file.</p><button type="button" className="button button-ghost" onClick={() => void downloadCompletedStudentTemplate()} disabled={busy}><Download size={15} /> Download template</button></div>
             <label className={`completed-upload-file course-import-file${dragging ? ' is-dragging' : ''}${file ? ' has-file' : ''}${busy ? ' is-loading' : ''}`} aria-busy={busy} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); void selectFile(event.dataTransfer.files?.[0]) }}>
               <input ref={inputRef} type="file" accept=".xlsx" disabled={busy} onChange={(event) => void selectFile(event.target.files?.[0])} />
-              {busy ? <div className="completed-upload-file-progress course-import-file-progress" role="status" aria-live="polite"><LoaderCircle className="completed-upload-spinner" size={23} /><strong>Uploading student workbook...</strong><span>{file?.name || 'Please wait while we validate the workbook.'}</span></div> : <><Upload size={23} /><strong>{file ? file.name : 'Upload student Excel'}</strong><span>{file ? `${(file.size / 1024).toFixed(1)} KB | .xlsx` : '.xlsx only | up to 20 MB | ' + COMPLETED_IMPORT_MAX_ROWS + ' rows per upload'}</span></>}
+              {busy ? <div className="completed-upload-file-progress course-import-file-progress" role="status" aria-live="polite"><LoaderCircle className="completed-upload-spinner" size={23} /><strong>Uploading student workbook...</strong><span>{file?.name || 'Please wait while we validate the workbook.'}</span></div> : <><Upload size={23} /><strong>{file ? file.name : 'Upload student Excel'}</strong><span>{file ? `${(file.size / 1024).toFixed(1)} KB | .xlsx` : '.xlsx only | up to 20 MB'}</span></>}
             </label>
           </div>
           {preview ? <div className="completed-upload-summary"><div><strong>{preview.totalRows}</strong><span>Total rows</span></div><div className="is-valid"><strong>{preview.validRows}</strong><span>Valid</span></div><div className="is-invalid"><strong>{needsFixingRows.length}</strong><span>Needs fixing</span></div>{duplicateRows.length ? <div className="is-duplicate"><strong>{duplicateRows.length}</strong><span>Duplicate</span></div> : null}{preview.warningRows ? <div className="is-warning"><strong>{preview.warningRows}</strong><span>Warnings</span></div> : null}{preview.invalidRows > 0 ? <button type="button" className="completed-upload-error-download" onClick={() => void downloadCompletedStudentFailedRows(preview.rows)} disabled={busy}><Download size={15} /> Download Errors</button> : null}</div> : null}
