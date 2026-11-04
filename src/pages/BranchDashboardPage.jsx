@@ -9519,7 +9519,7 @@ const studentCourseOptions = useMemo(() => {
     })
     const dueSoon = dueThisWeek.filter((item) => getDashboardDateValue(item.dueDate) > todayValue)
     const overdue = dueItems.filter((item) => getDashboardDateValue(item.dueDate) < todayValue)
-    const currentMonthStudents = students.length
+    const currentMonthStudents = students.filter((student) => !isUploadedCompletedStudentReportRecord(student)).length
     const totalFee = rows.reduce((sum, row) => sum + row.totalFee, 0)
     const totalCollected = rows.reduce((sum, row) => sum + row.paidAmount, 0)
     const startOfWeek = (date) => {
