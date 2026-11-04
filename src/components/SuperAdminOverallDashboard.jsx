@@ -168,7 +168,7 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
     } catch (loadError) {
       setBranchPerformance([])
       setBranchPerformanceHasData(false)
-      setError(loadError?.status === 404 ? 'No matching branch found.' : 'Unable to load branch performance.')
+      setError(loadError?.status === 404 ? 'No matching branch found.' : 'Dashboard data is temporarily unavailable due to a server capacity limit.')
     } finally {
       setIsPerformanceLoading(false)
     }
