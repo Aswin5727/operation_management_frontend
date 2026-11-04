@@ -8647,12 +8647,31 @@ const studentCourseOptions = useMemo(() => {
     return hasAnyCourse && hasAnyFaculty && hasAnyBatch
   }, [branchBatchGroups, branchFacultyRecords, studentCourseOptions])
 
+  useEffect(() => {
+    if (!isStudentFormOpen || studentFormMode === 'view') return undefined
+    void loadBranchInstallmentPlanOptions()
+    return undefined
+  }, [isStudentFormOpen, loadBranchInstallmentPlanOptions, studentFormMode])
+
   const selectedStudentCoursePaymentPlans = useMemo(
-    () =>
-      Array.isArray(selectedStudentCourse?.paymentPlans)
+    () => {
+      const coursePlans = Array.isArray(selectedStudentCourse?.paymentPlans)
         ? selectedStudentCourse.paymentPlans
-        : [],
-    [selectedStudentCourse],
+        : []
+      const mergedPlans = normalizeBranchCoursePaymentPlanSelections([
+        ...coursePlans,
+        ...(Array.isArray(branchInstallmentTemplates) ? branchInstallmentTemplates : []),
+      ])
+      const seenNames = new Set()
+
+      return mergedPlans.filter((plan) => {
+        const name = String(plan?.templateName || '').trim().replace(/\s+/g, ' ').toLowerCase()
+        if (name && seenNames.has(name)) return false
+        if (name) seenNames.add(name)
+        return true
+      })
+    },
+    [branchInstallmentTemplates, selectedStudentCourse],
   )
 
   const selectedStudentPaymentPlan = useMemo(
