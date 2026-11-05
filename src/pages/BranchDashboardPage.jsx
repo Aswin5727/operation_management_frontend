@@ -8289,7 +8289,8 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
       // Course Completion is derived from the backend's academic/project
       // progress snapshot. Do not omit that snapshot on the main Students
       // table, otherwise a 100% course is rendered as In Progress.
-      const freshRecords = await refreshBranchStudents(branchStudentScope, { includeProgress: true })
+      const shouldIncludeProgress = activeSection === 'students' || activeSection === 'completed-students'
+      const freshRecords = await refreshBranchStudents(branchStudentScope, { includeProgress: shouldIncludeProgress })
       if (requestId === branchStudentReloadRequestRef.current) {
         setBranchStudents(freshRecords)
       }
@@ -8306,7 +8307,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         setLoadedBranchStudentScopeKey(branchStudentScopeKey)
       }
     }
-  }, [admissionOnlyMode, branchStudentScope, branchStudentScopeKey])
+  }, [activeSection, admissionOnlyMode, branchStudentScope, branchStudentScopeKey])
 
   const refreshBranchDashboard = useCallback(async () => {
     if (isDashboardRefreshing) return
