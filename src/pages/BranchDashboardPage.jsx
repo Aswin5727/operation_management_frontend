@@ -1464,13 +1464,7 @@ function computeBranchStudentPaymentSummary(stu = {}) {
       return paid > 0 && paid < amount
     })
 
-  const completionTolerance = scheduleInstallments.length > 0 ? 2 : 0
-  const isEffectivelyCompleted =
-    totalFee > 0 &&
-    (
-      allInstallmentsPaid ||
-      paidAmount >= Math.max(totalFee - completionTolerance, 0)
-    )
+  const isEffectivelyCompleted = scheduleInstallments.length > 0 && allInstallmentsPaid
 
   const displayPaidAmount = isEffectivelyCompleted ? totalFee : paidAmount
   const displayPendingAmount = isEffectivelyCompleted ? 0 : Math.max(totalFee - paidAmount, 0)
@@ -1480,16 +1474,6 @@ function computeBranchStudentPaymentSummary(stu = {}) {
     paymentStatus = 'Completed'
   } else if (hasPartialInstallment) {
     paymentStatus = 'Partially Paid'
-  } else if (nextDueDate) {
-    const today = new Date()
-    const dueDate = new Date(nextDueDate)
-    if (!Number.isNaN(dueDate.getTime()) && dueDate < today) {
-      paymentStatus = 'Overdue'
-    }
-  } else if (paidAmount > 0) {
-    paymentStatus = 'Upcoming'
-  } else {
-    paymentStatus = 'Upcoming'
   }
 
   return {
@@ -1615,9 +1599,25 @@ function getBranchStudentCourseRows(stu = {}) {
       ? Math.max(Number(nextInstallment.amount ?? nextInstallment.installmentAmount ?? 0) - Number(nextInstallment.paidAmount ?? nextInstallment.amountPaid ?? 0), 0)
       : 0
     const nextDueDate = nextInstallment?.dueDate || nextInstallment?.date || null
-    const isCompleted = totalFee > 0 && paidAmount >= Math.max(totalFee - 2, 0)
+    const allInstallmentsPaid = course.rows.length > 0 && course.rows.every((installment) => {
+      const amount = Number(installment.amount ?? installment.installmentAmount ?? 0)
+      const paid = Number(installment.paidAmount ?? installment.amountPaid ?? 0)
+      return amount > 0 && paid >= amount
+    })
+    const hasPartialInstallment = course.rows.some((installment) => {
+      const amount = Number(installment.amount ?? installment.installmentAmount ?? 0)
+      const paid = Number(installment.paidAmount ?? installment.amountPaid ?? 0)
+      return amount > 0 && paid > 0 && paid < amount
+    })
+    const isCompleted = allInstallmentsPaid
     const isOverdue = !isCompleted && nextDueDate && new Date(nextDueDate) < new Date()
-    const paymentStatus = isCompleted ? 'Completed' : isOverdue ? 'Overdue' : paidAmount > 0 ? 'Partially Paid' : 'Pending'
+    const paymentStatus = isCompleted
+      ? 'Completed'
+      : isOverdue
+        ? 'Overdue'
+        : hasPartialInstallment
+          ? 'Partially Paid'
+          : 'Pending'
     const student = {
       ...stu,
       courseId: course.courseId || stu.courseId,
@@ -8289,7 +8289,8 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
       // Course Completion is derived from the backend's academic/project
       // progress snapshot. Do not omit that snapshot on the main Students
       // table, otherwise a 100% course is rendered as In Progress.
-      const freshRecords = await refreshBranchStudents(branchStudentScope, { includeProgress: true })
+      const shouldIncludeProgress = activeSection === 'students' || activeSection === 'completed-students'
+      const freshRecords = await refreshBranchStudents(branchStudentScope, { includeProgress: shouldIncludeProgress })
       if (requestId === branchStudentReloadRequestRef.current) {
         setBranchStudents(freshRecords)
       }
@@ -8306,7 +8307,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         setLoadedBranchStudentScopeKey(branchStudentScopeKey)
       }
     }
-  }, [admissionOnlyMode, branchStudentScope, branchStudentScopeKey])
+  }, [activeSection, admissionOnlyMode, branchStudentScope, branchStudentScopeKey])
 
   const refreshBranchDashboard = useCallback(async () => {
     if (isDashboardRefreshing) return
@@ -12836,42 +12837,11 @@ useEffect(() => {
 // -----------------------------
 let paymentStatus
 
-const allInstallmentsPaid =
-  installments.length > 0 &&
-  installments.every((inst) => {
-    const amount = Number(
-      inst.amount ??
-      inst.installmentAmount ??
-      0
-    )
-
-    const paid = Number(
-      inst.paidAmount ??
-      inst.amountPaid ??
-      0
-    )
-
-    return paid >= amount
-  })
-
-// Check if any installment is partially paid
-const hasPartialInstallment =
-  installments.length > 0 &&
-  installments.some((inst) => {
-    const amount = Number(
-      inst.amount ??
-      inst.installmentAmount ??
-      0
-    )
-
-    const paid = Number(
-      inst.paidAmount ??
-      inst.amountPaid ??
-      0
-    )
-
-    return paid > 0 && paid < amount
-  })
+const hasPartialInstallment = installments.some((inst) => {
+  const amount = Number(inst.amount ?? inst.installmentAmount ?? 0)
+  const paid = Number(inst.paidAmount ?? inst.amountPaid ?? 0)
+  return amount > 0 && paid > 0 && paid < amount
+})
 
 // Get today's date
 const today = new Date()
@@ -12886,43 +12856,26 @@ if (dueDate) {
   dueDate.setHours(0, 0, 0, 0)
 }
 
-// -------------------------------------------------
-// 1. COMPLETED
-// -------------------------------------------------
-if (
-  allInstallmentsPaid ||
-  (totalFee > 0 && paidAmount >= totalFee)
-) {
-  paymentStatus = 'Completed'
-}
+const paidProgress = Number(installmentProgress.paidInstallmentPercentage) || 0
 
+// Completed is based only on the displayed paid progress.
+if (paidProgress >= 100) {
+  paymentStatus = 'Completed'
+} else if (
 // -------------------------------------------------
-// 2. OVERDUE
+// 1. OVERDUE
 // Pending amount + due date passed
 // -------------------------------------------------
-else if (
   nextDueDate &&
   dueDate &&
   !Number.isNaN(dueDate.getTime()) &&
   dueDate < today
 ) {
   paymentStatus = 'Overdue'
-}
-
-// -------------------------------------------------
-// 3. PARTIAL
-// Some amount paid, but full installment not paid
-// -------------------------------------------------
-else if (hasPartialInstallment) {
-  paymentStatus = 'Partial'
-}
-
-// -------------------------------------------------
-// 4. UPCOMING
-// Pending payment + due date is today/future
-// -------------------------------------------------
-else {
-  paymentStatus = 'Upcoming'
+} else if (hasPartialInstallment) {
+  paymentStatus = 'Partially Paid'
+} else {
+  paymentStatus = 'Pending'
 }
 
           const isStudentDiscontinued = Boolean(
@@ -13188,19 +13141,16 @@ else {
               const nextCourseDueDate = nextCourseInstallment?.dueDate || nextCourseInstallment?.date || ''
               const coursePaidAmount = Math.min(item.amount, paidByCourse[index])
               const paidPercentage = item.amount > 0 ? Math.min(100, (coursePaidAmount / item.amount) * 100) : 0
-              const courseStartDate = item.entry.courseStartDate || item.entry.startDate || ''
-              const parsedCourseStartDate = courseStartDate
-                ? new Date(`${String(courseStartDate).slice(0, 10)}T00:00:00`)
-                : null
-              const isSequentialCourseNotStarted = isSequentialArrangement
-                && parsedCourseStartDate
-                && !Number.isNaN(parsedCourseStartDate.getTime())
-                && parsedCourseStartDate >= today
               // A fully paid course is completed even when the next
               // sequential course is still pending or has not started.
               const isCoursePaymentCompleted = item.amount > 0 && (
                 paidPercentage >= 100 || coursePaidAmount >= item.amount
               )
+              const hasPartialPaidInstallment = courseInstallments.some((installment) => {
+                const amount = Number(installment.amount ?? installment.installmentAmount ?? 0)
+                const paid = Number(installment.paidAmount ?? installment.amountPaid ?? 0)
+                return amount > 0 && paid > 0 && paid < amount
+              })
               const isCourseDiscontinued = Boolean(
                 isStudentDiscontinued
                 || item.entry?.isDiscontinued
@@ -13220,15 +13170,11 @@ else {
                   : 'IN_PROGRESS'
               const courseStatus = isCoursePaymentCompleted
                 ? 'Completed'
-                : item.isPendingSequentialCourse
-                ? 'Upcoming'
-                : isSequentialCourseNotStarted
-                ? 'Upcoming'
                 : nextCourseDueDate && new Date(`${String(nextCourseDueDate).slice(0, 10)}T00:00:00`) < today
                   ? 'Overdue'
-                  : coursePaidAmount > 0
-                    ? 'Partial'
-                    : 'Upcoming'
+                  : hasPartialPaidInstallment
+                    ? 'Partially Paid'
+                    : 'Pending'
               return { ...item, coursePaidAmount, paidPercentage, progressValue, courseCompletionStatus, courseIsDiscontinued: isCourseDiscontinued, nextCourseInstallment, nextCourseDueDate, courseStatus, rowInstallments: courseInstallments }
             })
             const completedCourseRows = courseRows.filter((courseRow) => courseRow.courseCompletionStatus === 'COMPLETED')
@@ -13268,8 +13214,8 @@ else {
               : displayCourseRows.some((courseRow) => courseRow.courseStatus === 'Overdue')
                 ? 'Overdue'
                 : hasPartiallyPaidInstallment
-                  ? 'Partial'
-                  : 'Upcoming'
+                  ? 'Partially Paid'
+                  : 'Pending'
 
             return (
               <Fragment key={stu.studentId || stu.id}>
