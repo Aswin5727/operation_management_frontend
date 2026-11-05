@@ -309,8 +309,11 @@ const getPendingInstallmentDefaults = (studentRecord) => {
     : [];
 
   const pendingInstallment = installmentSchedule.find((installment) => {
-    const status = String(installment?.status || "").toLowerCase();
-    return status !== "paid";
+    const amount = Number(installment?.amount ?? installment?.installmentAmount ?? 0);
+    const amountPaid = Number(
+      installment?.amountPaid ?? installment?.paidAmount ?? 0
+    );
+    return amount > amountPaid;
   });
 
   if (!pendingInstallment) {
@@ -324,7 +327,7 @@ const getPendingInstallmentDefaults = (studentRecord) => {
   const pendingAmount = Math.max(amount - amountPaid, 0);
 
   return {
-    payAgainst: `Installment ${pendingInstallment.installmentNumber}`,
+    payAgainst: `Installment ${pendingInstallment.installmentNumber || installmentSchedule.indexOf(pendingInstallment) + 1}`,
     amountToPay: String(pendingAmount),
     amountReceived: String(pendingAmount),
   };
@@ -354,6 +357,32 @@ const getCourseInstallmentSlice = (studentRecord = {}, enrollments = [], selecte
   const selectedIndex = enrollments.indexOf(selectedEnrollment);
   if (!all.length || selectedIndex < 0) return Array.isArray(explicit) ? explicit : [];
   const counts = enrollments.map(getPlanInstallmentCount);
+  const isSequential = String(studentRecord?.arrangementType || studentRecord?.enrollmentType || '').trim().toUpperCase() === 'SEQUENTIAL';
+  if (isSequential) {
+    let consumed = 0;
+    enrollments.forEach((enrollment, index) => {
+      if (index === enrollments.length - 1) {
+        counts[index] = Math.max(all.length - consumed, 0);
+        return;
+      }
+      const courseAmount = Number(String(
+        enrollment.finalCourseAmount
+          ?? enrollment.afterDiscount
+          ?? enrollment.totalAmount
+          ?? enrollment.totalCourseAmount
+          ?? enrollment.courseAmount
+          ?? 0,
+      ).replace(/,/g, '')) || 0;
+      let scheduledAmount = 0;
+      let courseCount = 0;
+      while (consumed + courseCount < all.length && scheduledAmount < courseAmount) {
+        scheduledAmount += Number(all[consumed + courseCount]?.amount ?? all[consumed + courseCount]?.installmentAmount ?? 0) || 0;
+        courseCount += 1;
+      }
+      counts[index] = courseCount || counts[index] || 0;
+      consumed += counts[index];
+    });
+  }
   const unknownIndexes = counts.map((value, index) => value ? -1 : index).filter((index) => index >= 0);
   const remaining = Math.max(all.length - counts.reduce((sum, value) => sum + value, 0), 0);
   if (unknownIndexes.length) {
@@ -367,7 +396,13 @@ const getCourseInstallmentSlice = (studentRecord = {}, enrollments = [], selecte
   }
   const offset = counts.slice(0, selectedIndex).reduce((sum, value) => sum + value, 0);
   const sharedSlice = all.slice(offset, offset + counts[selectedIndex]);
-  return sharedSlice.length ? sharedSlice : (Array.isArray(explicit) ? explicit : []);
+  return sharedSlice.length
+    ? sharedSlice.map((installment, index) => ({
+      ...installment,
+      installmentNumber: Number(installment.installmentNumber || installment.number || offset + index + 1),
+      number: Number(installment.number || installment.installmentNumber || offset + index + 1),
+    }))
+    : (Array.isArray(explicit) ? explicit : []);
 };
 
 const EMPTY_STUDENT = {};
@@ -540,15 +575,18 @@ const RecordPayment = ({ student, students = [], onClose, branchProfile = null, 
         return installmentAmount > 0 && requestedAmount > 0 && Math.abs(installmentAmount - requestedAmount) < 0.01;
       }) ?? -1
     : -1;
-  const sequentialLocalPaymentIndex = amountMatchedCourseInstallmentIndex >= 0
-    ? amountMatchedCourseInstallmentIndex
-    : pendingCourseInstallmentIndex >= 0
+  const sequentialLocalPaymentIndex = pendingCourseInstallmentIndex >= 0
     ? pendingCourseInstallmentIndex
+    : amountMatchedCourseInstallmentIndex >= 0
+      ? amountMatchedCourseInstallmentIndex
     : courseLocalInstallmentIndex >= 0
       ? courseLocalInstallmentIndex
       : -1;
+  const selectedDisplayInstallment = sequentialLocalPaymentIndex >= 0
+    ? activeStudent.installmentSchedule?.[sequentialLocalPaymentIndex]
+    : null;
   const paymentAgainstDisplayLabel = courseLocalInstallmentIndex >= 0 || pendingCourseInstallmentIndex >= 0
-    ? `Installment ${(sequentialLocalPaymentIndex >= 0 ? sequentialLocalPaymentIndex + 1 : sequentialLocalPaymentNumber) || courseLocalInstallmentIndex + 1}`
+    ? `Installment ${selectedDisplayInstallment?.installmentNumber || selectedDisplayInstallment?.number || paymentAgainstNumber || sequentialLocalPaymentNumber || courseLocalInstallmentIndex + 1}`
     : formData.payAgainst;
 
   useEffect(() => {
