@@ -1,0 +1,366 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, Eye, MoreVertical, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { listAllBranchCourses } from '../services/branchCourseService'
+import { listBranchBatches } from '../services/branchBatchService'
+import { createAcademicTest, createScheduledAcademicTest as createScheduledAcademicTestApi, deleteAcademicTest, getAcademicTestCreateOptions, getFacultyAcademicTestResults, listAcademicTests, listBranchAcademicTestReports, listFacultyScheduledAcademicTests, updateAcademicTest } from '../services/academicTestService'
+import { getFacultyCalendar } from '../services/facultyCalendarService'
+import { getMyWeekOffRequests } from '../services/facultyWeekOffService'
+import { getFacultyDashboardOverview } from '../services/dashboardService'
+import '../styles/AcademicTestPage.css'
+import '../styles/SuperAdminDashboardPage.css'
+import AcademicTimePicker from '../components/AcademicTimePicker'
+import BranchAcademicTestReports from './BranchAcademicTestReports'
+
+
+
+
+const TYPE_OPTIONS = [['TEST', 'Test'], ['PROJECT', 'Project'], ['TEST_AND_PROJECT', 'Test + Project']]
+const VALID_TYPES = new Set(TYPE_OPTIONS.map(([value]) => value))
+let activeFacultyDateValidation = () => ''
+const labelType = (value) => TYPE_OPTIONS.find(([key]) => key === value)?.[1] || value || '-'
+const courseLabel = (course) => `${course?.name || '-'}${course?.courseCode ? ` / ${course.courseCode}` : ''}`
+const typeClass = (value) => `academic-test-type-badge academic-test-type-${String(value || '').toLowerCase().replaceAll('_', '-')}`
+function TestTypeBadge({ test }) { return test ? <strong className={typeClass(test.testType)}>{labelType(test.testType)}</strong> : <span className="academic-test-muted">-</span> }
+function TestDetails({ item }) { return <div className="academic-test-items">{(item?.items || []).map((test) => <div className="academic-test-item-row" key={test.sequence}><span>Test {test.sequence}</span><TestTypeBadge test={test} /></div>)}</div> }
+function AcademicFilterSelect({ value, options, onChange, ariaLabel, width = 150 }) { const [isOpen, setIsOpen] = useState(false); const containerRef = useRef(null); const selectedOption = options.find((option) => String(option.value) === String(value)) || options[0]; useEffect(() => { if (!isOpen) return undefined; const close = (event) => { if (!containerRef.current?.contains(event.target)) setIsOpen(false) }; const escape = (event) => { if (event.key === 'Escape') setIsOpen(false) }; document.addEventListener('pointerdown', close); document.addEventListener('keydown', escape); return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape) } }, [isOpen]); return <div ref={containerRef} className={`super-admin-branch-filter academic-test-custom-filter ${isOpen ? 'is-open' : ''}`.trim()} style={{ width: `${width}px` }}><button type="button" className="super-admin-branch-filter-trigger" aria-label={ariaLabel} aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)}><span>{selectedOption?.label || 'Select'}</span><ChevronDown size={15} strokeWidth={2.2} aria-hidden="true" /></button>{isOpen ? <div className="super-admin-branch-filter-menu" role="listbox" aria-label={ariaLabel}>{options.map((option) => <button key={option.value} type="button" role="option" aria-selected={String(option.value) === String(value)} className={`super-admin-branch-filter-option ${String(option.value) === String(value) ? 'is-selected' : ''}`.trim()} onClick={() => { onChange(option.value); setIsOpen(false) }}>{option.label}</button>)}</div> : null}</div> }
+function BatchSelector({ batches, selectedIds, onToggle, onToggleAll }) { const allSelected = batches.length > 0 && batches.every((batch) => selectedIds.includes(batch.selectionId || batch.id || batch.batchId)); return <fieldset className="academic-test-batch-selector"><legend>Select Batches</legend><label className="academic-test-checkbox academic-test-select-all"><input type="checkbox" checked={allSelected} onChange={onToggleAll} /><strong>Select All</strong></label>{batches.length ? batches.map((batch) => { const selectionId = batch.selectionId || batch.id || batch.batchId; return <label className="academic-test-checkbox" key={selectionId}><input type="checkbox" checked={selectedIds.includes(selectionId)} onChange={() => onToggle(selectionId)} /><span>{batch.batchName || batch.batchId}</span></label> }) : <p className="academic-test-muted">No new batches found for this course.</p>}</fieldset> }
+const emptyItem = () => ({ testType: 'TEST', testDate: '', testStartTime: '10:00', testEndTime: '11:00', projectStartDate: '', projectEndDate: '' })
+function ItemScheduleFields({ item, index, onChange }) {
+  const update = (field, value) => onChange(index, { ...item, [field]: value })
+  const hasTest = item.testType === 'TEST' || item.testType === 'TEST_AND_PROJECT'
+  const hasProject = item.testType === 'PROJECT' || item.testType === 'TEST_AND_PROJECT'
+  return <div className="academic-test-schedule-fields">
+    {hasTest && <div className="academic-test-schedule-section"><strong>Test</strong><label>Test Date<input type="date" value={item.testDate || ''} onChange={(event) => update('testDate', event.target.value)} /></label><div className="academic-test-time-grid"><AcademicTimePicker label="Start Time" value={item.testStartTime || '10:00'} onChange={(value) => update('testStartTime', value)} /><AcademicTimePicker label="End Time" value={item.testEndTime || '11:00'} onChange={(value) => update('testEndTime', value)} /></div></div>}
+    {hasProject && <div className="academic-test-schedule-section"><strong>Project</strong><div className="academic-test-project-date-grid"><label>Project Start Date<input type="date" value={item.projectStartDate || ''} onChange={(event) => update('projectStartDate', event.target.value)} /></label><label>Project End Date<input type="date" value={item.projectEndDate || ''} onChange={(event) => update('projectEndDate', event.target.value)} /></label></div></div>}
+  </div>
+}
+function RequiredDateField({ label, value, onChange, error = '', showError = false }) {
+  const fieldId = `academic-test-${String(label || 'date').toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')}`
+  const validationError = error || activeFacultyDateValidation(label, value) || (showError ? 'This field is required.' : '')
+
+  return (
+    <label className={`academic-test-date-field${validationError ? ' is-invalid' : ''}`.trim()}>
+      {label}
+      <input
+        id={fieldId}
+        type="date"
+        value={value || ''}
+        aria-invalid={Boolean(validationError)}
+        aria-describedby={validationError ? `${fieldId}-error` : undefined}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {validationError ? <small id={`${fieldId}-error`} className="academic-test-required-message">{validationError}</small> : null}
+    </label>
+  )
+}
+
+function dateRuleForBatch(batch, date, holidayDates, weekOffRequests, calendarWeekOffDates = new Set()) {
+  if (!date) return 'Select a date to continue.'
+  const candidate = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(candidate.getTime())) return 'Select a valid date.'
+  const start = String(batch?.courseStartDate || batch?.startDate || '').slice(0, 10)
+  const end = String(batch?.courseEndDate || batch?.endDate || '').slice(0, 10)
+  if (start && date < start || end && date > end) return 'Select a date within this batch course period.'
+  const weekType = String(batch?.weekType || '').toUpperCase()
+  const day = candidate.getDay()
+  if (weekType === 'WEEKDAY' && (day === 0 || day === 6)) return 'This is a weekend date. Select a scheduled weekday class date.'
+  if (weekType === 'WEEKEND' && day !== 0 && day !== 6) return 'This is a weekday date. Select a scheduled weekend class date.'
+  const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY']
+  const regularWeekOff = String(batch?.weeklyOffDay || batch?.weekOffDay || '').toUpperCase()
+  const approvedAlternate = weekOffRequests.find((request) => String(request?.status || '').toUpperCase() === 'APPROVED' && String(request?.requestedWeekOffDate || '').slice(0, 10) === date)
+  if (calendarWeekOffDates.has(date) || approvedAlternate || (regularWeekOff && dayNames[day] === regularWeekOff)) return 'This is the faculty week-off date. Select another scheduled class date.'
+  if (holidayDates.has(date)) return 'This date is a holiday or institute leave. Select another scheduled class date.'
+  return ''
+}
+function ActionMenu({ row, onView, onEdit, onDelete }) { const menuRef = useRef(null); const popoverRef = useRef(null); const closeTimer = useRef(null); const [open, setOpen] = useState(false); const [pinned, setPinned] = useState(false); const [position, setPosition] = useState({ top: 0, left: 0 }); const show = () => { if (closeTimer.current) window.clearTimeout(closeTimer.current); const rect = menuRef.current?.getBoundingClientRect(); if (rect) setPosition({ top: rect.bottom + 6, left: Math.max(8, rect.right - 126) }); setOpen(true) }; const hide = () => { if (!pinned) closeTimer.current = window.setTimeout(() => setOpen(false), 120) }; useEffect(() => () => { if (closeTimer.current) window.clearTimeout(closeTimer.current) }, []); useEffect(() => { if (!pinned) return undefined; const close = (event) => { if (!menuRef.current?.contains(event.target) && !popoverRef.current?.contains(event.target)) { setOpen(false); setPinned(false) } }; document.addEventListener('pointerdown', close); return () => document.removeEventListener('pointerdown', close) }, [pinned]); const choose = (action) => { action(row); setOpen(false); setPinned(false) }; const popover = open ? createPortal(<div ref={popoverRef} className="academic-test-action-popover" style={{ top: position.top, left: position.left }} onMouseEnter={() => { if (closeTimer.current) window.clearTimeout(closeTimer.current) }} onMouseLeave={hide}><button type="button" onClick={() => choose(onView)}><Eye size={15} /> View</button><button type="button" onClick={() => choose(onEdit)}><Pencil size={15} /> Edit</button><button type="button" className="is-danger" onClick={() => choose(onDelete)}><Trash2 size={15} /> Delete</button></div>, document.body) : null; return <div ref={menuRef} className={`academic-test-action-menu ${open ? 'is-open' : ''}`} onMouseEnter={show} onMouseLeave={hide}><button type="button" className="academic-test-more-button" aria-label="Open actions" onClick={(event) => { event.stopPropagation(); setPinned(true); show() }}><MoreVertical size={18} /></button>{popover}</div> }
+function CoursePicker({ courses, value, onChange, loading = false }) { const selectedCourse = courses.find((course) => course.id === value); const [query, setQuery] = useState(selectedCourse ? courseLabel(selectedCourse) : ''); const displayedQuery = selectedCourse && !query ? courseLabel(selectedCourse) : query; const [isOpen, setIsOpen] = useState(false); const filteredCourses = useMemo(() => { const search = query.trim().toLowerCase(); if (!search || (selectedCourse && query === courseLabel(selectedCourse))) return courses; return courses.filter((course) => [course.name, course.courseCode, course.id].some((field) => String(field || '').toLowerCase().includes(search))) }, [courses, query, selectedCourse]); const clear = () => { setQuery(''); setIsOpen(true); onChange('') }; return <div className="academic-test-course-picker"><span>Course</span><div className="academic-test-course-input-wrap"><input value={displayedQuery} placeholder={loading ? 'Loading courses...' : 'Search course name or ID'} disabled={loading} onFocus={() => setIsOpen(true)} onChange={(event) => { setQuery(event.target.value); onChange(''); setIsOpen(true) }} />{displayedQuery && <button type="button" className="academic-test-course-clear" onClick={clear} aria-label="Clear course search"><X size={17} /></button>}</div>{isOpen && <div className="academic-test-course-options">{loading ? <p className="academic-test-muted">Loading courses...</p> : filteredCourses.length ? filteredCourses.map((course) => <button type="button" className="academic-test-course-option" key={course.id} onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(course.id); setQuery(courseLabel(course)); setIsOpen(false) }}><strong>{course.name || '-'}</strong><span>{course.courseCode || course.id}</span></button>) : <p className="academic-test-muted">No matching courses found.</p>}</div>}</div> }
+
+function FacultyScheduledTestTable() { const [tests, setTests] = useState([]); const [result, setResult] = useState(null); const [error, setError] = useState(''); useEffect(() => { listFacultyScheduledAcademicTests().then(setTests).catch((e) => setError(e.message || 'Unable to load scheduled tests.')) }, []); const openResult = async (id) => { try { setResult(await getFacultyAcademicTestResults(id)) } catch (e) { setError(e.message || 'Unable to load result.') } }; return <><div className="academic-test-card academic-test-scheduled-card"><div className="academic-test-scheduled-heading"><h2>Created Tests</h2><span>{tests.length} scheduled</span></div>{error && <div className="academic-test-error">{error}</div>}<div className="academic-test-table-wrap"><table><thead><tr><th>Test</th><th>Course</th><th>Batch</th><th>Date</th><th>Time</th><th>Status</th><th>Question Paper</th><th>View Result</th></tr></thead><tbody>{tests.length ? tests.map((test) => <tr key={test.id}><td>Test {test.testNumber}</td><td>{test.course?.name || '-'}</td><td>{test.batch?.batchName || '-'}</td><td>{test.testDate}</td><td>{test.startTime} - {test.endTime}</td><td>{test.status}</td><td>{test.totalQuestions ? `${test.totalQuestions} Questions / ${test.totalMarks} Marks` : 'Prepared'}</td><td><button type="button" className="academic-test-view-button" onClick={() => openResult(test.id)}>View Result</button></td></tr>) : <tr><td colSpan="8" className="academic-test-empty">No tests created yet.</td></tr>}</tbody></table></div></div>{result && <div className="academic-test-modal-backdrop"><div className="academic-test-modal academic-test-result-modal"><div className="academic-test-modal-heading"><div><p className="academic-test-kicker">ACADEMIC TEST RESULT</p><h2>{result.test?.testName} - {result.test?.batch?.batchName || 'Batch'}</h2></div><button type="button" onClick={() => setResult(null)}><X size={18} /></button></div><div className="academic-test-table-wrap"><table><thead><tr><th>Student</th><th>Student ID</th><th>Total Q</th><th>Attempted</th><th>Correct</th><th>Wrong</th><th>Unmarked</th><th>Marks</th><th>Percentage</th><th>Status</th></tr></thead><tbody>{result.students.map((entry) => <tr key={entry.student.id}><td>{entry.student.studentName}</td><td>{entry.student.studentId}</td><td>{entry.totalQuestions || result.test.totalQuestions}</td><td>{entry.attemptedCount}</td><td>{entry.correctCount}</td><td>{entry.wrongCount}</td><td>{entry.unmarkedCount}</td><td>{entry.obtainedMarks == null ? '-' : `${entry.obtainedMarks} / ${entry.totalMarks}`}</td><td>{entry.percentage == null ? '-' : `${Number(entry.percentage).toFixed(2)}%`}</td><td>{entry.status === 'NOT_SUBMITTED' ? 'Not Submitted' : entry.status}</td></tr>)}</tbody></table></div></div></div>}</> }
+
+export default function AcademicTestPage({ mode = 'branch', autoOpenCreate = false, onCreateClose, facultyCourseId = '', facultyBatchId = '', facultyCourseProgressByBatch: incomingFacultyCourseProgressByBatch = null, facultyBatchStudentCounts = null, facultyWeekOffBlocked = false, onWeekOffBlocked }) {
+  const navigate = useNavigate(); const [searchParams] = useSearchParams(); const createAutoOpenHandled = useRef(false); const isFaculty = mode === 'faculty'; const [courses, setCourses] = useState([]); const [coursesLoading, setCoursesLoading] = useState(false); const [coursesLoaded, setCoursesLoaded] = useState(false); const [batches, setBatches] = useState([]); const [rows, setRows] = useState([]); const [batchProgressById, setBatchProgressById] = useState(() => new Map()); const [reportedBatchById, setReportedBatchById] = useState(() => new Map()); const [selectedCourseId, setSelectedCourseId] = useState(''); const [selectedBatchIds, setSelectedBatchIds] = useState([]); const [items, setItems] = useState([]); const [editing, setEditing] = useState(null); const [viewing, setViewing] = useState(null); const [deleting, setDeleting] = useState(null); const [open, setOpen] = useState(false); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [createOptions, setCreateOptions] = useState(null); const [createBatchId, setCreateBatchId] = useState(''); const [createForm, setCreateForm] = useState({ testDate: '', startTime: '10:00', endTime: '11:00', projectStartDate: '', projectEndDate: '' }); const [createError, setCreateError] = useState(''); const [createAttempted, setCreateAttempted] = useState(false); const [createSaving, setCreateSaving] = useState(false)
+  const createModalOpened = useRef(false)
+  const [calendarHolidayDates, setCalendarHolidayDates] = useState(() => new Set())
+  const [calendarWeekOffDates, setCalendarWeekOffDates] = useState(() => new Set())
+  const [calendarBatchRules, setCalendarBatchRules] = useState(null)
+  const [calendarRulesLoading, setCalendarRulesLoading] = useState(false)
+  const [facultyWeekOffRequests, setFacultyWeekOffRequests] = useState([])
+  const blockFacultyWeekOffAction = () => {
+    if (!isFaculty || !facultyWeekOffBlocked) return false
+    onWeekOffBlocked?.()
+    return true
+  }
+  const [facultyPage, setFacultyPage] = useState(1)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState('')
+  const [courseFilter, setCourseFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [sortValue, setSortValue] = useState('createdAt:desc')
+  const [page, setPage] = useState(1)
+  const [branchView, setBranchView] = useState(searchParams.get('view') === 'reports' ? 'reports' : 'tests')
+  const facultyCourseProgressByBatch = useMemo(() => {
+    const progress = incomingFacultyCourseProgressByBatch instanceof Map
+      ? new Map(incomingFacultyCourseProgressByBatch)
+      : incomingFacultyCourseProgressByBatch && typeof incomingFacultyCourseProgressByBatch === 'object'
+        ? new Map(Object.entries(incomingFacultyCourseProgressByBatch))
+        : new Map()
+    rows.forEach((row) => {
+      ;(row.batches || []).forEach((batch) => {
+        const keys = [batch?.id, batch?.batchId, batch?.batchName]
+        const completedBatch = batch?.reportSent === true && (batch?.hasCompletedStudents === true || Number(batch?.studentCount) === 0)
+        if (!completedBatch) return
+        keys.forEach((key) => {
+          const normalizedKey = String(key || '').trim().toLowerCase()
+          if (normalizedKey) progress.set(normalizedKey, 0)
+        })
+      })
+    })
+    return progress
+  }, [batchProgressById, incomingFacultyCourseProgressByBatch, rows])
+  useEffect(() => { if (!isFaculty) setBranchView(searchParams.get('view') === 'reports' ? 'reports' : 'tests') }, [isFaculty, searchParams])
+  const loadRows = () => listAcademicTests().then(setRows).catch((e) => setError(e.message || 'Unable to load Academic Tests.'))
+  const loadCourses = useCallback(async () => {
+    if (isFaculty || coursesLoaded || coursesLoading) return courses
+    setCoursesLoading(true)
+    try {
+      const result = await listAllBranchCourses()
+      const nextCourses = result?.data || []
+      setCourses(nextCourses)
+      setCoursesLoaded(true)
+      return nextCourses
+    } catch (e) {
+      setError(e.message || 'Unable to load courses.')
+      throw e
+    } finally {
+      setCoursesLoading(false)
+    }
+  }, [courses, coursesLoaded, coursesLoading, isFaculty])
+  useEffect(() => {
+    let active = true
+    const loadInitialRows = async () => {
+      setLoading(true)
+      try {
+        const [testRows, summary, academicOptions] = await Promise.all([listAcademicTests(), isFaculty ? getFacultyDashboardOverview() : Promise.resolve(null), isFaculty ? getAcademicTestCreateOptions() : Promise.resolve(null)])
+        if (!active) return
+        const nextRows = isFaculty ? testRows.map((row) => ({ ...row, course: row.course ? { ...row.course, name: `${row.course.name || '-'}\n${row.course.courseCode || ''}` } : row.course })) : testRows
+        setRows(nextRows)
+        if (isFaculty) {
+          const nextProgress = new Map()
+          ;(summary?.batches || []).forEach((entry) => {
+            const progress = Number(
+              entry?.progress?.percentage ??
+              entry?.courseProgress ??
+              entry?.progressPercentage ??
+              entry?.progress,
+            )
+            const normalizedProgress = Number.isFinite(progress) ? Math.round(Math.max(0, Math.min(100, progress))) : 0
+            ;[
+              entry?.id,
+              entry?.batchId,
+              entry?.batchName,
+              `${entry?.courseId || ''}:${entry?.batchName || ''}`,
+              `${entry?.courseName || ''}:${entry?.batchName || ''}`,
+            ].forEach((batchKey) => {
+              const normalizedBatchKey = String(batchKey || '').trim().toLowerCase()
+              if (normalizedBatchKey) nextProgress.set(normalizedBatchKey, normalizedProgress)
+            })
+          })
+          ;(academicOptions?.courses || []).flatMap((course) => course.batches || []).forEach((entry) => {
+            if (entry?.reportSent !== true || !entry?.hasCompletedStudents) return
+            ;[entry?.id, entry?.batchId, entry?.batchName].forEach((batchKey) => {
+              const normalizedBatchKey = String(batchKey || '').trim().toLowerCase()
+              if (normalizedBatchKey) nextProgress.set(normalizedBatchKey, 0)
+            })
+          })
+          setBatchProgressById(nextProgress)
+        }
+      } catch (e) {
+        if (active) setError(e.message || 'Unable to load Academic Tests.')
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    void loadInitialRows()
+    return () => { active = false }
+  }, [isFaculty])
+  useEffect(() => {
+    if (isFaculty) return undefined
+    let active = true
+    listBranchAcademicTestReports()
+      .then((reports) => {
+        if (!active) return
+        const next = new Map()
+        ;(Array.isArray(reports) ? reports : []).forEach((report) => {
+          const batch = report?.batch || {}
+          ;[batch.id, batch.batchId, report?.batchId].forEach((value) => {
+            const key = String(value || '').trim().toLowerCase()
+            if (key) next.set(key, report)
+          })
+        })
+        setReportedBatchById(next)
+      })
+      .catch(() => {
+        if (active) setReportedBatchById(new Map())
+      })
+    return () => { active = false }
+  }, [isFaculty])
+  useEffect(() => { if (!selectedCourseId || isFaculty) return; listBranchBatches({ courseId: selectedCourseId, limit: 100 }).then((result) => { const available = (result.data || []).flatMap((group) => group.batches?.length ? group.batches : [group]).map((batch) => ({ ...batch, selectionId: String(batch.id || batch.batchId || '').trim() })).filter((batch) => batch.selectionId); const courseRows = rows.filter((row) => String(row.course?.id || '') === String(selectedCourseId)); const currentRowId = String(editing?.id || ''); const isEditingCurrentCourse = String(editing?.course?.id || '') === String(selectedCourseId); const assignedIds = new Set(courseRows.filter((row) => String(row.id || '') !== currentRowId).flatMap((row) => row.batches || []).flatMap((batch) => [batch.id, batch.batchId].filter(Boolean)).map((id) => String(id).trim())); const currentIds = new Set((isEditingCurrentCourse ? editing.batches || [] : []).flatMap((batch) => [batch.id, batch.batchId].filter(Boolean)).map((id) => String(id).trim())); const selectable = available.filter((batch) => !assignedIds.has(batch.selectionId) || currentIds.has(batch.selectionId)); setBatches(selectable); if (isEditingCurrentCourse) setSelectedBatchIds(available.filter((batch) => currentIds.has(batch.selectionId)).map((batch) => batch.selectionId)) }).catch((e) => setError(e.message || 'Unable to load course batches.')) }, [selectedCourseId, isFaculty, editing, rows])
+  useEffect(() => { if (!deleting) return undefined; const closeButton = document.querySelector('.academic-test-confirm-icon'); if (!closeButton) return undefined; closeButton.setAttribute('role', 'button'); closeButton.setAttribute('tabindex', '0'); closeButton.setAttribute('aria-label', 'Close delete confirmation'); const close = () => setDeleting(null); const onKeyDown = (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); close() } }; closeButton.addEventListener('click', close); closeButton.addEventListener('keydown', onKeyDown); return () => { closeButton.removeEventListener('click', close); closeButton.removeEventListener('keydown', onKeyDown) } }, [deleting])
+  useEffect(() => { if (isFaculty || !rows.length) return undefined; const body = document.querySelector('.academic-test-page .academic-test-card tbody'); if (!body) return undefined; const tableRows = [...body.querySelectorAll('tr')].slice(0, rows.length); const cleanups = tableRows.map((rowElement, index) => { const openView = () => setViewing(rows[index]); rowElement.addEventListener('click', openView); rowElement.setAttribute('tabindex', '0'); rowElement.setAttribute('role', 'button'); const onKeyDown = (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openView() } }; rowElement.addEventListener('keydown', onKeyDown); return () => { rowElement.removeEventListener('click', openView); rowElement.removeEventListener('keydown', onKeyDown) } }); return () => cleanups.forEach((cleanup) => cleanup()) }, [isFaculty, rows])
+   const openCreate = () => { setEditing(null); setSelectedCourseId(''); setSelectedBatchIds([]); setItems([]); setError(''); setOpen(true); void loadCourses() }; const openEdit = (row) => { const reportedBatch = (row.batches || []).map((batch) => [batch.id, batch.batchId].map((value) => String(value || '').trim().toLowerCase()).find(Boolean)).map((key) => reportedBatchById.get(key)).find(Boolean); if (reportedBatch) { const batchName = reportedBatch.batch?.batchName || reportedBatch.batchName || 'this batch'; const completedCount = Array.isArray(reportedBatch.academicTestIds) ? reportedBatch.academicTestIds.length : 0; setError(`Cannot edit Academic Tests for ${batchName}. ${completedCount || 'One or more'} test${completedCount === 1 ? '' : 's'} already completed and the report was sent.`); return } const count = Number(row.course?.academicTestCount || row.academicTestCount || row.items?.length || 0); setEditing(row); setSelectedCourseId(String(row.course?.id || '')); setSelectedBatchIds((row.batches || []).map((batch) => String(batch.id || batch.batchId || '').trim()).filter(Boolean)); setItems(Array.from({ length: count }, (_, index) => ({ ...emptyItem(), ...(row.items?.[index] || {}) }))); setError(''); setOpen(true); void loadCourses() }; const handleCourseChange = (id) => { const normalizedId = String(id || '').trim(); if (!normalizedId) { setEditing(null); setSelectedCourseId(''); setBatches([]); setSelectedBatchIds([]); setItems([]); setError(''); return }; const course = courses.find((item) => String(item.id) === normalizedId); const existing = rows.find((row) => String(row.course?.id || '') === normalizedId); const count = Number(course?.academicTestCount || existing?.academicTestCount || existing?.items?.length || 0); setEditing(null); setSelectedCourseId(normalizedId); setBatches([]); setSelectedBatchIds([]); setItems(Array.from({ length: count }, emptyItem)); setError(count > 0 ? '' : 'This course has no Academic Test count. Set the Academic Test count in Course Management first.') }; const updateItem = (index, value) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? value : entry)); const toggleBatch = (id) => setSelectedBatchIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); const toggleAllBatches = () => setSelectedBatchIds((current) => batches.length && batches.every((batch) => current.includes(batch.selectionId)) ? [] : batches.map((batch) => batch.selectionId))
+  const save = async () => { const normalizedCourseId = String(selectedCourseId || '').trim(); const normalizedBatchIds = [...new Set(selectedBatchIds.map((id) => String(id || '').trim()).filter(Boolean))]; const invalid = items.find((item) => !VALID_TYPES.has(String(item?.testType || '').trim().toUpperCase())); if (!normalizedCourseId) return setError('Select a course to continue.'); if (!normalizedBatchIds.length) return setError('Select at least one batch to continue.'); if (!items.length) return setError('This course has no Academic Test count. Set the Academic Test count in Course Management first.'); if (invalid) return setError('Choose a test type for every test.'); setSaving(true); setError(''); try { const payload = { courseId: normalizedCourseId, batchIds: normalizedBatchIds, items: items.map(({ testType }) => ({ testType: String(testType).trim().toUpperCase() })) }; if (editing) await updateAcademicTest(editing.id, payload); else await createAcademicTest(payload); setOpen(false); await loadRows() } catch (e) { setError(e.message || 'Unable to save Academic Test.') } finally { setSaving(false) } }; const confirmDelete = async () => { if (!deleting) return; setSaving(true); try { await deleteAcademicTest(deleting.id); setDeleting(null); await loadRows() } catch (e) { setError(e.message || 'Unable to delete Academic Test.') } finally { setSaving(false) } }
+  const openFacultyCreate = async () => { if (blockFacultyWeekOffAction()) return; setCreateError(''); setCreateAttempted(false); try { const options = await getAcademicTestCreateOptions(); const allBatches = options?.courses?.flatMap((course) => course.batches || []) || []; const withStudentCounts = (batch) => { const keys = [batch.id, batch.batchId, batch.branchBatchId].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean); const count = keys.map((key) => facultyBatchStudentCounts?.get?.(key) ?? facultyBatchStudentCounts?.[key] ?? Array.from(facultyBatchStudentCounts?.entries?.() || []).find(([entryKey]) => String(entryKey || '').trim().toLowerCase() === key)?.[1]).find((value) => value != null); return count == null ? batch : { ...batch, studentCount: Number(count) || 0 } }; const enrichedCourses = (options.courses || []).map((course) => ({ ...course, batches: (course.batches || []).map(withStudentCounts) })); const enrichedOptions = { ...options, courses: enrichedCourses }; const enrichedBatches = enrichedCourses.flatMap((course) => course.batches || []); const targetItemId = String(searchParams.get('itemId') || '').trim(); const targetBatchId = String(searchParams.get('batchId') || '').trim(); const batchIdMatches = (batch) => [batch.id, batch.batchId, batch.branchBatchId].some((value) => String(value || '').trim() === targetBatchId); const targetBatches = enrichedBatches.filter(batchIdMatches); const targetedBatch = targetBatches.find((batch) => !targetItemId || String(batch.academicTestItemId || '').trim() === targetItemId) || targetBatches[0]; const filteredCourses = targetedBatch ? enrichedCourses.filter((course) => (course.batches || []).some(batchIdMatches)) : enrichedCourses; const filteredOptions = targetedBatch ? { ...enrichedOptions, courses: filteredCourses } : enrichedOptions; const firstBatch = targetedBatch || enrichedBatches.find((batch) => batch.available) || enrichedBatches[0]; setCreateOptions(filteredOptions); setCreateBatchId(firstBatch?.id || firstBatch?.batchId || ''); setCreateForm({ testDate: options?.tomorrow || '', startTime: '10:00', endTime: '11:00', projectStartDate: firstBatch?.projectStartDate || '', projectEndDate: firstBatch?.projectEndDate || '' }) } catch (e) { setCreateError(e.message || 'Unable to load Create Test options.') } }
+  useEffect(() => { if (isFaculty && (autoOpenCreate || searchParams.get('create') === '1') && !createOptions && !createAutoOpenHandled.current) { createAutoOpenHandled.current = true; void openFacultyCreate(); if (!autoOpenCreate) navigate('/dashboard/faculty/exams/academic-tests', { replace: true }) } }, [isFaculty, autoOpenCreate, searchParams, createOptions, navigate])
+  useEffect(() => { if (!autoOpenCreate) return; if (createOptions) createModalOpened.current = true; if (createModalOpened.current && !createOptions) onCreateClose?.() }, [autoOpenCreate, createOptions, onCreateClose])
+  const closeCreate = () => { setCreateOptions(null); onCreateClose?.() }
+  const submitFacultyCreate = async () => {
+    if (blockFacultyWeekOffAction()) return
+    setCreateAttempted(true)
+    const matchesSelectedBatch = (batch) => [batch.id, batch.batchId, batch.branchBatchId].some((value) => String(value || '') === String(createBatchId || ''))
+    const course = createOptions?.courses?.find((entry) => entry.batches.some(matchesSelectedBatch))
+    const batch = course?.batches?.find(matchesSelectedBatch)
+    if (!batch?.academicTestItemId) return setCreateError('No next test is available for this batch.')
+
+    const needsTest = batch.testType === 'TEST' || batch.testType === 'TEST_AND_PROJECT'
+    const needsProject = batch.testType === 'PROJECT' || batch.testType === 'TEST_AND_PROJECT'
+    if ((needsTest && !createForm.testDate) || (needsProject && (!createForm.projectStartDate || !createForm.projectEndDate))) {
+      return setCreateError('Complete all required date fields before creating the test.')
+    }
+    if (calendarRulesLoading) return setCreateError('Checking the selected batch calendar. Please try again in a moment.')
+    if (Object.values(createDateErrors).some(Boolean)) {
+      return setCreateError('Fix the highlighted date fields before creating the test.')
+    }
+
+    setCreateSaving(true)
+    setCreateError('')
+    try {
+      await createScheduledAcademicTest({
+        academicTestItemId: batch.academicTestItemId,
+        branchBatchId: batch.id || batch.batchId || batch.branchBatchId,
+        testDate: needsTest ? createForm.testDate : null,
+        startTime: needsTest ? createForm.startTime : null,
+        endTime: needsTest ? createForm.endTime : null,
+        projectStartDate: needsProject ? createForm.projectStartDate : null,
+        projectEndDate: needsProject ? createForm.projectEndDate : null,
+      })
+      setCreateOptions(null)
+      await loadRows()
+    } catch (e) {
+      setCreateError(e.message || 'Unable to create test.')
+    } finally {
+      setCreateSaving(false)
+    }
+  }
+  const selectedCreateBatch = createOptions?.courses?.flatMap((course) => course.batches).find((batch) => [batch.id, batch.batchId, batch.branchBatchId].some((value) => String(value || '') === String(createBatchId || '')))
+  useEffect(() => {
+    if (!isFaculty || !createOptions) return undefined
+    let active = true
+    getMyWeekOffRequests().then((requests) => {
+      if (active) setFacultyWeekOffRequests(Array.isArray(requests) ? requests : [])
+    }).catch(() => { if (active) setFacultyWeekOffRequests([]) })
+    return () => { active = false }
+  }, [createOptions, isFaculty])
+  useEffect(() => {
+    if (!isFaculty || !selectedCreateBatch) return undefined
+    const startDate = String(selectedCreateBatch.courseStartDate || selectedCreateBatch.startDate || '').slice(0, 10)
+    const endDate = String(selectedCreateBatch.courseEndDate || selectedCreateBatch.endDate || '').slice(0, 10)
+    let active = true
+    setCalendarRulesLoading(true)
+    getFacultyCalendar({ startDate, endDate }).then((calendar) => {
+      if (!active) return
+      const events = Array.isArray(calendar?.events) ? calendar.events : []
+      const calendarBatch = (Array.isArray(calendar?.batches) ? calendar.batches : []).find((entry) => [entry?.id, entry?.batchId].some((value) => String(value || '').trim() && [selectedCreateBatch?.id, selectedCreateBatch?.batchId, selectedCreateBatch?.branchBatchId].some((batchValue) => String(batchValue || '').trim() === String(value || '').trim()))) || null
+      const blocked = new Set(events.filter((event) => ['HOLIDAY', 'INSTITUTE_LEAVE', 'LEAVE'].includes(String(event?.code || event?.status || '').toUpperCase().replaceAll(' ', '_'))).map((event) => String(event?.date || '').slice(0, 10)).filter(Boolean))
+      const weekOffDates = new Set(events.filter((event) => String(event?.code || event?.status || '').toUpperCase().replaceAll(' ', '_') === 'FACULTY_WEEKLY_OFF').map((event) => String(event?.date || '').slice(0, 10)).filter(Boolean))
+      setCalendarHolidayDates(blocked)
+      setCalendarWeekOffDates(weekOffDates)
+      setCalendarBatchRules(calendarBatch)
+    }).catch(() => { if (active) { setCalendarHolidayDates(new Set()); setCalendarWeekOffDates(new Set()); setCalendarBatchRules(null) } }).finally(() => {
+      if (active) setCalendarRulesLoading(false)
+    })
+    return () => { active = false }
+  }, [isFaculty, selectedCreateBatch?.batchId, selectedCreateBatch?.branchBatchId, selectedCreateBatch?.courseEndDate, selectedCreateBatch?.courseStartDate, selectedCreateBatch?.endDate, selectedCreateBatch?.id, selectedCreateBatch?.startDate])
+  const dateValidationBatch = useMemo(() => ({ ...selectedCreateBatch, ...(calendarBatchRules || {}) }), [calendarBatchRules, selectedCreateBatch])
+  const createDateErrors = useMemo(() => {
+    const batch = dateValidationBatch || {}
+    const errors = {}
+    const needsTest = batch.testType === 'TEST' || batch.testType === 'TEST_AND_PROJECT'
+    const needsProject = batch.testType === 'PROJECT' || batch.testType === 'TEST_AND_PROJECT'
+
+    if (needsTest && createForm.testDate) {
+      errors.testDate = dateRuleForBatch(batch, createForm.testDate, calendarHolidayDates, facultyWeekOffRequests, calendarWeekOffDates)
+    }
+    if (needsProject && createForm.projectStartDate) {
+      errors.projectStartDate = dateRuleForBatch(batch, createForm.projectStartDate, calendarHolidayDates, facultyWeekOffRequests, calendarWeekOffDates)
+    }
+    if (needsProject && createForm.projectEndDate) {
+      errors.projectEndDate = dateRuleForBatch(batch, createForm.projectEndDate, calendarHolidayDates, facultyWeekOffRequests, calendarWeekOffDates)
+    }
+    if (!errors.projectEndDate && createForm.projectStartDate && createForm.projectEndDate && createForm.projectEndDate < createForm.projectStartDate) {
+      errors.projectEndDate = 'Project end date must be on or after the project start date.'
+    }
+
+    return errors
+  }, [calendarHolidayDates, calendarWeekOffDates, createForm.projectEndDate, createForm.projectStartDate, createForm.testDate, dateValidationBatch, facultyWeekOffRequests])
+  activeFacultyDateValidation = (label, value) => {
+    const field = String(label || '').toLowerCase()
+    if (!value || !dateValidationBatch) return ''
+    if (field === 'project end date' && createForm.projectStartDate && value < createForm.projectStartDate) {
+      return 'Project end date must be on or after the project start date.'
+    }
+    return dateRuleForBatch(dateValidationBatch, value, calendarHolidayDates, facultyWeekOffRequests, calendarWeekOffDates)
+  }
+  const createScheduledAcademicTest = async (payload) => {
+    const batch = dateValidationBatch || {}
+    const dates = [payload.testDate, payload.projectStartDate, payload.projectEndDate].filter(Boolean)
+    const invalidMessage = dates.map((date) => dateRuleForBatch(batch, date, calendarHolidayDates, facultyWeekOffRequests, calendarWeekOffDates)).find(Boolean)
+    if (invalidMessage) throw new Error(invalidMessage)
+    if (payload.projectStartDate && payload.projectEndDate && payload.projectEndDate < payload.projectStartDate) throw new Error('Project end date must be on or after the project start date.')
+    return createScheduledAcademicTestApi(payload)
+  }
+  const academicCourseOptions = useMemo(() => [...new Map(rows.map((row) => [row.course?.id || row.course?.courseCode || row.course?.name, row.course?.name || row.course?.courseCode || '-'])).entries()].filter(([value]) => value).sort((left, right) => String(left[1]).localeCompare(String(right[1]))), [rows])
+  const filteredAcademicRows = useMemo(() => rows.filter((row) => {
+    const query = appliedSearchTerm.trim().toLowerCase()
+    const searchText = `${row.course?.name || ''} ${row.course?.courseCode || ''} ${(row.batches || []).map((batch) => `${batch.batchName || ''} ${batch.batchId || ''}`).join(' ')}`.toLowerCase()
+    const hasTests = (row.items || []).length > 0
+    return (!query || searchText.includes(query)) && (courseFilter === 'all' || String(row.course?.id || row.course?.courseCode || row.course?.name) === courseFilter) && (statusFilter === 'all' || (hasTests ? 'prepared' : 'not-prepared') === statusFilter)
+  }).sort((left, right) => {
+    const [sortBy, sortOrder] = sortValue.split(':')
+    const leftValue = sortBy === 'course' ? (left.course?.name || '') : sortBy === 'tests' ? (left.items?.length || 0) : (left.createdAt || '')
+    const rightValue = sortBy === 'course' ? (right.course?.name || '') : sortBy === 'tests' ? (right.items?.length || 0) : (right.createdAt || '')
+    const comparison = typeof leftValue === 'number' ? leftValue - rightValue : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' })
+    return sortOrder === 'asc' ? comparison : -comparison
+  }), [appliedSearchTerm, courseFilter, rows, sortValue, statusFilter])
+  const pageSize = 5
+  const totalPages = Math.max(1, Math.ceil(filteredAcademicRows.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const visibleAcademicRows = filteredAcademicRows.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const facultyBatchRows = isFaculty ? rows.flatMap((row) => (row.batches || []).filter((batch) => (!facultyBatchId || String(batch.id || batch.batchId || '') === String(facultyBatchId))).map((batch) => ({ row, batch }))).filter(({ row }) => !facultyCourseId || String(row.course?.id || '') === String(facultyCourseId)) : []
+  const facultyPageCount = Math.max(1, Math.ceil(facultyBatchRows.length / 5))
+  const visibleFacultyBatchRows = facultyBatchRows.slice((facultyPage - 1) * 5, facultyPage * 5)
+  useEffect(() => { setFacultyPage(1) }, [rows])
+  useEffect(() => { if (facultyPage > facultyPageCount) setFacultyPage(facultyPageCount) }, [facultyPage, facultyPageCount])
+  useEffect(() => {
+    if (!isFaculty || searchParams.get('view') !== 'list') return undefined
+    const header = document.querySelector('.academic-test-page .academic-test-header')
+    if (!header || header.querySelector('.academic-test-list-back')) return undefined
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'academic-test-list-back academic-preparation-back'
+    button.textContent = '← Back to Courses'
+    button.addEventListener('click', () => navigate('/dashboard/faculty/exams/academic-tests'))
+    header.prepend(button)
+    return () => button.remove()
+  }, [isFaculty, navigate, searchParams])
+  if (branchView === 'reports' && !isFaculty) return <BranchAcademicTestReports />
+  if (isFaculty) return <section className="academic-test-page"><header className="academic-test-header"><div><p className="academic-test-kicker">FACULTY WORKSPACE</p><h1>Academic Test</h1><p>Open a Course + Batch row to prepare its question paper or project.</p></div></header>{error && <div className="academic-test-error">{error}</div>}<div className="academic-test-card"><div className="academic-test-table-wrap"><table><thead><tr><th>Course</th><th>Course ID</th><th>Batch</th><th>Test Count</th><th>Course Progress</th><th>Actions</th></tr></thead><tbody>{visibleFacultyBatchRows.map(({ row, batch }) => { const progressKeys = [batch.batchId, batch.id, batch.batchName, `${row.course?.id || ''}:${batch.batchName || ''}`, `${row.course?.name || ''}:${batch.batchName || ''}`].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean); const externalProgress = progressKeys.map((key) => facultyCourseProgressByBatch?.get?.(key) ?? facultyCourseProgressByBatch?.[key] ?? Array.from(facultyCourseProgressByBatch?.entries?.() || []).find(([entryKey]) => String(entryKey || '').trim().toLowerCase() === key)?.[1]).find((value) => value != null); const courseProgress = externalProgress ?? progressKeys.map((key) => batchProgressById.get(key)).find((value) => value != null) ?? 0; return <tr key={`${row.id}-${batch.id}`} className="academic-test-faculty-row" onClick={() => row.items?.[0]?.id && navigate(`/dashboard/faculty/exams/academic-tests/${row.items[0].id}/${batch.id}`)}><td>{row.course?.name || '-'}</td><td>{row.course?.courseCode || '-'}</td><td>{batch.batchName || batch.batchId || '-'}</td><td>{row.items?.length || 0}</td><td><div className="academic-test-progress-cell"><div className="academic-test-progress-bar"><span style={{ width: `${courseProgress}%` }} /></div><strong>{courseProgress}% Complete</strong></div></td><td><button type="button" className="academic-test-view-button" onClick={(event) => { event.stopPropagation(); if (row.items?.[0]?.id) navigate(`/dashboard/faculty/exams/academic-tests/${row.items[0].id}/${batch.id}`) }}>View Test</button></td></tr>})}{!facultyBatchRows.length && <tr><td colSpan="6" className="academic-test-empty">No Academic Tests assigned.</td></tr>}</tbody></table></div>{facultyPageCount > 1 && <div className="academic-test-pagination" aria-label="Academic test pages"><button type="button" onClick={() => setFacultyPage((page) => Math.max(1, page - 1))} disabled={facultyPage === 1}>Previous</button>{Array.from({ length: facultyPageCount }, (_, index) => index + 1).map((page) => <button key={page} type="button" className={page === facultyPage ? 'is-active' : ''} onClick={() => setFacultyPage(page)}>{page}</button>)}<button type="button" onClick={() => setFacultyPage((page) => Math.min(facultyPageCount, page + 1))} disabled={facultyPage === facultyPageCount}>Next</button></div>}</div>{createOptions && <div className="academic-test-modal-backdrop"><div className="academic-test-modal academic-test-create-modal"><div className="academic-test-modal-heading"><div><p className="academic-test-kicker">FACULTY WORKSPACE</p><h2>Create Test</h2></div><button type="button" onClick={() => setCreateOptions(null)}><X size={18} /></button></div>{createError && <div className="academic-test-error">{createError}</div>}<label>Test Number<input value={selectedCreateBatch?.nextTestNumber ? `Test ${selectedCreateBatch.nextTestNumber}` : 'All tests created'} readOnly /></label><label>Course<input value={createOptions.courses.find((course) => course.batches.some((batch) => batch.id === createBatchId))?.name || createOptions.courses[0]?.name || '-'} readOnly /></label><label>Select Batch<select value={createBatchId} onChange={(event) => { const value = event.target.value; const next = createOptions.courses.flatMap((course) => course.batches).find((batch) => batch.id === value); setCreateBatchId(value); setCreateForm((current) => ({ ...current, projectStartDate: next?.projectStartDate || '', projectEndDate: next?.projectEndDate || '' })) }}>{createOptions.courses.flatMap((course) => course.batches).map((batch) => <option key={batch.id} value={batch.id}>{batch.batchName || batch.batchId} ({batch.batchId || batch.id}) - {batch.questionPaperStatus} - {batch.studentCount || 0} students</option>)}</select></label>{selectedCreateBatch?.blocker && <div className="academic-test-validation">{selectedCreateBatch.blocker}</div>}{(selectedCreateBatch?.testType === 'TEST' || selectedCreateBatch?.testType === 'TEST_AND_PROJECT') && <><RequiredDateField label="Test Date" value={createForm.testDate} onChange={(value) => setCreateForm((current) => ({ ...current, testDate: value }))} showError={createAttempted && !createForm.testDate} /><div className="academic-test-time-grid"><AcademicTimePicker label="Start Time" value={createForm.startTime} onChange={(value) => setCreateForm((current) => ({ ...current, startTime: value }))} /><AcademicTimePicker label="End Time" value={createForm.endTime} onChange={(value) => setCreateForm((current) => ({ ...current, endTime: value }))} /></div></>}{(selectedCreateBatch?.testType === 'PROJECT' || selectedCreateBatch?.testType === 'TEST_AND_PROJECT') && <div className="academic-test-schedule-section academic-test-faculty-project-section"><strong>Project</strong><div className="academic-test-project-date-grid"><RequiredDateField label="Project Start Date" value={createForm.projectStartDate} onChange={(value) => setCreateForm((current) => ({ ...current, projectStartDate: value }))} showError={createAttempted && !createForm.projectStartDate} /><RequiredDateField label="Project End Date" value={createForm.projectEndDate} onChange={(value) => setCreateForm((current) => ({ ...current, projectEndDate: value }))} /></div></div>}<div className="academic-test-modal-actions"><button type="button" onClick={() => setCreateOptions(null)}>Cancel</button><button type="button" className="academic-test-primary" onClick={submitFacultyCreate} disabled={createSaving || !selectedCreateBatch?.available}>{createSaving ? 'Creating...' : 'Create Test'}</button></div></div></div>}</section>
+  return <section className="academic-test-page"><header className="academic-test-header"><div><p className="academic-test-kicker">BRANCH ADMIN WORKSPACE</p><h1>Academic Test</h1><p>Configure Academic Tests for course batches.</p></div><button type="button" className="academic-test-primary" onClick={openCreate}><Plus size={17} /> Create Test</button></header>{error && !open && <div className="academic-test-error">{error}</div>}<div className="academic-test-card"><div className="academic-test-toolbar"><div className="academic-test-search"><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { setAppliedSearchTerm(searchTerm.trim()); setPage(1) } }} placeholder="Search course or batch" /><button type="button" className="academic-test-primary" onClick={() => { setAppliedSearchTerm(searchTerm.trim()); setPage(1) }}>Search</button></div><AcademicFilterSelect value={courseFilter} width={150} ariaLabel="Filter academic tests by course" options={[{ value: 'all', label: 'All courses' }, ...academicCourseOptions.map(([value, label]) => ({ value, label }))]} onChange={(value) => { setCourseFilter(value); setPage(1) }} /><AcademicFilterSelect value={statusFilter} width={142} ariaLabel="Filter academic tests by status" options={[{ value: 'all', label: 'All status' }, { value: 'prepared', label: 'Prepared' }, { value: 'not-prepared', label: 'Not Prepared' }]} onChange={(value) => { setStatusFilter(value); setPage(1) }} /></div><div className="academic-test-table-wrap"><table><thead><tr><th>Course ID</th><th>Course Name</th><th>Batches</th><th>Batch Count</th><th>Academic Test Count</th><th>Actions</th></tr></thead><tbody>{loading ? Array.from({ length: 5 }, (_, index) => <tr key={`academic-loading-${index}`} className="academic-test-skeleton-row" aria-hidden="true">{Array.from({ length: 6 }, (_, cellIndex) => <td key={cellIndex}><span /></td>)}</tr>) : visibleAcademicRows.length ? visibleAcademicRows.map((row) => <tr key={row.id}><td>{row.course?.courseCode || '-'}</td><td>{row.course?.name || '-'}</td><td>{(row.batches || []).map((batch) => batch.batchName || batch.batchId).join(', ') || '-'}</td><td>{row.batches?.length || 0}</td><td>{row.items?.length || 0} Tests</td><td><ActionMenu row={row} onView={setViewing} onEdit={openEdit} onDelete={setDeleting} /></td></tr>) : <tr><td colSpan="6" className="academic-test-empty">{appliedSearchTerm || courseFilter !== 'all' || statusFilter !== 'all' ? 'No Academic Tests match the selected search or filters.' : 'No Academic Tests created yet.'}</td></tr>}</tbody></table></div>{filteredAcademicRows.length > pageSize && <div className="academic-test-pagination"><span>Page {safePage} of {totalPages}</span><div><button type="button" disabled={safePage === 1} onClick={() => setPage((current) => current - 1)}>Previous</button><button type="button" disabled={safePage === totalPages} onClick={() => setPage((current) => current + 1)}>Next</button></div></div>}</div>{open && <div className="academic-test-modal-backdrop"><div className="academic-test-modal"><div className="academic-test-modal-heading"><div><p className="academic-test-kicker">{editing ? 'EDIT ACADEMIC TEST' : 'NEW ACADEMIC TEST'}</p><h2>{editing ? 'Edit Academic Test' : 'Create Test'}</h2></div><button type="button" onClick={() => setOpen(false)}><X size={18} /></button></div>{error && <div className="academic-test-error">{error}</div>}<CoursePicker courses={courses} value={selectedCourseId} onChange={handleCourseChange} loading={coursesLoading} />{selectedCourseId && <><BatchSelector batches={batches} selectedIds={selectedBatchIds} onToggle={toggleBatch} onToggleAll={toggleAllBatches} /><fieldset><legend>Academic Test Details ({items.length})</legend>{items.length ? items.map((item, index) => <div className="academic-test-detail" key={index}><span>Test {index + 1}</span><select value={item.testType} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, testType: event.target.value } : entry))}>{TYPE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>) : <p className="academic-test-muted">This course has no positive Academic Test Count configured.</p>}</fieldset></>}<div className="academic-test-modal-actions"><button type="button" onClick={() => setOpen(false)}>Cancel</button><button type="button" className="academic-test-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></div></div></div>}{viewing && <div className="academic-test-modal-backdrop"><div className="academic-test-modal"><div className="academic-test-modal-heading"><div><p className="academic-test-kicker">ACADEMIC TEST DETAILS</p><h2>{viewing.course?.name || 'Academic Test'}</h2></div><button type="button" onClick={() => setViewing(null)}><X size={18} /></button></div><p>Course ID: <strong>{viewing.course?.courseCode || '-'}</strong></p><p>Selected batches:</p>{(viewing.batches || []).map((batch) => <div className="academic-test-view-batch" key={batch.id}>{batch.batchName || batch.batchId}</div>)}<TestDetails item={viewing} /></div></div>}{deleting && <div className="academic-test-modal-backdrop"><div className="academic-test-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="academic-test-delete-title"><div className="academic-test-confirm-icon"><Trash2 size={22} /></div><h2 id="academic-test-delete-title">Delete Academic Test?</h2><p>This will remove the Academic Test configuration from all selected batches.</p><div className="academic-test-modal-actions"><button type="button" onClick={() => setDeleting(null)} disabled={saving}>Cancel</button><button type="button" className="academic-test-danger" onClick={confirmDelete} disabled={saving}>{saving ? 'Deleting...' : 'Delete'}</button></div></div></div>}</section>
+}
+
+
+
+
+
+

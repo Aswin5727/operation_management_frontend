@@ -1,0 +1,138 @@
+import { request, impersonateBranchId } from './apiClient'
+import { shareInFlightRequest } from '../lib/inFlightRequests'
+import { clearBranchRegistry } from '../lib/branchAuth'
+
+function pickFirstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim()
+    if (text) return text
+  }
+
+  return ''
+}
+
+function normalizeStatus(value) {
+  const text = String(value || '').trim().toUpperCase()
+  return text === 'INACTIVE' ? 'Inactive' : 'Active'
+}
+
+function normalizeDate(value) {
+  const text = String(value || '').trim()
+  return text ? text.slice(0, 10) : ''
+}
+
+function normalizeBranchRecord(record = {}) {
+  const tempPassword = String(
+    record.tempPassword || record.temporaryPassword || record.temporary_password || '',
+  ).trim()
+  const resendMailStatus = String(record.resendMailStatus || '').trim().toLowerCase() === 'active'
+    ? 'Active'
+    : 'Inactive'
+  return {
+    id: String(record.id || ''),
+    branchId: String(record.branchId || '').trim(),
+    branchName: String(record.branchName || '').trim(),
+    // This value is calculated by the backend from the current student data.
+    // Keep it on the branch record so consumers do not derive counts locally.
+    studentCount: Number(record.studentCount ?? record.studentsCount ?? 0),
+    branchAdminName: String(record.branchAdminName || '').trim(),
+    branchEmail: String(record.branchEmail || '').trim().toLowerCase(),
+    branchPhone: String(record.branchPhone || '').trim(),
+    branchCountryCode: String(record.branchCountryCode || '').trim(),
+    branchCountry: pickFirstNonEmpty(record.branchCountry, record.country),
+    branchStateCode: String(record.branchStateCode || '').trim(),
+    branchState: pickFirstNonEmpty(record.branchState, record.state),
+    branchCity: pickFirstNonEmpty(record.branchCity, record.city, record.branchDistrict, record.district),
+    branchDistrict: pickFirstNonEmpty(record.branchDistrict, record.district, record.branchCity, record.city),
+    branchAddress: String(record.branchAddress || '').trim(),
+    roleAccess: String(record.roleAccess || 'BRANCH_ADMIN_ONLY').trim().toUpperCase(),
+    tempPassword,
+    mustResetPassword: Boolean(record.mustResetPassword || tempPassword),
+    status: normalizeStatus(record.status),
+    lastLoginAt: String(record.lastLoginAt || '').trim(),
+    createdAt: normalizeDate(record.createdAt),
+    updatedAt: normalizeDate(record.updatedAt),
+    resendMailStatus,
+    welcomeMailSent: Boolean(record.welcomeMailSent || resendMailStatus === 'Active'),
+  }
+}
+
+function unwrapResponse(response) {
+  return response?.data || response
+}
+
+export async function listBranches(params = {}) {
+  const searchParams = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      searchParams.set(key, String(value))
+    }
+  })
+
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : ''
+  const response = await request(`/branches${suffix}`, { method: 'GET' })
+  clearBranchRegistry()
+  const data = Array.isArray(response?.data) ? response.data.map(normalizeBranchRecord) : []
+
+  return {
+    data,
+    meta: response?.meta || { page: 1, limit: 10, total: 0, totalPages: 1 },
+  }
+}
+
+export async function createBranch(payload) {
+  const response = await request('/branches', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  clearBranchRegistry()
+  return normalizeBranchRecord(unwrapResponse(response))
+}
+
+export async function updateBranch(branchId, payload) {
+  const response = await request(`/branches/${branchId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+
+  clearBranchRegistry()
+  return normalizeBranchRecord(unwrapResponse(response))
+}
+
+export async function deleteBranch(branchId) {
+  const response = await request(`/branches/${branchId}`, {
+    method: 'DELETE',
+  })
+
+  clearBranchRegistry()
+  return normalizeBranchRecord(unwrapResponse(response))
+}
+
+export async function resendBranchInvitation(branchId) {
+  const response = await request(`/branches/${branchId}/resend-invitation`, {
+    method: 'POST',
+  })
+
+  clearBranchRegistry()
+  const branch = normalizeBranchRecord(response?.branch || response?.data?.branch || response?.data || {})
+
+  return {
+    branch,
+    message: response?.message || 'Invitation email sent successfully',
+  }
+}
+
+export function getCurrentBranchProfile() {
+  const branchScope = String(impersonateBranchId || "");
+  return shareInFlightRequest("current-branch-profile:" + branchScope, async () => {
+    const response = await request("/branches/me", {
+      method: "GET",
+      ...(branchScope ? { impersonateBranchId: branchScope } : {}),
+    });
+
+    clearBranchRegistry();
+    return normalizeBranchRecord(unwrapResponse(response));
+  });
+}

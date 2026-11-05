@@ -1,0 +1,819 @@
+/* =========================================================
+   RECORD PAYMENT OVERLAY
+========================================================= */
+
+.record-payment-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 9999;
+}
+
+/* =========================================================
+   RECORD PAYMENT MODAL
+========================================================= */
+
+.record-payment-modal {
+  width: min(700px, 100%);
+  max-height: 90vh;
+  background: #ffffff;
+  border-radius: 14px;
+  overflow-y: auto;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+}
+
+/* =========================================================
+   HEADER
+========================================================= */
+
+.record-payment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 24px 28px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.record-payment-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.record-payment-header p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.record-payment-close {
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: #f3f4f6;
+  border-radius: 8px;
+  font-size: 24px;
+  line-height: 1;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.record-payment-close:hover {
+  background: #e5e7eb;
+}
+
+/* =========================================================
+   FORM
+========================================================= */
+
+.record-payment-modal form {
+  padding: 24px 28px 30px;
+}
+
+.payment-form-group {
+  margin-bottom: 20px;
+}
+
+.payment-form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.required-star {
+  color: #dc2626;
+}
+
+.record-payment-course-tabs { display:flex; gap:10px; overflow-x:auto; margin:-4px 0 18px; padding:2px 2px 8px; scrollbar-width:thin; }
+.record-payment-course-tabs button { display:grid; gap:5px; min-width:180px; max-width:280px; padding:11px 14px; border:1px solid #dce5f0; border-radius:10px; color:#253753; background:#fff; text-align:left; cursor:pointer; }
+.record-payment-course-tabs button.is-active { border-color:#2563eb; color:#1d4ed8; background:#eff6ff; box-shadow:0 0 0 1px rgba(37,99,235,.08); }
+.record-payment-course-tabs small { color:#7b899d; font-size:10px; font-weight:800; letter-spacing:.08em; }
+.record-payment-course-tabs strong { overflow:hidden; font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
+
+.payment-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* =========================================================
+   INPUTS
+========================================================= */
+
+.payment-form-group input,
+.payment-form-group select,
+.payment-form-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.payment-form-group input,
+.payment-form-group select {
+  height: 44px;
+  padding: 0 13px;
+}
+
+.payment-form-group textarea {
+  padding: 12px 13px;
+  resize: vertical;
+  min-height: 90px;
+}
+
+.payment-form-group input:focus,
+.payment-form-group select:focus,
+.payment-form-group textarea:focus {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.08);
+}
+
+/* =========================================================
+   READONLY STUDENT FIELD
+========================================================= */
+
+.payment-readonly-field {
+  min-height: 44px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 13px;
+  border: 1px solid #e5e7eb;
+  border-radius: 9px;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 14px;
+}
+
+.payment-student-id {
+  font-size: 12px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+/* =========================================================
+   CURRENCY INPUT
+========================================================= */
+
+.payment-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 44px;
+}
+
+.payment-input-wrapper .currency-symbol {
+  display: none;
+}
+
+.payment-input-wrapper input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  outline: none;
+  font-size: 14px;
+  box-sizing: border-box;
+  background: #ffffff;
+}
+
+.payment-input-wrapper input::placeholder {
+  color: #9ca3af;
+}
+
+.payment-input-wrapper input:focus {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.08);
+}
+
+.payment-input-wrapper input[readonly] {
+  background: #f8fafc;
+  color: #0f172a;
+  cursor: default;
+}
+
+/* =========================================================
+   STUDENT SEARCH AUTOCOMPLETE
+========================================================= */
+
+.payment-student-search {
+  position: relative;
+}
+
+.payment-student-search-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.payment-student-search-row input {
+  flex: 1;
+}
+
+.payment-student-search-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 8px;
+  width: calc(100% - 96px);
+  z-index: 20;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.14);
+}
+
+@media (max-width: 640px) {
+  .payment-student-search-dropdown {
+    left: 0;
+    width: 100%;
+  }
+}
+
+.payment-student-search-option {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.payment-student-search-option:hover {
+  background: #f0f9ff;
+  transform: translateY(-1px);
+}
+
+.payment-student-search-option-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.payment-student-search-option-meta {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.payment-student-search-empty {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* =========================================================
+   FORM ERROR
+========================================================= */
+
+.payment-error {
+  display: block;
+  margin-top: 5px;
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* =========================================================
+   FOOTER
+========================================================= */
+
+.record-payment-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.payment-cancel-btn,
+.payment-save-btn {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.payment-cancel-btn {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+}
+
+.payment-cancel-btn:hover {
+  background: #f9fafb;
+}
+
+.payment-save-btn {
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.payment-save-btn:hover {
+  background: #1d4ed8;
+}
+
+/* =========================================================
+   POPUP OVERLAY
+========================================================= */
+
+.payment-popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+/* =========================================================
+   CONFIRMATION POPUP
+========================================================= */
+
+.payment-confirmation-popup {
+  position: relative;
+  width: 100%;
+  max-width: 470px;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+  animation: paymentPopupIn 0.2s ease-out;
+}
+
+.payment-popup-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.confirmation-icon {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.payment-confirmation-popup h3,
+.payment-receipt-popup h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.payment-popup-description {
+  margin: 8px 0 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+/* =========================================================
+   CONFIRMATION DETAILS
+========================================================= */
+
+.confirmation-details {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.confirmation-detail-row {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.confirmation-detail-row:last-child {
+  border-bottom: none;
+}
+
+.confirmation-detail-row span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.confirmation-detail-row strong {
+  color: #111827;
+  font-size: 13px;
+  text-align: right;
+}
+
+.confirmation-detail-row .confirmation-amount {
+  color: #0f766e;
+  font-size: 15px;
+}
+
+/* =========================================================
+   POPUP ACTIONS
+========================================================= */
+
+.payment-popup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.popup-cancel-btn,
+.popup-confirm-btn {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.popup-cancel-btn {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+}
+
+.popup-cancel-btn:hover {
+  background: #f9fafb;
+}
+
+.popup-confirm-btn {
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.popup-confirm-btn:hover {
+  background: #1d4ed8;
+}
+
+/* =========================================================
+   RECEIPT POPUP
+========================================================= */
+.payment-receipt-popup {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 32px;
+  box-sizing: border-box;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+  animation: paymentPopupIn 0.2s ease-out;
+}
+
+.payment-success-popup {
+  position: relative;
+  width: 100%;
+  max-width: 430px;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+  animation: paymentPopupIn 0.2s ease-out;
+  text-align: center;
+}
+
+.payment-receipt-popup::-webkit-scrollbar {
+  width: 6px;
+}
+
+.payment-receipt-popup::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.payment-receipt-popup::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.payment-receipt-popup::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.receipt-popup-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: #f3f4f6;
+  color: #4b5563;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.receipt-popup-close:hover {
+  background: #e5e7eb;
+}
+
+.payment-success-close {
+  color: transparent;
+  font-size: 0;
+}
+
+.payment-success-close::before {
+  content: "X";
+  color: #4b5563;
+  font-size: 22px;
+  line-height: 1;
+  display: block;
+}
+
+/* =========================================================
+   SUCCESS ICON
+========================================================= */
+
+.payment-success-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #ecfdf5;
+  color: #059669;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.payment-success-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.payment-success-btn {
+  height: 42px;
+  min-width: 120px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.payment-success-btn:hover {
+  background: #115e59;
+}
+
+/* =========================================================
+   RECEIPT NUMBER
+========================================================= */
+
+.receipt-number-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+  background: #f0fdf4;
+}
+
+.receipt-number-box span {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.receipt-number-box strong {
+  font-size: 14px;
+  color: #047857;
+}
+
+/* =========================================================
+   RECEIPT SUMMARY
+========================================================= */
+
+.receipt-summary {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.receipt-summary-row {
+  min-height: 44px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.receipt-summary-row span {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.receipt-summary-row strong {
+  font-size: 13px;
+  color: #111827;
+  text-align: right;
+}
+
+.receipt-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 14px;
+  background: #f0fdfa;
+}
+
+.receipt-total-row span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.receipt-total-row strong {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+/* =========================================================
+   RECEIPT ACTIONS
+========================================================= */
+
+.receipt-popup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.receipt-close-btn,
+.generate-receipt-btn {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.receipt-close-btn {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+}
+
+.receipt-close-btn:hover {
+  background: #f9fafb;
+}
+
+.generate-receipt-btn {
+  border: none;
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.generate-receipt-btn:hover {
+  background: #115e59;
+}
+
+/* =========================================================
+   POPUP ANIMATION
+========================================================= */
+
+@keyframes paymentPopupIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* =========================================================
+   MOBILE
+========================================================= */
+@media (max-width: 640px) {
+
+  .record-payment-overlay {
+    padding: 10px;
+  }
+
+  .record-payment-modal {
+    width: 100%;
+    max-height: 95vh;
+    border-radius: 12px;
+  }
+
+  .payment-form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .record-payment-header {
+    padding: 20px;
+  }
+
+  .record-payment-modal form {
+    padding: 20px;
+  }
+
+  .record-payment-footer {
+    flex-direction: column-reverse;
+  }
+
+  .payment-cancel-btn,
+  .payment-save-btn {
+    width: 100%;
+  }
+
+  .payment-confirmation-popup,
+  .payment-receipt-popup,
+  .payment-success-popup {
+    padding: 22px;
+  }
+
+  .payment-popup-actions,
+  .receipt-popup-actions {
+    flex-direction: column-reverse;
+  }
+
+  .popup-cancel-btn,
+  .popup-confirm-btn,
+  .receipt-close-btn,
+  .generate-receipt-btn,
+  .payment-success-btn {
+    width: 100%;
+  }
+
+  .confirmation-detail-row,
+  .receipt-summary-row {
+    align-items: flex-start;
+  }
+}
+
+  .confirmation-detail-row,
+  .receipt-summary-row {
+    align-items: flex-start;
+  }
+.payment-receipt-popup {
+  max-height: 95vh;
+  overflow-y: auto;
+}

@@ -1,0 +1,399 @@
+import { request } from './apiClient'
+
+function unwrapData(response) {
+  if (!response) return null
+  return response.data ?? response
+}
+
+function buildFallbackFacultySessionResponse(payload = {}, includeLogout = false) {
+  const loginAt = String(payload?.loginAt || new Date().toISOString()).trim()
+  const logoutAt = includeLogout ? String(payload?.logoutAt || new Date().toISOString()).trim() : ''
+
+  return {
+    date: String(payload?.date || '').trim(),
+    facultyId: String(payload?.facultyId || '').trim(),
+    facultySession: {
+      sessions: [
+        {
+          loginAt,
+          logoutAt: logoutAt || null,
+          logoutType: String(payload?.logoutType || 'normal').trim().toLowerCase() || 'normal',
+          logoutReason: String(payload?.logoutReason || '').trim(),
+          workReport: String(payload?.workReport || '').trim(),
+          workCompleted: String(payload?.workCompleted || '').trim(),
+        },
+      ],
+    },
+  }
+}
+
+function buildAttendanceQuery(options = {}) {
+  const params = new URLSearchParams()
+  const date = String(options?.date || '').trim()
+  const facultyId = String(options?.facultyId || '').trim()
+  const studentId = String(options?.studentId || '').trim()
+  const from = String(options?.from || options?.startDate || '').trim()
+  const to = String(options?.to || options?.endDate || '').trim()
+  const batchId = String(options?.batchId || '').trim()
+  const courseId = String(options?.courseId || '').trim()
+
+  if (date) {
+    params.set('date', date)
+  }
+
+  if (facultyId) {
+    params.set('facultyId', facultyId)
+  }
+
+  if (studentId) {
+    params.set('studentId', studentId)
+  }
+
+  if (from) {
+    params.set('from', from)
+  }
+
+  if (to) {
+    params.set('to', to)
+  }
+
+  if (batchId) {
+    params.set('batchId', batchId)
+  }
+
+  if (courseId) {
+    params.set('courseId', courseId)
+  }
+
+  return params
+}
+
+export async function getCurrentFacultyAttendanceOverview(dateOrOptions = '') {
+  const options =
+    typeof dateOrOptions === 'object' && dateOrOptions !== null
+      ? dateOrOptions
+      : { date: dateOrOptions }
+  const params = buildAttendanceQuery(options)
+  const response = await request(`/attendance/faculty/overview${params.toString() ? `?${params.toString()}` : ''}`, {
+  })
+  return unwrapData(response)
+}
+
+export async function markFacultyStudentAttendance(payload = {}) {
+  const response = await request('/attendance/faculty/mark', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  return unwrapData(response)
+}
+
+const BRANCH_ATTENDANCE_DEDUPE_MS = 2000
+const branchAttendanceRecentRequests = new Map()
+
+export function getBranchAttendanceOverview(date, branchId = '', options = {}) {
+  const normalizedDate = String(date || '').trim()
+  const normalizedBranchId = String(branchId || '').trim()
+  const requestKey = normalizedDate + ':' + normalizedBranchId
+  const now = Date.now()
+  const existing = branchAttendanceRecentRequests.get(requestKey)
+
+  if (existing && existing.expiresAt > now && (!options?.force || !existing.settled)) {
+    return existing.promise
+  }
+
+  const promise = (async () => {
+    const params = new URLSearchParams({ date: normalizedDate })
+    if (normalizedBranchId) params.set('branchId', normalizedBranchId)
+
+    const response = await request('/attendance/branch/overview?' + params)
+    const data = unwrapData(response)
+    if (!Array.isArray(data?.students) || !data?.branchId || data.date !== normalizedDate) {
+      throw new Error('Invalid attendance response. Please refresh or contact support.')
+    }
+    return data
+  })()
+
+  const entry = {
+    promise,
+    expiresAt: now + BRANCH_ATTENDANCE_DEDUPE_MS,
+    settled: false,
+  }
+  branchAttendanceRecentRequests.set(requestKey, entry)
+
+  promise.then(
+    () => { if (branchAttendanceRecentRequests.get(requestKey)?.promise === promise) entry.settled = true },
+    () => { if (branchAttendanceRecentRequests.get(requestKey)?.promise === promise) entry.settled = true },
+  )
+
+  promise.catch(() => {
+    const current = branchAttendanceRecentRequests.get(requestKey)
+    if (current?.promise === promise) branchAttendanceRecentRequests.delete(requestKey)
+  })
+
+  return promise
+}
+export async function recordFacultyAttendanceLogin(payload = {}) {
+  try {
+    const response = await request('/attendance/faculty/session/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        date: String(payload?.date || '').trim(),
+        facultyId: String(payload?.facultyId || '').trim(),
+        facultyName: String(payload?.facultyName || '').trim(),
+        profileInitials: String(payload?.profileInitials || '').trim(),
+        loginAt: String(payload?.loginAt || '').trim(),
+        loginTimestamp: Number(payload?.loginTimestamp || Date.now()) || Date.now(),
+        role: 'faculty',
+        source: 'faculty-dashboard',
+      }),
+    })
+
+    return unwrapData(response)
+  } catch (error) {
+    const status = Number(error?.status || 0) || 0
+    if (!status) {
+      return buildFallbackFacultySessionResponse(payload, false)
+    }
+
+    throw error
+  }
+}
+
+export async function recordFacultyAttendanceLogout(payload = {}) {
+  try {
+    const response = await request('/attendance/faculty/session/logout', {
+      method: 'POST',
+      body: JSON.stringify({
+        date: String(payload?.date || '').trim(),
+        facultyId: String(payload?.facultyId || '').trim(),
+        facultyName: String(payload?.facultyName || '').trim(),
+        profileInitials: String(payload?.profileInitials || '').trim(),
+        loginAt: String(payload?.loginAt || '').trim(),
+        loginTimestamp: Number(payload?.loginTimestamp || 0) || undefined,
+        logoutType: String(payload?.logoutType || 'normal').trim() || 'normal',
+        logoutReason: String(payload?.logoutReason || '').trim(),
+        workReport: String(payload?.workReport || '').trim(),
+        workCompleted: String(payload?.workCompleted || '').trim(),
+        logoutAt: String(payload?.logoutAt || '').trim(),
+        logoutTimestamp: Number(payload?.logoutTimestamp || Date.now()) || Date.now(),
+        role: 'faculty',
+        source: 'faculty-dashboard',
+      }),
+    })
+
+    return unwrapData(response)
+  } catch (error) {
+    const status = Number(error?.status || 0) || 0
+    if (!status) {
+      return buildFallbackFacultySessionResponse(payload, true)
+    }
+
+    throw error
+  }
+}
+
+function unwrapFacultyAttendanceResponse(response) {
+  return response?.data ?? response ?? null
+}
+
+// Faculty attendance endpoints are intentionally user-scoped. The authenticated
+// faculty identity is resolved by the API; the client never sends an authority
+// field for faculty, branch, or attendance state.
+export async function getFacultyAttendanceToday() {
+  try {
+    const response = await request('/faculty/attendance/today')
+    return unwrapFacultyAttendanceResponse(response)
+  } catch (error) {
+    if (Number(error?.status || 0) !== 404) throw error
+    return getCurrentFacultyAttendanceOverview({ date: new Date().toISOString().slice(0, 10) })
+  }
+}
+
+function normalizeLegacyFacultyAttendanceStatus(payload = {}) {
+  const source = payload?.data ?? payload ?? {}
+  const sessions = Array.isArray(source?.facultySession?.sessions) ? source.facultySession.sessions : []
+  const first = sessions[0] || null
+  const latest = sessions[sessions.length - 1] || null
+  const loginAt = first?.loginAt || null
+  const finalLogoutAt = latest?.logoutAt || null
+  const workingSeconds = sessions.reduce((total, session) => {
+    const start = new Date(session?.loginAt || '').getTime()
+    const end = new Date(session?.logoutAt || Date.now()).getTime()
+    return Number.isFinite(start) && Number.isFinite(end) ? total + Math.max(0, Math.floor((end - start) / 1000)) : total
+  }, 0)
+
+  return {
+    status: finalLogoutAt ? 'LOGGED_OUT' : loginAt ? 'LOGGED_IN' : 'NOT_LOGGED_IN',
+    faculty: { name: source?.facultyName || '', facultyId: source?.facultyId || '' },
+    attendanceDate: source?.date || new Date().toISOString().slice(0, 10),
+    currentServerTime: new Date().toISOString(),
+    firstLoginAt: loginAt,
+    finalLogoutAt,
+    currentSession: latest?.logoutAt ? null : latest,
+    workingSeconds,
+    interruptionType: 'NONE',
+    canLogin: !loginAt && !finalLogoutAt,
+    canLogout: Boolean(loginAt && !finalLogoutAt),
+  }
+}
+
+export async function getFacultyAttendanceStatus(options = {}) {
+  try {
+    const response = await request('/faculty/attendance/status')
+    return unwrapFacultyAttendanceResponse(response)
+  } catch (error) {
+    if (![404, 405].includes(Number(error?.status || 0))) throw error
+    const legacy = await getCurrentFacultyAttendanceOverview({ date: new Date().toISOString().slice(0, 10), facultyId: options?.facultyId || '' })
+    return normalizeLegacyFacultyAttendanceStatus(legacy)
+  }
+}
+
+export async function getBranchFacultyAttendanceStatus(facultyReference) {
+  const reference = String(facultyReference || '').trim()
+  if (!reference) throw new Error('Faculty reference is required')
+  const response = await request(`/faculty/attendance/admin-status/${encodeURIComponent(reference)}`)
+  return unwrapFacultyAttendanceResponse(response)
+}
+
+export async function getBranchFacultyAttendanceHistory(facultyReference, options = {}) {
+  const reference = String(facultyReference || '').trim()
+  if (!reference) throw new Error('Faculty reference is required')
+  const params = new URLSearchParams()
+  const from = String(options?.from || options?.startDate || '').trim()
+  const to = String(options?.to || options?.endDate || '').trim()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const query = params.toString() ? `?${params.toString()}` : ''
+  const response = await request(`/faculty/attendance/admin-history/${encodeURIComponent(reference)}${query}`)
+  return unwrapFacultyAttendanceResponse(response)
+}
+
+export async function loginFacultyAttendance(payload = {}) {
+  try {
+    const response = await request('/faculty/attendance/login', { method: 'POST' })
+    return unwrapFacultyAttendanceResponse(response)
+  } catch (error) {
+    if (![404, 405].includes(Number(error?.status || 0))) throw error
+    return recordFacultyAttendanceLogin({ date: new Date().toISOString().slice(0, 10), facultyId: payload?.facultyId || '', facultyName: payload?.facultyName || '', profileInitials: payload?.profileInitials || '', loginAt: new Date().toISOString(), loginTimestamp: Date.now() })
+  }
+}
+
+export async function getFacultyAttendanceBatches() {
+  try {
+    const response = await request('/faculty/attendance/batches')
+    return unwrapFacultyAttendanceResponse(response)
+  } catch (error) {
+    if (![404, 405].includes(Number(error?.status || 0))) throw error
+    const response = await request('/dashboard/faculty/my-batches-summary')
+    const summary = unwrapFacultyAttendanceResponse(response)
+    return Array.isArray(summary?.batchEntries) ? summary.batchEntries : []
+  }
+}
+
+export async function getFacultyAttendancePermission() {
+  const response = await request('/faculty/attendance/permission')
+  return unwrapFacultyAttendanceResponse(response)
+}
+
+export async function logoutFacultyAttendance(batchWork = [], payload = {}) {
+  try {
+    const response = await request('/faculty/attendance/logout', { method: 'POST', body: JSON.stringify({ batchWork }) })
+    return unwrapFacultyAttendanceResponse(response)
+  } catch (error) {
+    if (![404, 405].includes(Number(error?.status || 0))) throw error
+    return recordFacultyAttendanceLogout({ date: new Date().toISOString().slice(0, 10), facultyId: payload?.facultyId || '', facultyName: payload?.facultyName || '', logoutType: 'normal', workReport: batchWork.map((item) => `${item.batchId}: ${item.workSummary}`).join('\n'), logoutAt: new Date().toISOString(), logoutTimestamp: Date.now() })
+  }
+}
+
+export async function getCurrentStudentAttendanceOverview(date = '') {
+  const params = new URLSearchParams()
+  if (String(date || '').trim()) {
+    params.set('date', String(date).trim())
+  }
+
+  const response = await request(`/attendance/student/me${params.toString() ? `?${params.toString()}` : ''}`)
+  return unwrapData(response)
+}
+
+function extractAttendanceListPayload(payload) {
+  if (!payload) return []
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.results)) return payload.results
+  if (Array.isArray(payload?.records)) return payload.records
+  if (Array.isArray(payload?.attendance)) return payload.attendance
+  if (Array.isArray(payload?.attendanceRecords)) return payload.attendanceRecords
+  if (Array.isArray(payload?.days)) return payload.days
+  if (payload?.data && typeof payload.data === 'object') {
+    return extractAttendanceListPayload(payload.data)
+  }
+  if (payload?.history && typeof payload.history === 'object') {
+    return extractAttendanceListPayload(payload.history)
+  }
+
+  return []
+}
+
+function normalizeStudentAttendanceEntry(entry = {}) {
+  const dateKey =
+    String(entry?.dateKey || entry?.date || entry?.attendanceDate || entry?.day || '').trim() ||
+    ''
+
+  if (!dateKey) return null
+
+  const rawStatus = String(
+    entry?.status ||
+      entry?.attendanceStatus ||
+      entry?.attendanceStatusLabel ||
+      entry?.result ||
+      '',
+  ).trim().toLowerCase()
+
+  const status =
+    rawStatus === 'present'
+      ? 'Present'
+      : rawStatus === 'absent'
+        ? 'Absent'
+        : rawStatus === 'unmarked'
+          ? 'Unmarked'
+          : ''
+
+  return {
+    dateKey,
+    status,
+    updatedAt: Number(entry?.updatedAt || entry?.timestamp || entry?.createdAt || 0) || 0,
+  }
+}
+
+async function tryGetStudentAttendanceHistory(path, query = {}) {
+  const params = buildAttendanceQuery(query)
+  const response = await request(`${path}${params.toString() ? `?${params.toString()}` : ''}`)
+  return extractAttendanceListPayload(unwrapData(response)).map(normalizeStudentAttendanceEntry).filter(Boolean)
+}
+
+export async function getCurrentStudentAttendanceHistory(query = {}) {
+  const attempts = [
+    '/attendance/student/me/history',
+    '/attendance/student/history',
+    '/attendance/student/me/records',
+    '/attendance/student/me',
+  ]
+
+  for (const path of attempts) {
+    try {
+      const entries = await tryGetStudentAttendanceHistory(path, query)
+      if (entries.length) {
+        return entries
+      }
+    } catch (error) {
+      const status = Number(error?.status || 0) || 0
+      if (status && status !== 404 && status !== 405) {
+        throw error
+      }
+    }
+  }
+
+  return []
+}

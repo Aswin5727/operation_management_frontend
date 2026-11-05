@@ -1,0 +1,381 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  BadgeCheck,
+  Bell,
+  CheckCircle2,
+  Mail,
+  X,
+  Shield,
+} from 'lucide-react'
+
+import { request } from '../services/apiClient'
+import { unwrapNotifications } from '../services/notificationService'
+
+function formatNotificationTime(createdAt) {
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const diffMs = Date.now() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins} mins ago`
+  if (diffHours < 24) return `${diffHours} hrs ago`
+  if (diffDays < 7) return `${diffDays} days ago`
+
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
+function getNotificationIcon(kind) {
+  switch (kind) {
+    case 'branch-login':
+      return CheckCircle2
+    case 'branch-mail':
+      return Mail
+    case 'branch-created':
+      return BadgeCheck
+    default:
+      return Shield
+  }
+}
+
+function isBranchCourseEditNotification(notification = {}) {
+  const kind = String(notification.kind || '').trim().toLowerCase()
+  return kind.startsWith('branch-course-edit-') || kind.startsWith('course-edit-')
+}
+
+function isCourseAssignedNotification(notification = {}) {
+  const kind = String(notification.kind || '').trim().toLowerCase()
+  return kind.includes('assigned')
+}
+
+function normalizeBellNotification(notification = {}) {
+  const title = String(notification.title || 'Notification').trim()
+  const rawMessage = String(notification.message || '').trim()
+  return {
+    ...notification,
+    title,
+    message: rawMessage.startsWith(title) ? rawMessage.slice(title.length).trim() : rawMessage,
+  }
+}
+
+function NotificationDropdownSkeleton() {
+  return (
+    <div className="notification-dropdown-skeleton" role="status" aria-label="Loading notifications">
+      {[1, 2].map((item) => (
+        <div className="notification-dropdown-skeleton-item" key={item}>
+          <span className="notification-dropdown-skeleton-icon" />
+          <span className="notification-dropdown-skeleton-copy">
+            <span className="notification-dropdown-skeleton-line notification-dropdown-skeleton-line--title" />
+            <span className="notification-dropdown-skeleton-line notification-dropdown-skeleton-line--body" />
+            <span className="notification-dropdown-skeleton-line notification-dropdown-skeleton-line--time" />
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function SuperAdminNotificationBell({
+  onOpenBranches,
+  onViewActivity,
+  onOpenBranch,
+}) {
+  const navigate = useNavigate()
+  const menuRef = useRef(null)
+  const [isOpen, setIsOpen] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const visibleNotifications = useMemo(
+    () =>
+      notifications.filter(
+        (notification) =>
+          !['faculty-login', 'branch-faculty-login'].includes(String(notification.kind || '').trim().toLowerCase()) &&
+          !isBranchCourseEditNotification(notification) &&
+          !isCourseAssignedNotification(notification),
+      ),
+    [notifications],
+  )
+
+  const refreshNotifications = async () => {
+    try {
+      const response = await request('/notifications?limit=20&page=1', {
+        method: 'GET',
+      })
+      const { data } = unwrapNotifications(response)
+      setNotifications(data.map((notification) => {
+        const normalized = normalizeBellNotification(notification)
+        return {
+          ...normalized,
+          // Read state is persisted by the API, so it remains correct across
+          // refreshes, tabs, and logout/login cycles.
+          dropdownViewed: Boolean(normalized.read),
+        }
+      }))
+    } catch {
+      // Do not show another session's stale browser cache when the API fails.
+      setNotifications([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      void refreshNotifications()
+    }, 0)
+
+    return () => window.clearTimeout(timerId)
+  }, [])
+
+  useEffect(() => {
+    const handleFocus = () => {
+      void refreshNotifications()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshNotifications()
+      }
+    }
+
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined
+
+    document.body.classList.toggle('super-admin-notification-menu-open', isOpen)
+
+    return () => {
+      document.body.classList.remove('super-admin-notification-menu-open')
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+
+    const handlePointerDown = (event) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (menuRef.current?.contains(target)) return
+      setIsOpen(false)
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown)
+    }
+  }, [isOpen])
+
+  const notificationCount = useMemo(
+    () => visibleNotifications.filter((notification) => !notification.dropdownViewed).length,
+    [visibleNotifications],
+  )
+  const visibleDropdownNotifications = useMemo(
+    () => visibleNotifications
+      .filter((notification) => !notification.dropdownViewed)
+      .sort((left, right) => {
+        const leftDiscount = String(left.kind || '').toUpperCase() === 'STUDENT_DISCOUNT_APPLIED' ? 1 : 0
+        const rightDiscount = String(right.kind || '').toUpperCase() === 'STUDENT_DISCOUNT_APPLIED' ? 1 : 0
+        if (leftDiscount !== rightDiscount) return rightDiscount - leftDiscount
+        return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      })
+      .slice(0, 2),
+    [visibleNotifications],
+  )
+  const handleOpenNotification = async (notification) => {
+    setIsOpen(false)
+
+    try {
+      await request('/notifications/mark-read', {
+        method: 'PATCH',
+        body: JSON.stringify({ notificationIds: [notification.id] }),
+      })
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === notification.id
+            ? { ...item, read: true, dropdownViewed: true }
+            : item,
+        ),
+      )
+    } catch {
+      await refreshNotifications()
+    }
+
+    if (notification.kind?.startsWith('branch-')) {
+      const branchId = notification.targetBranchId || notification.branchId
+      if (branchId && typeof onOpenBranch === 'function') {
+        onOpenBranch(branchId)
+        return
+      }
+      if (typeof onOpenBranches === 'function') {
+        onOpenBranches(notification)
+        return
+      }
+    }
+    const notificationDescription = String(notification.requestDescription || '')
+    if (
+      String(notification.kind || '').trim().toLowerCase() === 'student-discontinuation' ||
+      notificationDescription.startsWith('DISCONTINUATION_SUPER_REVIEW:')
+    ) {
+      navigate('/dashboard/super-admin?section=discontinuations')
+      return
+    }
+
+    if (notificationDescription.startsWith('SALES_CRM_REPORT:')) {
+      const [, , salesAdminId] = notificationDescription.split(':')
+      if (salesAdminId) navigate(`/dashboard/super-admin?section=sales-admin&adminId=${encodeURIComponent(salesAdminId)}&tab=reports`)
+      return
+    }
+
+    if (notificationDescription.startsWith('CALL_RECORDING_SHARE:')) {
+      const [, , , salesAdminId] = notificationDescription.split(':')
+      if (salesAdminId) navigate(`/dashboard/super-admin?section=sales-admin&adminId=${encodeURIComponent(salesAdminId)}&tab=call-recordings`)
+      else navigate('/dashboard/super-admin?section=sales-admin')
+      return
+    }
+
+    navigate('/dashboard/super-admin')
+  }
+
+  const handleMarkAllAsRead = async () => {
+    const visibleIds = visibleNotifications
+      .filter((notification) => !notification.read)
+      .map((notification) => notification.id)
+    if (!visibleIds.length) return
+
+    try {
+      await request('/notifications/mark-read', {
+        method: 'PATCH',
+        body: JSON.stringify({ notificationIds: visibleIds }),
+      })
+      const ids = new Set(visibleIds.map(String))
+      setNotifications((current) =>
+        current.map((item) =>
+          ids.has(String(item.id))
+            ? { ...item, read: true, dropdownViewed: true }
+            : item,
+        ),
+      )
+    } catch {
+      await refreshNotifications()
+    }
+  }
+  return (
+    <div ref={menuRef} className="notification-menu super-admin-notification-menu">
+      <button
+        className="icon-chip notification-chip super-admin-notification-button"
+        type="button"
+        aria-label="Notifications"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <Bell size={20} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+        {!isLoading && notificationCount > 0 ? <b>{notificationCount}</b> : null}
+      </button>
+
+      {isOpen ? (
+        <div
+          className="super-admin-notification-backdrop"
+          aria-hidden="true"
+          onClick={() => setIsOpen(false)}
+        />
+      ) : null}
+
+      {isOpen ? (
+        <div className="notification-dropdown" role="menu" aria-label="Notifications">
+          <div className="notification-dropdown-head">
+            <strong>Notifications</strong>
+            <div className="notification-dropdown-head-actions">
+              <button type="button" className="notification-mark-read" onClick={handleMarkAllAsRead}>
+                Mark all as read
+              </button>
+              <button
+                type="button"
+                className="notification-dropdown-close"
+                aria-label="Close notifications"
+                onClick={() => setIsOpen(false)}
+              >
+                <X size={16} strokeWidth={2.4} aria-hidden="true" focusable="false" />
+              </button>
+            </div>
+          </div>
+
+          <div className="notification-dropdown-list">
+            {isLoading ? (
+              <NotificationDropdownSkeleton />
+            ) : visibleDropdownNotifications.length ? (
+              visibleDropdownNotifications.map((notification) => {
+                const Icon = getNotificationIcon(notification.kind)
+                return (
+                  <button
+                    type="button"
+                    key={notification.id}
+                    className={`notification-dropdown-item ${notification.read ? 'is-muted' : 'is-highlighted'}`.trim()}
+                    onClick={() => handleOpenNotification(notification)}
+                  >
+                    <span className={`notification-badge ${notification.tone}`} aria-hidden="true">
+                      <Icon size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+                    </span>
+                    <div className="notification-copy">
+                      <p>{notification.title}</p>
+                      <span>{notification.message}</span>
+                      <small>{formatNotificationTime(notification.createdAt)}</small>
+                    </div>
+                  </button>
+                )
+              })
+            ) : (
+              <div className="notification-dropdown-item is-muted" role="presentation">
+                <span className="notification-badge blue" aria-hidden="true">
+                  <Shield size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+                </span>
+                <div className="notification-copy">
+                  <p>No notifications yet</p>
+                 
+                  <small>Waiting for activity</small>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button
+            className="notification-dropdown-footer"
+            type="button"
+            onClick={() => {
+              setIsOpen(false)
+              if (typeof onViewActivity === 'function') {
+                onViewActivity()
+                return
+              }
+
+              if (typeof onOpenBranches === 'function') {
+                onOpenBranches()
+                return
+              }
+
+              navigate('/dashboard/super-admin/notifications')
+            }}
+          >
+            View Notification
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}

@@ -1,0 +1,1204 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  BadgeCheck,
+  Bell,
+  Building2,
+  CheckCircle2,
+  CircleUserRound,
+  ChevronDown,
+  CalendarDays,
+  Dot,
+  LogOut,
+  Mail,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
+  Shield,
+  LayoutDashboard,
+  LayoutGrid,
+  LoaderCircle,
+  UserRound,
+  Users,
+} from 'lucide-react'
+
+import { useAuth } from '../auth/useAuth'
+import { SearchBar } from '../components/SearchBar'
+import { request } from '../services/apiClient'
+import { listBranches } from '../services/branchService'
+import { unwrapNotifications } from '../services/notificationService'
+import {
+  markNotificationsAsRead,
+  mergeNotificationsWithStoredState,
+  saveNotifications,
+  subscribeNotifications,
+} from '../lib/notificationStore'
+import { SuperAdminNotificationBell } from '../components/SuperAdminNotificationBell'
+import { PaginationBar } from '../components/PaginationBar'
+import { SuperAdminSidebarNav } from '../components/SuperAdminSidebarNav'
+import '../styles/SuperAdminDashboardPage.css'
+
+function AvatarBadge() {
+  return (
+    <span className="super-admin-avatar" aria-hidden="true">
+      <span className="super-admin-avatar-mark">
+        <Shield size={18} strokeWidth={2.2} />
+      </span>
+    </span>
+  )
+}
+
+function SidebarUserAvatar() {
+  return (
+    <span className="super-admin-sidebar-user-avatar" aria-hidden="true">
+      <CircleUserRound size={28} strokeWidth={1.9} />
+      <span className="super-admin-sidebar-user-status" />
+    </span>
+  )
+}
+
+function formatNotificationTime(createdAt) {
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const diffMs = Date.now() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins} mins ago`
+  if (diffHours < 24) return `${diffHours} hrs ago`
+  if (diffDays < 7) return `${diffDays} days ago`
+
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
+function formatGroupLabel(createdAt) {
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) return 'Older'
+
+  const today = new Date()
+  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`
+  const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+
+  if (dateKey === todayKey) return 'Today'
+
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  const yesterdayKey = `${yesterday.getFullYear()}-${yesterday.getMonth()}-${yesterday.getDate()}`
+  if (dateKey === yesterdayKey) return 'Yesterday'
+
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
+function NotificationIcon({ kind }) {
+  if (kind === 'branch-created') {
+    return <BadgeCheck size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+  }
+
+  if (kind === 'branch-mail') {
+    return <Mail size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+  }
+
+  if (kind === 'branch-login') {
+    return <CheckCircle2 size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+  }
+
+  return <Bell size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+}
+
+function normalizeNotificationItem(notification = {}) {
+  const createdAt = String(notification.createdAt || '').trim()
+  const timeValue = createdAt || new Date().toISOString()
+  const title = String(notification.title || 'Notification').trim()
+  const rawMessage = String(notification.message || '').trim()
+  const kind = String(notification.kind || 'general').trim() || 'general'
+  const messageBody = rawMessage.startsWith(title)
+    ? rawMessage.slice(title.length).trim()
+    : rawMessage
+  const deletedFields = Object.fromEntries(messageBody.split(/\r?\n/).map((line) => {
+    const separator = line.indexOf(':')
+    return separator < 0 ? ['', ''] : [line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim()]
+  }).filter(([key]) => key))
+  const deletedLeadName = deletedFields['student name'] || title.replace(/^Lead Deleted\s*-\s*/i, '').trim()
+  const deletedBy = deletedFields['deleted by'] || 'A staff member'
+  const deletedRole = deletedFields.role ? ` (${deletedFields.role})` : ''
+  const message = kind.toUpperCase() === 'LEAD_DELETED' && deletedFields['lead id']
+    ? `Lead: ${deletedLeadName}\nLead ID: ${deletedFields['lead id']}\nDeleted by: ${deletedBy}${deletedRole}.`
+    : messageBody
+
+  return {
+    id: String(notification.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    kind,
+    tone: String(notification.tone || 'blue').trim() || 'blue',
+    title,
+    message,
+    actionLabel: String(notification.actionLabel || '').trim(),
+    createdAt: timeValue,
+    read: Boolean(notification.read),
+    targetBranchId: String(notification.targetBranchId || '').trim(),
+    targetBranchEmail: String(notification.targetBranchEmail || '').trim(),
+    targetBranchName: String(notification.targetBranchName || '').trim(),
+    facultyId: String(notification.facultyId || '').trim(),
+    facultyEmail: String(notification.facultyEmail || '').trim(),
+    facultyName: String(notification.facultyName || '').trim(),
+    requestDescription: String(notification.requestDescription || '').trim(),
+    requestStatus: String(notification.requestStatus || '').trim(),
+    requestTitle: String(notification.requestTitle || '').trim(),
+    requestReason: String(notification.requestReason || '').trim(),
+  }
+}
+
+function groupNotifications(notifications = []) {
+  const groups = new Map()
+  const orderedNotifications = [...notifications].sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  )
+
+  orderedNotifications.forEach((notification) => {
+    const label = formatGroupLabel(notification.createdAt)
+    if (!groups.has(label)) {
+      groups.set(label, [])
+    }
+
+    groups.get(label).push(notification)
+  })
+
+  return Array.from(groups.entries()).map(([label, items]) => ({
+    label,
+    items,
+  }))
+}
+
+function isWithinSelectedDateRange(createdAt, range) {
+  if (range === 'all') return true
+
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) return false
+
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const itemStartOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const diffDays = Math.floor((startOfToday.getTime() - itemStartOfDay.getTime()) / 86400000)
+
+  if (range === 'today') {
+    return diffDays === 0
+  }
+
+  if (range === 'yesterday') {
+    return diffDays === 1
+  }
+
+  if (range === 'week') {
+    const daysSinceMonday = (startOfToday.getDay() + 6) % 7
+    return date.getTime() >= startOfToday.getTime() - daysSinceMonday * 86400000
+  }
+
+  if (/^\d{4}-\d{2}$/.test(range)) {
+    const [year, month] = range.split('-').map(Number)
+    return date.getFullYear() === year && date.getMonth() + 1 === month
+  }
+
+  return true
+}
+
+function isBranchCourseEditNotification(notification = {}) {
+  const kind = String(notification.kind || '').trim().toLowerCase()
+  return kind.startsWith('branch-course-edit-') || kind.startsWith('course-edit-')
+}
+
+function isCourseAssignedNotification(notification = {}) {
+  const kind = String(notification.kind || '').trim().toLowerCase()
+  return kind.includes('assigned')
+}
+
+function isStudentDiscontinuationNotification(notification = {}) {
+  return String(notification.kind || '').trim().toLowerCase() === 'student-discontinuation'
+    || String(notification.requestDescription || '').trim().startsWith('DISCONTINUATION_SUPER_REVIEW:')
+}
+
+function NotificationItem({ item, onView, isLoading }) {
+  return (
+    <article className={`notifications-item ${item.read ? '' : 'is-unread'}`.trim()}>
+      <span className={`notifications-item-icon tone-${item.tone}`} aria-hidden="true">
+        <NotificationIcon kind={item.kind} />
+      </span>
+
+      <div className="notifications-item-copy">
+        <div className="notifications-item-title-row">
+          <h3>{item.title}</h3>
+        </div>
+        <p>{item.message}</p>
+      </div>
+
+      <div className="notifications-item-meta">
+        <small className="notifications-item-time">{formatNotificationTime(item.createdAt)}</small>
+        <button
+          type="button"
+          className="notifications-item-view-button"
+          onClick={() => onView(item)}
+          disabled={isLoading}
+          aria-busy={isLoading}
+        >
+          {isLoading ? <LoaderCircle size={15} className="notifications-view-spinner" aria-hidden="true" /> : null}
+          {isLoading ? 'Loading...' : 'View'}
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function NotificationFeedSkeleton() {
+  return (
+    <div className="notifications-feed notifications-feed-skeleton" role="status" aria-label="Loading notifications">
+      {[1, 2, 3, 4].map((item) => (
+        <div className="notifications-skeleton-group" key={item}>
+          <span className="notifications-skeleton-label" />
+          <div className="notifications-skeleton-card">
+            <span className="notifications-skeleton-icon" />
+            <span className="notifications-skeleton-copy">
+              <span className="notifications-skeleton-line notifications-skeleton-line--title" />
+              <span className="notifications-skeleton-line notifications-skeleton-line--body" />
+            </span>
+            <span className="notifications-skeleton-meta" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function SuperAdminNotificationsPage() {
+  const navigate = useNavigate()
+  const { signOut, user } = useAuth()
+  const [notifications, setNotifications] = useState([])
+  const [branches, setBranches] = useState([])
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false)
+  const [isSuperAdminProfileOpen, setIsSuperAdminProfileOpen] = useState(false)
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem('cispro.super-admin-sidebar-collapsed') === 'true'
+    } catch {
+      return false
+    }
+  })
+  const [isLeaveManagementExpanded, setIsLeaveManagementExpanded] = useState(false)
+  const [isBranchManagementExpanded, setIsBranchManagementExpanded] = useState(false)
+  const [isUserRoleManagementExpanded, setIsUserRoleManagementExpanded] = useState(true)
+  const [isAcademicOperationsExpanded, setIsAcademicOperationsExpanded] = useState(true)
+  const [isSidebarFlyoutDismissed, setIsSidebarFlyoutDismissed] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(true)
+  const [viewLoadingId, setViewLoadingId] = useState('')
+  const [selectedNotification, setSelectedNotification] = useState(null)
+  const [discontinuationDecisionLoading, setDiscontinuationDecisionLoading] = useState(false)
+  const [discontinuationDecisionForm, setDiscontinuationDecisionForm] = useState(null)
+  const [discontinuationDecisionError, setDiscontinuationDecisionError] = useState('')
+  const [discontinuationDetailsLoading, setDiscontinuationDetailsLoading] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [dateFilter, setDateFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [notificationPage, setNotificationPage] = useState(1)
+  const notificationsPerPage = 10
+  const refreshTimerRef = useRef(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void listBranches({ page: 1, limit: 100, sortBy: 'createdAt', sortOrder: 'desc' })
+      .then((result) => {
+        if (!cancelled) setBranches(Array.isArray(result?.data) ? result.data : [])
+      })
+      .catch(() => {
+        if (!cancelled) setBranches([])
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  const profileEmail = user?.email || 'superadmin.manager@cispro.com'
+  const visibleNotifications = useMemo(
+    () =>
+      notifications.filter(
+        (notification) =>
+          !['faculty-login', 'branch-faculty-login'].includes(String(notification.kind || '').trim().toLowerCase()) &&
+          !isBranchCourseEditNotification(notification) &&
+          !isCourseAssignedNotification(notification),
+      ),
+    [notifications],
+  )
+  const monthFilterOptions = useMemo(() => {
+    const currentMonth = new Date()
+    const monthKeys = new Set([
+      `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`,
+    ])
+
+    return [...monthKeys]
+      .sort((left, right) => right.localeCompare(left))
+      .map((monthKey) => {
+        const [year, month] = monthKey.split('-').map(Number)
+        return {
+          value: monthKey,
+          label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)),
+        }
+      })
+  }, [visibleNotifications])
+
+  const loadAllNotifications = async () => {
+    try {
+      const response = await request('/notifications?limit=100&page=1', {
+        method: 'GET',
+      })
+
+      const { data } = unwrapNotifications(response)
+
+      const mergedNotifications = mergeNotificationsWithStoredState(data.map(normalizeNotificationItem))
+      saveNotifications(mergedNotifications, { emit: false })
+      setNotifications(mergedNotifications)
+    } catch {
+      // Notifications belong to the active backend/database. Do not render
+      // stale browser-cached records when the API is unavailable.
+      saveNotifications([], { emit: false })
+      setNotifications([])
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      void loadAllNotifications()
+    }, 0)
+
+    return () => window.clearTimeout(timerId)
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = subscribeNotifications(() => {
+      void loadAllNotifications()
+    })
+
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    if (!isLogoutConfirmOpen && !isMobileSidebarOpen) return undefined
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsLogoutConfirmOpen(false)
+        setIsMobileSidebarOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isLogoutConfirmOpen, isMobileSidebarOpen])
+
+  useEffect(() => {
+    document.body.classList.toggle('super-admin-sidebar-open', isMobileSidebarOpen)
+
+    return () => {
+      document.body.classList.remove('super-admin-sidebar-open')
+    }
+  }, [isMobileSidebarOpen])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('cispro.super-admin-sidebar-collapsed', String(isSidebarCollapsed))
+    } catch {
+      // Ignore storage failures; the sidebar still works for the current session.
+    }
+  }, [isSidebarCollapsed])
+
+  useEffect(() => {
+    let mounted = true
+    listBranches({ page: 1, limit: 100, sortBy: 'createdAt', sortOrder: 'desc' })
+      .then((result) => { if (mounted) setBranches(Array.isArray(result?.data) ? result.data : []) })
+      .catch(() => { if (mounted) setBranches([]) })
+    return () => { mounted = false }
+  }, [])
+
+  const unreadCount = useMemo(() => visibleNotifications.filter((item) => !item.read).length, [visibleNotifications])
+  const totalCount = visibleNotifications.length
+  const filteredNotifications = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase()
+    return visibleNotifications.filter((item) => {
+      const matchesStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'read' && item.read) ||
+        (statusFilter === 'unread' && !item.read)
+
+      const matchesDate = isWithinSelectedDateRange(item.createdAt, dateFilter)
+
+      const searchableText = [
+        item.title,
+        item.message,
+        item.kind,
+        item.actionLabel,
+        item.targetBranchName,
+        item.targetBranchEmail,
+        item.facultyName,
+        item.facultyEmail,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      const matchesSearch = !query || searchableText.includes(query)
+
+      return matchesStatus && matchesDate && matchesSearch
+    })
+  }, [dateFilter, searchTerm, statusFilter, visibleNotifications])
+
+  const notificationTotalPages = Math.max(1, Math.ceil(filteredNotifications.length / notificationsPerPage))
+  const safeNotificationPage = Math.min(notificationPage, notificationTotalPages)
+  const paginatedNotifications = useMemo(
+    () => filteredNotifications.slice((safeNotificationPage - 1) * notificationsPerPage, safeNotificationPage * notificationsPerPage),
+    [filteredNotifications, safeNotificationPage],
+  )
+  const groupedNotifications = useMemo(() => groupNotifications(paginatedNotifications), [paginatedNotifications])
+
+  useEffect(() => {
+    setNotificationPage(1)
+  }, [searchTerm, dateFilter, statusFilter])
+
+  useEffect(() => {
+    if (!selectedNotification) return undefined
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setSelectedNotification(null)
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [selectedNotification])
+
+  const markAllAsRead = async () => {
+    const visibleIds = visibleNotifications.map((item) => item.id)
+    if (!visibleIds.length) return
+    setNotifications((current) =>
+      current.map((item) =>
+        visibleIds.includes(item.id) ? { ...item, read: true } : item,
+      ),
+    )
+    markNotificationsAsRead(visibleIds.length ? visibleIds : null)
+
+    try {
+      await request('/notifications/mark-read', {
+        method: 'PATCH',
+        body: JSON.stringify({ notificationIds: visibleIds }),
+      })
+    } catch {
+      markNotificationsAsRead(visibleIds.length ? visibleIds : null)
+    } finally {
+      void loadAllNotifications()
+    }
+  }
+
+  const markSingleAsRead = async (notification) => {
+    setNotifications((current) =>
+      current.map((item) => (item.id === notification.id ? { ...item, read: true } : item)),
+    )
+    markNotificationsAsRead([notification.id])
+
+    try {
+      await request('/notifications/mark-read', {
+        method: 'PATCH',
+        body: JSON.stringify({ notificationIds: [notification.id] }),
+      })
+    } catch {
+      markNotificationsAsRead([notification.id])
+    } finally {
+      void loadAllNotifications()
+    }
+  }
+
+  const handleViewNotification = async (notification) => {
+    if (!notification?.id || viewLoadingId) return
+
+    setViewLoadingId(notification.id)
+    try {
+      await markSingleAsRead(notification)
+      if (isStudentDiscontinuationNotification(notification)) {
+        navigate('/dashboard/super-admin?section=discontinuations')
+        return
+      }
+      const reportDescription = String(notification.requestDescription || '').trim()
+      if (reportDescription.startsWith('SALES_CRM_REPORT:')) {
+        const [, , salesAdminId] = reportDescription.split(':')
+        if (salesAdminId) navigate(`/dashboard/super-admin?section=sales-admin&adminId=${encodeURIComponent(salesAdminId)}&tab=reports`)
+        return
+      }
+      if (reportDescription.startsWith('CALL_RECORDING_SHARE:')) {
+        const [, , , salesAdminId] = reportDescription.split(':')
+        if (salesAdminId) navigate(`/dashboard/super-admin?section=sales-admin&adminId=${encodeURIComponent(salesAdminId)}&tab=call-recordings`)
+        else navigate('/dashboard/super-admin?section=sales-admin')
+        return
+      }
+      const description = String(notification.requestDescription || '').trim()
+      if (String(notification.kind || '').toUpperCase() === 'LEAD_DELETED') {
+        const leadId = description.split(':')[1]
+        setSelectedNotification({ ...notification, read: true, deletedLeadLoading: Boolean(leadId) })
+        if (leadId) {
+          try {
+            const response = await request(`/leads/${encodeURIComponent(leadId)}?includeDeleted=true`)
+            const details = response?.data ?? response
+            setSelectedNotification(current => current ? { ...current, deletedLeadDetails: details, deletedLeadLoading: false } : current)
+          } catch (error) {
+            setSelectedNotification(current => current ? { ...current, deletedLeadLoading: false, deletedLeadError: error?.message || 'Unable to load deleted lead details.' } : current)
+          }
+        }
+        return
+      }
+      const requestId = description.startsWith('DISCONTINUATION_SUPER_REVIEW:')
+        ? description.slice('DISCONTINUATION_SUPER_REVIEW:'.length).trim()
+        : ''
+      setSelectedNotification({ ...notification, read: true })
+      if (isStudentDiscontinuationNotification(notification) && requestId) {
+        setDiscontinuationDetailsLoading(true)
+        try {
+          const response = await request('/student-discontinuation/' + encodeURIComponent(requestId))
+          const details = response?.data ?? response
+          setSelectedNotification((current) => current ? { ...current, discontinuationDetails: details } : current)
+        } catch (error) {
+          setDiscontinuationDecisionError(error?.message || 'Unable to load discontinuation details.')
+        } finally {
+          setDiscontinuationDetailsLoading(false)
+        }
+      }
+    } finally {
+      setViewLoadingId('')
+    }
+  }
+
+  const openDiscontinuationDecision = (notification, decision) => {
+    setDiscontinuationDecisionError('')
+    setDiscontinuationDecisionForm({
+      decision,
+      note: '',
+      waitUntil: '',
+      waiverAmount: '0',
+      refundEligibleAmount: '0',
+      financeNote: '',
+    })
+  }
+
+  const closeNotificationDetails = () => {
+    setSelectedNotification(null)
+    setDiscontinuationDecisionForm(null)
+    setDiscontinuationDecisionError('')
+  }
+
+  const handleDiscontinuationDecision = async (notification) => {
+    const description = String(notification?.requestDescription || '').trim()
+    const requestId = description.startsWith('DISCONTINUATION_SUPER_REVIEW:')
+      ? description.slice('DISCONTINUATION_SUPER_REVIEW:'.length).trim()
+      : ''
+    const form = discontinuationDecisionForm
+    if (!requestId || !form || discontinuationDecisionLoading) return
+
+    const note = String(form.note || '').trim()
+    if (form.decision === 'REJECT' && !note) {
+      setDiscontinuationDecisionError('Rejection reason is required.')
+      return
+    }
+    if (form.decision === 'WAIT' && !String(form.waitUntil || '').trim()) {
+      setDiscontinuationDecisionError('Next installment due date is required.')
+      return
+    }
+    const waiverAmount = form.decision === 'APPROVE' ? form.waiverAmount || '0' : '0'
+    const refundEligibleAmount = form.decision === 'APPROVE' ? form.refundEligibleAmount || '0' : '0'
+    const financeNote = form.decision === 'APPROVE' ? String(form.financeNote || '').trim() : ''
+
+    setDiscontinuationDecisionLoading(true)
+    setDiscontinuationDecisionError('')
+    try {
+      await request('/student-discontinuation/' + encodeURIComponent(requestId) + '/super-review', {
+        method: 'PATCH',
+        body: JSON.stringify({ decision: form.decision, note, waitUntil: form.waitUntil, waiverAmount, refundEligibleAmount, financeNote }),
+      })
+      closeNotificationDetails()
+      await loadAllNotifications()
+    } catch (error) {
+      setDiscontinuationDecisionError(error?.message || 'Unable to save the discontinuation decision.')
+    } finally {
+      setDiscontinuationDecisionLoading(false)
+    }
+  }
+
+  const handleConfirmLogout = async () => {
+    setIsLogoutConfirmOpen(false)
+    try {
+      await signOut()
+    } finally {
+      navigate('/login', { replace: true })
+    }
+  }
+
+  return (
+    <section className={`super-admin-page ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''}`.trim()}>
+      <div className="super-admin-shell">
+        {isMobileSidebarOpen ? (
+          <button
+            type="button"
+            className="super-admin-sidebar-backdrop"
+            aria-label="Close navigation menu"
+            onClick={() => setIsMobileSidebarOpen(false)}
+          />
+        ) : null}
+
+        <aside
+          className={`super-admin-sidebar ${isMobileSidebarOpen ? 'is-open' : ''}`.trim()}
+          aria-label="Super admin navigation"
+        >
+          <div className="super-admin-sidebar-brand">
+            <img className="super-admin-sidebar-brand-logo" src="/logo1.png" alt="Elite Admin logo" />
+            <button
+              type="button"
+              className="super-admin-sidebar-collapse-toggle"
+              data-tooltip={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'}
+              aria-label={isSidebarCollapsed ? 'Expand navigation menu' : 'Collapse navigation menu'}
+              onClick={() => setIsSidebarCollapsed((current) => !current)}
+            >
+              {isSidebarCollapsed ? <PanelLeftOpen size={18} strokeWidth={2.2} aria-hidden="true" /> : <PanelLeftClose size={18} strokeWidth={2.2} aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              className="super-admin-sidebar-close"
+              aria-label="Close navigation menu"
+              onClick={() => setIsMobileSidebarOpen(false)}
+            >
+              <X size={18} strokeWidth={2.6} aria-hidden="true" focusable="false" />
+            </button>
+          </div>
+
+          <SuperAdminSidebarNav branches={branches} isSidebarCollapsed={isSidebarCollapsed} onCloseMobile={() => setIsMobileSidebarOpen(false)} />
+          {/* Legacy duplicate navigation retained temporarily for reference; shared navigation above is the only rendered sidebar. */}
+          {/*
+          <nav className="super-admin-sidebar-nav super-admin-sidebar-nav-legacy">
+            <div className="super-admin-sidebar-section">
+              <button
+              type="button"
+              className="super-admin-sidebar-item"
+              data-tooltip="Dashboard"
+                onClick={() => {
+                  setIsMobileSidebarOpen(false)
+                  navigate('/dashboard/super-admin')
+                }}
+              >
+                <span className="super-admin-sidebar-icon" aria-hidden="true">
+                  <LayoutDashboard size={18} strokeWidth={2.2} />
+                </span>
+                <span>Dashboard</span>
+              </button>
+            </div>
+
+            <div className="super-admin-sidebar-section super-admin-sidebar-section-user-role">
+              <div className="super-admin-sidebar-collapsed-group" onMouseEnter={() => setIsSidebarFlyoutDismissed(false)} onMouseLeave={() => setIsSidebarFlyoutDismissed(true)}>
+                <button type="button" className="super-admin-sidebar-collapsed-group-trigger" data-tooltip="User & Role Management" aria-label="User & Role Management">
+                  <Users size={18} strokeWidth={2.2} aria-hidden="true" />
+                </button>
+                <div className="super-admin-sidebar-collapsed-group-flyout">
+                  <div className="super-admin-sidebar-collapsed-group-title">User &amp; Role Management</div>
+                  <div className="super-admin-sidebar-collapsed-group-nested">
+                    <button type="button" className="super-admin-sidebar-subitem super-admin-sidebar-collapsed-group-nested-toggle" aria-expanded={isBranchManagementExpanded} onClick={() => setIsBranchManagementExpanded((current) => !current)}><span className="super-admin-sidebar-subitem-icon"><Shield size={15} /></span><span>Branch Management</span><ChevronDown size={14} className={isBranchManagementExpanded ? 'is-expanded' : ''} /></button>
+                    {isBranchManagementExpanded ? <div className="super-admin-sidebar-collapsed-group-nested-items">
+                      {branches.filter((branch) => String(branch.status || '').toLowerCase() === 'active').map((branch) => <button key={branch.id || branch.branchId} type="button" className="super-admin-sidebar-branch-name" onClick={() => navigate(`/dashboard/super-admin?section=branch-admin&branch=${encodeURIComponent(branch.id || branch.branchId || '')}`)}><span className="super-admin-sidebar-branch-dot" /><span>{branch.branchName || branch.branchId || 'Active branch'}</span></button>)}
+                      {!branches.some((branch) => String(branch.status || '').toLowerCase() === 'active') ? <span className="super-admin-sidebar-branch-empty">No active branches</span> : null}
+                    </div> : null}
+                  </div>
+                  <button type="button" className="super-admin-sidebar-subitem" onClick={() => navigate('/dashboard/super-admin?section=faculty')}><span className="super-admin-sidebar-subitem-icon"><UserRound size={15} /></span><span>Faculty Management</span></button>
+                </div>
+              </div>
+              <button type="button" className="super-admin-sidebar-section-toggle" aria-expanded={isUserRoleManagementExpanded} onClick={() => setIsUserRoleManagementExpanded((current) => !current)}>
+                <span className="super-admin-sidebar-section-toggle-label"><Users size={16} strokeWidth={2.2} aria-hidden="true" /><span>User &amp; Role Management</span></span>
+                <ChevronDown size={15} strokeWidth={2.4} className={isUserRoleManagementExpanded ? 'is-expanded' : ''} aria-hidden="true" />
+              </button>
+              {isUserRoleManagementExpanded ? <button type="button" className="super-admin-sidebar-item" data-tooltip="Branch Management" aria-expanded={isBranchManagementExpanded} onClick={() => { setIsMobileSidebarOpen(false); navigate('/dashboard/super-admin?section=branch-admin') }}>
+                <span className="super-admin-sidebar-icon" aria-hidden="true"><Shield size={18} strokeWidth={2.2} /></span>
+                <span>Branch Management</span>
+                <ChevronDown size={16} strokeWidth={2.3} className={isBranchManagementExpanded ? 'is-expanded' : ''} aria-hidden="true" onClick={(event) => { event.stopPropagation(); setIsBranchManagementExpanded((current) => !current) }} />
+              </button> : null}
+              {isUserRoleManagementExpanded && isBranchManagementExpanded ? <div className="super-admin-sidebar-branch-list" aria-label="Active branches">
+                <div className="super-admin-sidebar-branch-list-title">Branch Management</div>
+                {branches.map((branch) => <button key={branch.id || branch.branchId} type="button" className="super-admin-sidebar-branch-name" onClick={() => { setIsMobileSidebarOpen(false); navigate('/dashboard/super-admin?section=branch-admin') }}><span className="super-admin-sidebar-branch-dot" aria-hidden="true" /><span>{branch.branchName || branch.branchId || 'Unnamed branch'}</span></button>)}
+                {!branches.length ? <span className="super-admin-sidebar-branch-empty">No branches available</span> : null}
+              </div> : null}
+            </div>
+
+            <div className="super-admin-sidebar-section super-admin-sidebar-section-academic">
+              <div className="super-admin-sidebar-collapsed-group" onMouseEnter={() => setIsSidebarFlyoutDismissed(false)} onMouseLeave={() => setIsSidebarFlyoutDismissed(true)}>
+                <button type="button" className="super-admin-sidebar-collapsed-group-trigger" data-tooltip="Academic Operations" aria-label="Academic Operations">
+                  <LayoutGrid size={18} strokeWidth={2.2} aria-hidden="true" />
+                </button>
+                <div className="super-admin-sidebar-collapsed-group-flyout">
+                  <div className="super-admin-sidebar-collapsed-group-title">Academic Operations</div>
+                  <button type="button" className="super-admin-sidebar-subitem" onClick={() => navigate('/dashboard/super-admin?section=students')}><span className="super-admin-sidebar-subitem-icon"><Users size={15} /></span><span>Student Management</span></button>
+                  <div className="super-admin-sidebar-collapsed-group-nested">
+                    <button type="button" className="super-admin-sidebar-subitem super-admin-sidebar-collapsed-group-nested-toggle" aria-expanded={isLeaveManagementExpanded} onClick={() => setIsLeaveManagementExpanded((current) => !current)}><span className="super-admin-sidebar-subitem-icon"><CalendarDays size={15} /></span><span>Leave Management</span><ChevronDown size={14} className={isLeaveManagementExpanded ? 'is-expanded' : ''} /></button>
+                    {isLeaveManagementExpanded ? <div className="super-admin-sidebar-collapsed-group-nested-items"><button type="button" className="super-admin-sidebar-branch-name" onClick={() => navigate('/dashboard/super-admin?section=faculty-leave')}><span className="super-admin-sidebar-branch-dot" /><span>Faculty Leave Request</span></button><button type="button" className="super-admin-sidebar-branch-name" onClick={() => navigate('/dashboard/super-admin?section=discontinuations')}><span className="super-admin-sidebar-branch-dot" /><span>Student Discontinuation</span></button></div> : null}
+                  </div>
+                </div>
+              </div>
+              <button type="button" className="super-admin-sidebar-section-toggle" aria-expanded={isAcademicOperationsExpanded} onClick={() => setIsAcademicOperationsExpanded((current) => !current)}>
+                <span className="super-admin-sidebar-section-toggle-label"><LayoutGrid size={16} strokeWidth={2.2} aria-hidden="true" /><span>Academic Operations</span></span>
+                <ChevronDown size={15} strokeWidth={2.4} className={isAcademicOperationsExpanded ? 'is-expanded' : ''} aria-hidden="true" />
+              </button>
+              {isAcademicOperationsExpanded ? <>
+                <button type="button" className="super-admin-sidebar-item" data-tooltip="Student Management" onClick={() => { setIsMobileSidebarOpen(false); navigate('/dashboard/super-admin?section=students') }}>
+                  <span className="super-admin-sidebar-icon" aria-hidden="true"><Users size={18} strokeWidth={2.2} /></span>
+                  <span>Student Management</span>
+                </button>
+                <button type="button" className="super-admin-sidebar-item" data-tooltip="Faculty Management" onClick={() => { setIsMobileSidebarOpen(false); navigate('/dashboard/super-admin?section=faculty') }}>
+                  <span className="super-admin-sidebar-icon" aria-hidden="true"><UserRound size={18} strokeWidth={2.2} /></span>
+                  <span>Faculty Management</span>
+                </button>
+              </> : null}
+              {isAcademicOperationsExpanded ? <div
+                className={`super-admin-sidebar-branch-nav ${isSidebarFlyoutDismissed ? 'is-flyout-dismissed' : ''}`.trim()}
+                onMouseLeave={() => setIsSidebarFlyoutDismissed(false)}
+              >
+                <div className="super-admin-sidebar-item" data-tooltip="Leave Management">
+                  <button type="button" className="super-admin-sidebar-branch-link" title={isSidebarCollapsed ? 'Leave Management' : undefined} onClick={() => { setIsLeaveManagementExpanded((current) => !current) }}>
+                    <span className="super-admin-sidebar-icon" aria-hidden="true"><CalendarDays size={18} strokeWidth={2.2} /></span>
+                    <span>Leave Management</span>
+                  </button>
+                  <button type="button" className="super-admin-sidebar-branch-toggle" aria-label="Toggle leave management" aria-expanded={isLeaveManagementExpanded} onClick={() => setIsLeaveManagementExpanded((current) => !current)}>
+                    <ChevronDown size={16} strokeWidth={2.3} className={isLeaveManagementExpanded ? 'is-expanded' : ''} aria-hidden="true" />
+                  </button>
+                </div>
+                {isLeaveManagementExpanded || isSidebarCollapsed ? <div className="super-admin-sidebar-branch-list" aria-label="Leave management">
+                  <div className="super-admin-sidebar-branch-list-title">Leave Management</div>
+                  <button type="button" className="super-admin-sidebar-branch-name" title={isSidebarCollapsed ? 'Faculty Leave Request' : undefined} onClick={() => { setIsSidebarFlyoutDismissed(true); setIsMobileSidebarOpen(false); navigate('/dashboard/super-admin?section=faculty-leave') }}><span className="super-admin-sidebar-branch-dot" aria-hidden="true" /><span>Faculty Leave Request</span></button>
+                  <button type="button" className="super-admin-sidebar-branch-name" title={isSidebarCollapsed ? 'Student Discontinuation' : undefined} onClick={() => { setIsSidebarFlyoutDismissed(true); setIsMobileSidebarOpen(false); navigate('/dashboard/super-admin?section=discontinuations') }}><span className="super-admin-sidebar-branch-dot" aria-hidden="true" /><span>Student Discontinuation</span></button>
+                </div> : null}
+               </div> : null}
+            </div>
+
+            <div className="super-admin-sidebar-section">
+              <button type="button" className="super-admin-sidebar-item is-active" data-tooltip="Notifications" onClick={() => setIsMobileSidebarOpen(false)}>
+                <span className="super-admin-sidebar-icon" aria-hidden="true"><Bell size={18} strokeWidth={2.2} /></span>
+                <span>Notifications</span>
+              </button>
+            </div>
+          </nav>
+          */}
+
+          <div className="super-admin-sidebar-footer">
+            <div className="super-admin-sidebar-profile-card">
+              <SidebarUserAvatar />
+
+              <div className="super-admin-sidebar-profile-copy">
+                <span>{profileEmail}</span>
+              </div>
+
+              <button
+                type="button"
+                className="super-admin-sidebar-logout-button"
+                aria-label="Logout"
+                onClick={() => {
+                  setIsLogoutConfirmOpen(true)
+                  setIsMobileSidebarOpen(false)
+                }}
+              >
+                <LogOut size={22} strokeWidth={2.15} />
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <div className="super-admin-main">
+          <header className="super-admin-topbar">
+            <div className="super-admin-topbar-left">
+              <button
+                type="button"
+                className="super-admin-sidebar-toggle"
+                aria-label="Open navigation menu"
+                aria-expanded={isMobileSidebarOpen}
+                onClick={() => setIsMobileSidebarOpen(true)}
+              >
+                <Menu size={20} strokeWidth={2.4} aria-hidden="true" focusable="false" />
+              </button>
+              <h1 className="super-admin-header-title">Super Admin Dashboard</h1>
+            </div>
+
+            <div className="super-admin-topbar-right">
+              <SuperAdminNotificationBell
+                onOpenBranches={() => navigate('/dashboard/super-admin?section=branches')}
+                onViewActivity={() => navigate('/dashboard/super-admin/notifications')}
+              />
+
+              <div className="super-admin-profile">
+                <button
+                  type="button"
+                  className="super-admin-profile-trigger"
+                  onClick={() => setIsSuperAdminProfileOpen((current) => !current)}
+                  aria-haspopup="dialog"
+                  aria-expanded={isSuperAdminProfileOpen}
+                >
+                  <AvatarBadge />
+                  <div className="super-admin-profile-copy">
+                    <strong>Super Admin</strong>
+                    <span>{profileEmail}</span>
+                  </div>
+                </button>
+
+                {isSuperAdminProfileOpen ? (
+                  <>
+                    <button
+                      type="button"
+                      className="super-admin-profile-backdrop"
+                      aria-label="Close profile popup"
+                      onClick={() => setIsSuperAdminProfileOpen(false)}
+                    />
+                    <div className="super-admin-profile-dropdown">
+                    <button
+                      type="button"
+                      className="super-admin-profile-close"
+                      aria-label="Close profile"
+                      onClick={() => setIsSuperAdminProfileOpen(false)}
+                    >
+                      <X size={18} strokeWidth={2.4} />
+                    </button>
+                    <div className="super-admin-profile-dropdown-header">
+                      <AvatarBadge />
+                      <div>
+                        <strong>Super Admin</strong>
+                        <span>Administrator</span>
+                      </div>
+                    </div>
+                    <div className="super-admin-profile-details">
+                      <div className="super-admin-profile-detail">
+                        <Mail size={16} strokeWidth={2} />
+                        <div>
+                          <span>Email</span>
+                          <strong>{profileEmail}</strong>
+                        </div>
+                      </div>
+                      <div className="super-admin-profile-detail">
+                        <Shield size={16} strokeWidth={2} />
+                        <div>
+                          <span>Role</span>
+                          <strong>Super Admin</strong>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="super-admin-profile-dropdown-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSuperAdminProfileOpen(false)
+                          setIsLogoutConfirmOpen(true)
+                        }}
+                      >
+                        <LogOut size={16} strokeWidth={2.2} />
+                        Logout
+                      </button>
+                    </div>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </header>
+
+          <main className="super-admin-content">
+            <section className="notifications-page">
+              <header className="notifications-page-header">
+                <div className="notifications-page-copy">
+                  <p className="eyebrow">Notifications</p>
+                  <h2>Notifications</h2>
+                  <p>
+                    You have <strong>{isRefreshing ? '...' : totalCount}</strong> notifications to go through
+                    {unreadCount ? <span> and {unreadCount} unread items</span> : null} for Super Admin.
+                  </p>
+                </div>
+
+                <div className="notifications-page-actions">
+                  <button type="button" className="notifications-mark-read" onClick={markAllAsRead}>
+                    <Bell size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+                    Mark all as read
+                  </button>
+
+                  <button
+                    type="button"
+                    className="notifications-back-button"
+                    onClick={() => navigate('/dashboard/super-admin')}
+                  >
+                    <Building2 size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />
+                    Back to dashboard
+                  </button>
+                </div>
+              </header>
+
+              <div className="notifications-search-row">
+                <SearchBar
+                  value={searchTerm}
+                  onChange={setSearchTerm}
+                  placeholder="Search notifications"
+                  ariaLabel="Search notifications"
+                  className="notifications-search-bar"
+                />
+
+                <div className="notifications-filter-set">
+                  <label className="notifications-filter-field">
+                    <span className="notifications-filter-icon" aria-hidden="true">
+                      <CalendarDays size={16} strokeWidth={2.2} />
+                    </span>
+                    <select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)}>
+                      <option value="all">All dates</option>
+                      <option value="today">Today</option>
+                      <option value="yesterday">Yesterday</option>
+                      <option value="week">This week</option>
+                      {monthFilterOptions.map((month) => (
+                        <option key={month.value} value={month.value}>{month.label}</option>
+                      ))}
+                    </select>
+                    <span className="notifications-filter-chevron" aria-hidden="true">
+                      <ChevronDown size={16} strokeWidth={2.2} />
+                    </span>
+                  </label>
+
+                  <label className="notifications-filter-field notifications-filter-field--status">
+                    <span className="notifications-filter-icon notifications-filter-icon--status" aria-hidden="true">
+                      <Dot size={22} strokeWidth={3.2} />
+                    </span>
+                    <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                      <option value="all">All status</option>
+                      <option value="unread">Unread</option>
+                      <option value="read">Read</option>
+                    </select>
+                    <span className="notifications-filter-chevron" aria-hidden="true">
+                      <ChevronDown size={16} strokeWidth={2.2} />
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {isRefreshing ? <NotificationFeedSkeleton /> : groupedNotifications.length ? (
+                <div className="notifications-feed">
+                  {groupedNotifications.map((group) => (
+                    <section key={group.label} className="notifications-group">
+                      <p className="notifications-group-label">{group.label}</p>
+                      <div className="notifications-group-list">
+                        {group.items.map((item) => (
+                          <NotificationItem
+                            key={item.id}
+                            item={item}
+                            onView={handleViewNotification}
+                            isLoading={viewLoadingId === item.id}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className="notifications-empty-state">
+                  <span className="notifications-empty-state-icon" aria-hidden="true">
+                    <Bell size={22} strokeWidth={2.2} />
+                  </span>
+                  <div>
+                    <h3>{searchTerm.trim() ? 'No matching notifications' : 'No notifications yet'}</h3>
+                    <p>
+                      {searchTerm.trim()
+                        ? 'Try a different keyword, date, or status.'
+                        : 'Branch login, invitation, and activity updates will appear here automatically.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {filteredNotifications.length > notificationsPerPage ? (
+                <PaginationBar
+                  className="super-admin-pagination"
+                  currentPage={safeNotificationPage}
+                  totalPages={notificationTotalPages}
+                  onPageChange={setNotificationPage}
+                  label="Notification pagination"
+                  previousLabel="Prev"
+                  nextLabel="Next"
+                />
+              ) : null}
+            </section>
+          </main>
+        </div>
+      </div>
+
+      {isLogoutConfirmOpen ? (
+        <div className="branch-modal-backdrop" role="presentation">
+          <div
+            className="super-admin-logout-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="super-admin-logout-title"
+            aria-describedby="super-admin-logout-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="super-admin-logout-close"
+              aria-label="Close logout confirmation"
+              onClick={() => setIsLogoutConfirmOpen(false)}
+            >
+              <X size={22} strokeWidth={2.5} aria-hidden="true" />
+            </button>
+            <h2 id="super-admin-logout-title">Are you sure you want to logout?</h2>
+            <div className="super-admin-logout-actions">
+              <button type="button" className="super-admin-logout-cancel" onClick={() => setIsLogoutConfirmOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="super-admin-logout-submit" onClick={handleConfirmLogout}>
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedNotification ? (
+        <div
+          className="super-admin-notification-modal-backdrop"
+          role="presentation"
+          onClick={closeNotificationDetails}
+        >
+          <div
+            className="super-admin-notification-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="super-admin-notification-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="super-admin-notification-modal-close"
+              aria-label="Close notification details"
+              onClick={closeNotificationDetails}
+            >
+              <X size={20} strokeWidth={2.4} aria-hidden="true" />
+            </button>
+            <div className={`super-admin-notification-modal-icon tone-${selectedNotification.tone}`} aria-hidden="true">
+              <NotificationIcon kind={selectedNotification.kind} />
+            </div>
+            <p className="super-admin-notification-modal-eyebrow">Notification details</p>
+            <h2 id="super-admin-notification-modal-title">{selectedNotification.title}</h2>
+            <p className="super-admin-notification-modal-message">
+              {selectedNotification.message || 'No additional details are available for this notification.'}
+            </p>
+            {String(selectedNotification.kind || '').toUpperCase() === 'LEAD_DELETED' ? <section className="super-admin-deleted-lead-notification-details"><h3>Deleted Lead Details</h3>{selectedNotification.deletedLeadLoading ? <p>Loading lead details...</p> : selectedNotification.deletedLeadError ? <p role="alert">{selectedNotification.deletedLeadError}</p> : selectedNotification.deletedLeadDetails ? <><div className="super-admin-deleted-lead-notification-grid">{[['Lead ID', selectedNotification.deletedLeadDetails.leadId], ['Student Name', selectedNotification.deletedLeadDetails.studentName], ['Deleted By', selectedNotification.deletedLeadDetails.deletedByName], ['Role', selectedNotification.deletedLeadDetails.deletedByRole], ['Deleted At', selectedNotification.deletedLeadDetails.deletedAt ? new Date(selectedNotification.deletedLeadDetails.deletedAt).toLocaleString('en-IN') : ''], ['Phone', selectedNotification.deletedLeadDetails.phoneNumber], ['Alternative Number', selectedNotification.deletedLeadDetails.alternativeNumber], ['Email', selectedNotification.deletedLeadDetails.email], ['Qualification', selectedNotification.deletedLeadDetails.qualification], ['Location', selectedNotification.deletedLeadDetails.location], ['Branch', selectedNotification.deletedLeadDetails.branch?.branchName], ['Course', selectedNotification.deletedLeadDetails.course?.name], ['Stage', selectedNotification.deletedLeadDetails.stage], ['Lead Status', selectedNotification.deletedLeadDetails.status], ['Lead Source', selectedNotification.deletedLeadDetails.leadSource], ['Call Type', selectedNotification.deletedLeadDetails.callType], ['Assigned To', selectedNotification.deletedLeadDetails.assignedTo?.fullName], ['Lead Date', selectedNotification.deletedLeadDetails.leadDate ? new Date(selectedNotification.deletedLeadDetails.leadDate).toLocaleDateString('en-IN') : ''], ['Payment Status', selectedNotification.deletedLeadDetails.paymentStatus], ['Payment Amount', selectedNotification.deletedLeadDetails.paymentAmount], ['Next Follow-up Date', selectedNotification.deletedLeadDetails.nextFollowUpDate ? new Date(selectedNotification.deletedLeadDetails.nextFollowUpDate).toLocaleDateString('en-IN') : ''], ['Next Follow-up Time', selectedNotification.deletedLeadDetails.nextFollowUpTime], ['Course Mode', selectedNotification.deletedLeadDetails.courseMode], ['Training Mode', selectedNotification.deletedLeadDetails.trainingMode], ['Schedule', selectedNotification.deletedLeadDetails.classSchedule], ['Referred By', selectedNotification.deletedLeadDetails.referredBy], ['Referred Name', selectedNotification.deletedLeadDetails.referredName]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value === null || value === undefined || value === '' ? '-' : String(value)}</strong></div>)}</div><h4>Follow-up History</h4>{selectedNotification.deletedLeadDetails.followUps?.length ? selectedNotification.deletedLeadDetails.followUps.map(item => <article key={item.id}><strong>{item.followUpDate ? new Date(item.followUpDate).toLocaleString('en-IN') : 'Follow-up'} / {item.callStatus || '-'}</strong><p>{item.notes || 'No notes added'}</p></article>) : <p>No follow-up records.</p>}<h4>Call Recordings</h4>{selectedNotification.deletedLeadDetails.recordings?.length ? selectedNotification.deletedLeadDetails.recordings.map(item => <p key={item.id}>{item.originalName || 'Call recording'} / {item.createdAt ? new Date(item.createdAt).toLocaleString('en-IN') : '-'}</p>) : <p>No recordings.</p>}</> : null}</section> : null}
+            <div className="super-admin-notification-modal-meta">
+              <div>
+                <span>Date and time</span>
+                <strong>
+                  {new Intl.DateTimeFormat('en-GB', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  }).format(new Date(selectedNotification.createdAt))}
+                </strong>
+              </div>
+              <div>
+                <span>Status</span>
+                <strong>{selectedNotification.read ? 'Read' : 'Unread'}</strong>
+              </div>
+              {selectedNotification.targetBranchName || selectedNotification.targetBranchEmail ? (
+                <div>
+                  <span>Branch</span>
+                  <strong>{selectedNotification.targetBranchName || selectedNotification.targetBranchEmail}</strong>
+                </div>
+              ) : null}
+              {selectedNotification.facultyName || selectedNotification.facultyEmail ? (
+                <div>
+                  <span>Faculty</span>
+                  <strong>{selectedNotification.facultyName || selectedNotification.facultyEmail}</strong>
+                </div>
+              ) : null}
+            </div>
+            {isStudentDiscontinuationNotification(selectedNotification) ? (
+              <div className="super-admin-discontinuation-readonly">
+                <div className="super-admin-discontinuation-readonly-heading">Branch review details</div>
+                {discontinuationDetailsLoading ? <div className="super-admin-discontinuation-details-loading"><span /><span /><span /></div> : (
+                  <>
+                    <div className="super-admin-discontinuation-readonly-grid">
+                      <div><span>Call outcome</span><strong>{selectedNotification.discontinuationDetails?.contactOutcome || 'Student wants to discontinue'}</strong></div>
+                      <div><span>Outstanding amount</span><strong>₹{Number(selectedNotification.discontinuationDetails?.financialSnapshot?.outstandingAmount || 0).toLocaleString('en-IN')}</strong></div>
+                      <div><span>Fee concession</span><strong>₹{Number(selectedNotification.discontinuationDetails?.financialSnapshot?.waiverAmount || 0).toLocaleString('en-IN')}</strong></div>
+                      <div><span>Refund eligible</span><strong>₹{Number(selectedNotification.discontinuationDetails?.financialSnapshot?.refundEligibleAmount || 0).toLocaleString('en-IN')}</strong></div>
+                    </div>
+                    <div className="super-admin-discontinuation-readonly-note"><span>Branch call notes</span><p>{selectedNotification.discontinuationDetails?.contactNotes || selectedNotification.discontinuationDetails?.branchReviewNote || 'No call notes provided.'}</p></div>
+                    <div className="super-admin-discontinuation-readonly-note"><span>Finance note</span><p>{selectedNotification.discontinuationDetails?.financialSnapshot?.financeNote || 'No finance note provided.'}</p></div>
+                  </>
+                )}
+              </div>
+            ) : null}
+            {isStudentDiscontinuationNotification(selectedNotification) &&
+            String(selectedNotification.requestStatus || '').toUpperCase() === 'SUPER_ADMIN_REVIEW' ? (
+              discontinuationDecisionForm ? (
+                ['REJECT', 'WAIT'].includes(discontinuationDecisionForm.decision) ? <form className="super-admin-discontinuation-decision" onSubmit={(event) => { event.preventDefault(); void handleDiscontinuationDecision(selectedNotification) }}>
+                  <div className="super-admin-discontinuation-decision-heading">
+                    <div>
+                      <span>Final decision</span>
+                      <strong>{discontinuationDecisionForm.decision === 'WAIT' ? 'Wait for installment follow-up' : 'Reject request'}</strong>
+                    </div>
+                    <button type="button" className="super-admin-discontinuation-back" onClick={() => { setDiscontinuationDecisionForm(null); setDiscontinuationDecisionError('') }}>Change</button>
+                  </div>
+                  {discontinuationDecisionForm.decision === 'REJECT' ? (
+                    <label>Rejection reason<textarea rows={3} value={discontinuationDecisionForm.note} onChange={(event) => setDiscontinuationDecisionForm((current) => ({ ...current, note: event.target.value }))} placeholder="Explain why this request is being rejected." required /></label>
+                  ) : <label>Next installment due date<input type="date" value={discontinuationDecisionForm.waitUntil} onChange={(event) => setDiscontinuationDecisionForm((current) => ({ ...current, waitUntil: event.target.value }))} required /><textarea rows={2} value={discontinuationDecisionForm.note} onChange={(event) => setDiscontinuationDecisionForm((current) => ({ ...current, note: event.target.value }))} placeholder="Optional note for the Branch Admin." /></label>}
+                  {discontinuationDecisionError ? <p className="super-admin-discontinuation-decision-error" role="alert">{discontinuationDecisionError}</p> : null}
+                  <div className="super-admin-notification-modal-actions">
+                    <button type="button" className="notifications-item-view-button is-secondary" disabled={discontinuationDecisionLoading} onClick={closeNotificationDetails}>Cancel</button>
+                    <button type="submit" className={`notifications-item-view-button ${discontinuationDecisionForm.decision === 'REJECT' ? 'is-danger' : ''}`.trim()} disabled={discontinuationDecisionLoading}>
+                      {discontinuationDecisionLoading ? <><LoaderCircle size={15} className="notifications-view-spinner" /> Saving...</> : discontinuationDecisionForm.decision === 'WAIT' ? 'Save wait decision' : 'Reject request'}
+                    </button>
+                  </div>
+                </form> : null
+              ) : (
+                <div className="super-admin-notification-modal-actions">
+                  <button type="button" className="notifications-item-view-button is-danger" onClick={() => openDiscontinuationDecision(selectedNotification, 'REJECT')}>Reject</button>
+                  <button type="button" className="notifications-item-view-button is-secondary" onClick={() => openDiscontinuationDecision(selectedNotification, 'WAIT')}>Wait</button>
+                  <button type="button" className="notifications-item-view-button" onClick={() => openDiscontinuationDecision(selectedNotification, 'APPROVE')}>Approve &amp; Discontinue</button>
+                </div>
+              )
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {selectedNotification && discontinuationDecisionForm?.decision === 'APPROVE' ? (
+        <div className="super-admin-discontinuation-confirm-backdrop" role="presentation" onClick={() => { if (!discontinuationDecisionLoading) setDiscontinuationDecisionForm(null) }}>
+          <div className="super-admin-discontinuation-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="super-admin-discontinuation-confirm-title" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="super-admin-discontinuation-confirm-close" aria-label="Close approval confirmation" disabled={discontinuationDecisionLoading} onClick={() => { setDiscontinuationDecisionForm(null); setDiscontinuationDecisionError('') }}>
+              <X size={18} strokeWidth={2.4} aria-hidden="true" />
+            </button>
+            <div className="super-admin-discontinuation-confirm-icon"><CheckCircle2 size={24} strokeWidth={2.2} /></div>
+            <p className="super-admin-discontinuation-confirm-eyebrow">FINAL APPROVAL</p>
+            <h2 id="super-admin-discontinuation-confirm-title">Approve discontinuation?</h2>
+            <p className="super-admin-discontinuation-confirm-copy">This will approve the branch-reviewed request and schedule the student account for deactivation.</p>
+            <div className="super-admin-discontinuation-confirm-summary">
+              <div><span>Outstanding amount</span><strong>₹{Number(selectedNotification.discontinuationDetails?.financialSnapshot?.outstandingAmount || 0).toLocaleString('en-IN')}</strong></div>
+              <div><span>Refund eligible</span><strong>₹{Number(selectedNotification.discontinuationDetails?.financialSnapshot?.refundEligibleAmount || 0).toLocaleString('en-IN')}</strong></div>
+            </div>
+            {discontinuationDecisionError ? <p className="super-admin-discontinuation-decision-error" role="alert">{discontinuationDecisionError}</p> : null}
+            <div className="super-admin-discontinuation-confirm-actions">
+              <button type="button" className="notifications-item-view-button is-secondary" disabled={discontinuationDecisionLoading} onClick={() => { setDiscontinuationDecisionForm(null); setDiscontinuationDecisionError('') }}>Cancel</button>
+              <button type="button" className="notifications-item-view-button" disabled={discontinuationDecisionLoading} onClick={() => void handleDiscontinuationDecision(selectedNotification)}>
+                {discontinuationDecisionLoading ? <><LoaderCircle size={15} className="notifications-view-spinner" /> Saving...</> : 'Confirm approval'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}

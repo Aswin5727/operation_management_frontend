@@ -1,0 +1,1997 @@
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
+import {
+  LayoutDashboard,
+  UserRound,
+  BookOpen,
+  CalendarCheck,
+  CalendarDays,
+  CreditCard,
+  LogOut,
+  Menu,
+  X,
+  CircleUserRound,
+  Bell,
+  ChevronDown,
+  Download,
+  Mail,
+  Phone,
+  Users,
+  GraduationCap,
+  FileText,
+  BriefcaseBusiness,
+  Building2,
+  BarChart3,
+  Clock3,
+  PanelLeftOpen,
+  PanelLeftClose,
+} from 'lucide-react'
+
+import '../styles/StudentNewDashboardPage.css'
+import {
+  loadBranchStudents,
+  refreshBranchStudents,
+} from '../lib/branchStudentStore'
+import { loadBranchRegistry } from '../lib/branchAuth'
+import {
+  createStudentDiscontinuationRequest,
+  getStudentDiscontinuationFinancePreview,
+  getCurrentBranchStudentCalendar,
+  getCurrentStudentProfile,
+  getCurrentStudentAttendanceOverview,
+  getCurrentStudentCourse,
+  getStudentDiscontinuationRequests,
+} from '../services/studentService'
+import { StudentCalendarPanel } from '../components/StudentCalendarPanel'
+import { NotificationBell } from '../components/NotificationBell'
+import { getStudentCalendarAttendance } from '../lib/studentAttendanceCalendar'
+import { saveStudentCalendarSummary } from '../lib/studentCalendarSummary'
+import { buildStudentCourseCalendar, toCalendarDateKey } from '../lib/studentCalendar'
+import { getBranchStudentLedger } from '../services/branchLedgerService'
+import { loadBranchPaymentHistoryEntries } from '../lib/branchPaymentHistoryStore'
+import html2pdf from 'html2pdf.js'
+import { buildModernPaymentReceiptHtml } from '../components/payments/RecordPayment'
+import StudentExamsPage from './StudentExamsPage'
+import StudentAssessmentsPage from './StudentAssessmentsPage'
+import StudentAcademicTestsPage from './StudentAcademicTestsPage'
+import StudentAcademicTestReportPage from './StudentAcademicTestReportPage'
+
+function readStudentSession() {
+  if (typeof window === 'undefined') return null
+
+  try {
+    return JSON.parse(window.sessionStorage.getItem('cispro.student-session') || 'null')
+  } catch {
+    return null
+  }
+}
+
+function matchesStudentSession(student, session) {
+  const identifiers = [session?.studentId, session?.emailAddress, session?.email]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean)
+
+  return identifiers.includes(String(student?.studentId || '').trim().toLowerCase()) ||
+    identifiers.includes(String(student?.emailAddress || student?.email || '').trim().toLowerCase())
+}
+
+function getCourseMasterDuration(course = {}) {
+  return course?.duration ?? course?.durationMonths ?? course?.courseDuration ?? ''
+}
+
+function getCourseMasterHours(course = {}) {
+  return course?.hours ?? course?.totalHours ?? course?.courseHours ?? ''
+}
+
+function getPaymentStatus(student) {
+  const explicitStatus = String(student?.paymentStatus || student?.feeStatus || '').trim()
+  if (explicitStatus) return explicitStatus
+
+  const total = Number(student?.afterDiscount ?? student?.totalAmount ?? 0)
+  const paid = Number(student?.paidAmount ?? student?.amountPaid ?? 0)
+  if (total > 0 && paid >= total) return 'Paid'
+  if (paid > 0) return 'Partially paid'
+  return 'Pending'
+}
+
+function getAttendancePercentage(item, type, period = '') {
+  if (item?.inCoursePeriod === false || item?.status === 'NOT_IN_COURSE_PERIOD' || item?.dateRange === 'Not in course period') return period === 'weekly' ? 0 : null
+  const value = type === 'present'
+    ? item?.presentPercentage ?? item?.presentPercent
+    : item?.absentPercentage ?? item?.absentPercent
+  const numericValue = Number(value)
+  if (Number.isFinite(numericValue)) return Math.max(0, Math.min(100, numericValue))
+
+  const scheduledDays = Number(item?.scheduledDays ?? item?.totalScheduledDays ?? item?.scheduledSessions)
+  const attendanceDays = Number(type === 'present'
+    ? item?.presentDays ?? item?.presentCount
+    : item?.absentDays ?? item?.absentCount)
+  if (Number.isFinite(scheduledDays) && scheduledDays > 0 && Number.isFinite(attendanceDays)) {
+    return Math.max(0, Math.min(100, Math.round((attendanceDays / scheduledDays) * 100)))
+  }
+
+  return period === 'weekly' ? 0 : null
+}
+
+function firstValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '') || ''
+}
+
+function formatValue(value, fallback = 'Not available') {
+  return String(value || '').trim() || fallback
+}
+
+function isCourseCompleted(course = {}, courseDetails = null, student = {}) {
+  const courseId = String(course.courseId || '')
+  const isPrimary = courseId && courseId === String(student.courseId || student.course?.id || '')
+  const progress = course.courseProgress ?? courseDetails?.progress?.overall ?? (isPrimary ? student.courseProgress ?? student.courseCompletionPercentage ?? student.courseProgressPercentage : null)
+  return String(course.courseCompletion || (isPrimary ? student.courseCompletion : '') || '').toUpperCase() === 'COMPLETED'
+}
+
+function formatDate(value, options = { day: '2-digit', month: 'short', year: 'numeric' }) {
+  if (!value) return 'Date not available'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString('en-IN', options)
+}
+
+function getLocalDayOfWeek(value) {
+  if (!value) return null
+  const raw = String(value).trim()
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const date = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.getDay()
+}
+
+function isWeekendDate(value) {
+  const day = getLocalDayOfWeek(value)
+  return day === 0 || day === 6
+}
+
+function timeToMinutes(value) {
+  const raw = String(value || '').trim().toUpperCase()
+  if (!raw) return Number.MAX_SAFE_INTEGER
+  const match = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/)
+  if (!match) return Number.MAX_SAFE_INTEGER
+  let hour = Number(match[1])
+  const minute = Number(match[2] || 0)
+  if (match[3] === 'PM' && hour < 12) hour += 12
+  if (match[3] === 'AM' && hour === 12) hour = 0
+  return hour * 60 + minute
+}
+
+function formatSessionTime(value) {
+  if (!value) return ''
+  const raw = String(value).trim()
+  const match = raw.match(/^(\d{1,2})(?::(\d{2}))?(?:\s*(AM|PM))?$/i)
+  if (!match) return raw
+  let hour = Number(match[1])
+  const minute = Number(match[2] || 0)
+  const period = match[3] ? match[3].toUpperCase() : hour >= 12 ? 'PM' : 'AM'
+  if (!match[3]) hour %= 12
+  if (period === 'PM' && hour < 12) hour += 12
+  if (period === 'AM' && hour === 12) hour = 0
+  const displayHour = hour % 12 || 12
+  return `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
+}
+
+function sessionDateKey(session) {
+  return toCalendarDateKey(session?.date || session?.sessionDate || session?.attendanceDate || session?.day || session?.replacementDate || session?.rescheduledDate)
+}
+
+function getSessionDisplayStatus(session) {
+  const explicit = String(session?.sessionStatus || session?.classStatus || '').trim().toLowerCase()
+  if (['upcoming', 'ongoing', 'completed'].includes(explicit)) return explicit[0].toUpperCase() + explicit.slice(1)
+  const attendanceStatus = String(session?.status || '').trim().toUpperCase()
+  if (['PRESENT', 'ABSENT', 'LATE'].includes(attendanceStatus)) return 'Completed'
+  const now = new Date()
+  const start = timeToMinutes(session?.startTime)
+  const end = timeToMinutes(session?.endTime)
+  const current = now.getHours() * 60 + now.getMinutes()
+  if (start !== Number.MAX_SAFE_INTEGER && current < start) return 'Upcoming'
+  if (end !== Number.MAX_SAFE_INTEGER && current <= end) return 'Ongoing'
+  return 'Completed'
+}
+
+function normalizeTodayClassSession(session = {}) {
+  const replacement = session?.replacementSession || session?.replacement || session?.reassignedSession || {}
+  const combined = session?.combinedSession || {}
+  const startTime = replacement.startTime || replacement.replacementStartTime || session.replacementStartTime || session.rescheduledStartTime || combined.startTime || session.startTime || session.fromTime
+  const endTime = replacement.endTime || replacement.replacementEndTime || session.replacementEndTime || session.rescheduledEndTime || combined.endTime || session.endTime || session.toTime
+  return {
+    ...session,
+    startTime,
+    endTime,
+    moduleName: session.moduleName || session.submoduleName || session.module || session.topicName || combined.moduleName || replacement.moduleName,
+    facultyName: replacement.facultyName || replacement.replacementFacultyName || session.replacementFacultyName || session.combinedFacultyName || combined.facultyName || session.facultyName,
+    room: session.room || session.roomName || session.classroom || replacement.room || combined.room,
+    mode: session.mode || session.courseMode || replacement.mode || combined.mode,
+    batchName: session.batchName || replacement.batchName || combined.batchName,
+    displayStatus: getSessionDisplayStatus(session),
+  }
+}
+
+function getTodayClassSessions(todayAttendance, student) {
+  const today = toCalendarDateKey(new Date())
+  const attendanceDate = toCalendarDateKey(todayAttendance?.date)
+  if (attendanceDate && attendanceDate !== today) return []
+  const apiSessions = Array.isArray(todayAttendance?.sessions) ? todayAttendance.sessions : []
+  const calendarSessions = (Array.isArray(student?.calendarEvents) ? student.calendarEvents : [])
+    .filter((event) => {
+      const type = String(event?.eventType || event?.assignmentType || event?.sessionType || event?.code || event?.type || event?.status || '').toUpperCase().replace(/[- ]/g, '_')
+      const eventDate = toCalendarDateKey(event?.replacementDate || event?.rescheduledDate || event?.date || event?.attendanceDate || event?.day)
+      return eventDate === today && (['CLASS', 'SCHEDULED', 'COMPLETED', 'PRESENT', 'REASSIGNED', 'COMBINED', 'RESCHEDULED'].includes(type) || event?.isReplacement || event?.assignmentType)
+    })
+  const source = calendarSessions.some((event) => event?.isReplacement || event?.assignmentType || event?.replacementFacultyName || event?.combinedFacultyName)
+    ? calendarSessions
+    : apiSessions
+  return source
+    .filter((session) => !sessionDateKey(session) || sessionDateKey(session) === today)
+    .map(normalizeTodayClassSession)
+    .filter((session) => session.startTime || session.endTime || session.moduleName || session.facultyName)
+    .sort((left, right) => timeToMinutes(left.startTime) - timeToMinutes(right.startTime))
+}
+
+function getModules(student) {
+  const candidates = [student?.modules, student?.course?.modules, student?.courseProgress?.modules, student?.learningProgress?.modules]
+  return candidates.find(Array.isArray) || []
+}
+
+function getModuleProgress(student) {
+  const modules = getModules(student)
+  const normalized = modules.map((module) => {
+    const items = [module?.submodules, module?.topics, module?.lessons].find(Array.isArray) || []
+    const completedItems = items.filter((item) => ['completed', 'complete', 'done'].includes(String(item?.status || item?.progressStatus || '').trim().toLowerCase()) || Number(item?.progress) >= 100).length
+    const explicit = Number(module?.progress ?? module?.completionPercentage ?? module?.percentage)
+    const progress = Number.isFinite(explicit) ? Math.max(0, Math.min(100, explicit)) : items.length ? Math.round((completedItems / items.length) * 100) : null
+    return { ...module, items, completedItems, progress }
+  })
+  const totalItems = normalized.reduce((total, module) => total + module.items.length, 0)
+  const completedItems = normalized.reduce((total, module) => total + module.completedItems, 0)
+  const completedModules = normalized.filter((module) => module.progress === 100).length
+  const overallRaw = firstValue(student?.courseProgress, student?.courseCompletionPercentage, student?.courseProgressPercentage, student?.learningProgress?.percentage)
+  const overallSource = overallRaw === '' ? Number.NaN : Number(overallRaw)
+  const overall = Number.isFinite(overallSource) ? overallSource : totalItems ? Math.round((completedItems / totalItems) * 100) : null
+  const activeModule = normalized.find((module) => module.progress !== null && module.progress < 100)
+  const activeItem = activeModule?.items.find((item) => !['completed', 'complete', 'done'].includes(String(item?.status || item?.progressStatus || '').trim().toLowerCase()) && Number(item?.progress || 0) < 100)
+  const completedItemsList = normalized.flatMap((module) => module.items.filter((item) => ['completed', 'complete', 'done'].includes(String(item?.status || item?.progressStatus || '').trim().toLowerCase()) || Number(item?.progress) >= 100))
+  return { modules: normalized, overall: Number.isFinite(overall) ? Math.max(0, Math.min(100, overall)) : null, completedModules, totalModules: normalized.length, totalItems, completedItems, activeModule, activeItem, latestCompleted: completedItemsList.at(-1) }
+}
+
+function getDashboardCourseEnrollments(student = {}) {
+  const source = Array.isArray(student.courseEnrollments) && student.courseEnrollments.length
+    ? student.courseEnrollments
+    : Array.isArray(student.courses) && student.courses.length ? student.courses : []
+  const unique = [...new Map(source.filter((item) => item && typeof item === 'object').map((item, index) => [
+    String(item.courseId || item.id || item.course?.id || item.courseName || item.name || index), item,
+  ])).values()]
+  if (!unique.length) return [{
+    courseId: student.courseId || student.course?.id || '',
+    courseName: student.courseName || student.courseInterested || student.course?.name || 'Not assigned',
+    status: 'ACTIVE',
+    batchName: student.batchName || student.batch?.name || student.batch || '-',
+    batchTiming: student.batchTiming || '',
+    facultyName: student.facultyName || student.faculty?.name || '',
+    startDate: student.courseStartDate || student.startDate || '',
+    endDate: student.courseEndDate || student.endDate || '',
+    courseProgress: student.courseProgress ?? student.courseCompletionPercentage ?? student.courseProgressPercentage,
+    courseCompletion: student.courseCompletion || student.courseCompletionStatus || 'IN_PROGRESS',
+  }]
+  return unique.map((enrollment) => {
+    const courseId = String(enrollment.courseId || enrollment.id || enrollment.course?.id || '')
+    const isPrimary = courseId && courseId === String(student.courseId || student.course?.id || '')
+    return {
+      ...enrollment,
+      courseId,
+      courseName: enrollment.courseName || enrollment.name || enrollment.course?.name || (isPrimary ? student.courseName || student.courseInterested : '') || 'Course',
+      batchName: enrollment.batchName || enrollment.batch?.name || (isPrimary ? student.batchName || student.batch?.name || student.batch : '') || '-',
+      batchTiming: enrollment.batchTiming || enrollment.batch?.timing || (isPrimary ? student.batchTiming : '') || '',
+      facultyName: enrollment.facultyName || enrollment.faculty?.name || (isPrimary ? student.facultyName || student.faculty?.name : '') || '',
+      startDate: enrollment.startDate || enrollment.courseStartDate || (isPrimary ? student.courseStartDate || student.startDate : '') || '',
+      endDate: enrollment.endDate || enrollment.courseEndDate || (isPrimary ? student.courseEndDate || student.endDate : '') || '',
+      courseProgress: enrollment.courseProgress ?? enrollment.courseCompletionPercentage ?? enrollment.progress ?? (isPrimary ? student.courseProgress ?? student.courseCompletionPercentage ?? student.courseProgressPercentage : null),
+      courseCompletion: enrollment.courseCompletion || enrollment.courseCompletionStatus || (isPrimary ? student.courseCompletion || student.courseCompletionStatus : 'IN_PROGRESS'),
+    }
+  })
+}
+
+function getCourseProgressForDisplay(course = {}, courseDetails = null, fallbackProgress = null) {
+  const savedValues = [
+    course.courseProgress,
+    course.courseCompletionPercentage,
+    course.progress,
+    courseDetails?.progress?.overall,
+    fallbackProgress,
+  ].map((value) => value === null || value === undefined || String(value).trim() === '' ? Number.NaN : Number(value)).filter(Number.isFinite)
+  const savedProgress = savedValues.length ? Math.max(...savedValues) : null
+  const completedCount = Number(courseDetails?.progress?.completedCount)
+  const totalCount = Number(courseDetails?.progress?.totalCount)
+  const moduleProgress = Number.isFinite(completedCount) && Number.isFinite(totalCount) && totalCount > 0
+    ? (completedCount / totalCount) * 100
+    : null
+
+  // Sequential enrollments can retain a stale 0 while Today’s Work already
+  // records completed modules. Keep the course summary consistent with that
+  // module-level progress until the enrollment value is synchronized.
+  if (moduleProgress !== null) {
+    return Math.min(100, Math.max(0, moduleProgress))
+  }
+
+  return savedProgress === null ? null : Math.min(100, Math.max(0, savedProgress))
+}
+
+function asAmount(value) {
+  const amount = Number(value)
+  return Number.isFinite(amount) ? amount : 0
+}
+
+function formatLegacyPaymentAmount(value) {
+  return `₹${asAmount(value).toLocaleString('en-IN')}`
+}
+
+function normalizeLegacyCurrencyText(value) {
+  return String(value || '').replace(/\bINR\s*/gi, '₹')
+}
+
+// Keep currency output independent of source-file encoding.
+function formatPaymentAmount(value) {
+  return `\u20B9${asAmount(value).toLocaleString('en-IN')}`
+}
+
+function normalizeCurrencyText(value) {
+  return String(value || '').replace(/\bINR\s*/gi, '\u20B9')
+}
+
+function formatPaymentDate(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function getInstallmentNumber(entry = {}) {
+  const value = entry.installmentNumber ?? entry.installmentNo ?? entry.installment ?? entry.installmentIndex
+  if (typeof value === 'number') return value
+  const match = String(value || '').match(/(\d+)/)
+  return match ? Number(match[1]) : 0
+}
+
+function buildInstallmentRows(student, paymentEntries) {
+  const plan = Array.isArray(student?.installmentSchedule) && student.installmentSchedule.length
+    ? student.installmentSchedule
+    : Array.isArray(student?.paymentPlan?.installments) ? student.paymentPlan.installments : []
+  const fields = [
+    ['firstInstallmentAmount', 'firstInstallmentDate', 'firstInstallmentStatus', 'firstInstallmentPaidAt'],
+    ['secondInstallmentAmount', 'secondDueDate', 'secondInstallmentStatus', 'secondInstallmentPaidAt'],
+    ['thirdInstallmentAmount', 'thirdDueDate', 'thirdInstallmentStatus', 'thirdInstallmentPaidAt'],
+    ['fourthInstallmentAmount', 'fourthDueDate', 'fourthInstallmentStatus', 'fourthInstallmentPaidAt'],
+  ]
+  const count = Math.max(plan.length, fields.filter(([amount, due, status]) => student?.[amount] || student?.[due] || student?.[status]).length)
+  return Array.from({ length: count }, (_, index) => {
+    const source = plan[index] || {}
+    const field = fields[index] || []
+    const relatedPayment = paymentEntries.find((entry) => getInstallmentNumber(entry) === index + 1)
+    const amount = asAmount(source.amount || source.installmentAmount || source.amountDue || student?.[field[0]] || student?.[`installment${index + 1}`])
+    const dueDate = source.dueDate || source.dueOn || student?.[field[1]] || ''
+    const paidDate = source.paidDate || source.paymentDate || source.paidAt || student?.[field[3]] || relatedPayment?.dateRaw || ''
+    const explicitStatus = source.status || source.paymentStatus || student?.[field[2]] || ''
+    const status = explicitStatus || (relatedPayment ? 'Paid' : 'Pending')
+    return { number: index + 1, amount, dueDate, paymentMode: source.paymentMode || source.mode || relatedPayment?.paymentMode || '-', paidDate, status }
+  })
+}
+
+function getStudentTotalFee(student = {}) {
+  const record = student || {}
+  return asAmount(
+    record.finalFee || record.courseAmount || record.totalFee || record.totalCourseFee ||
+    record.feeAmount || record.afterDiscount || record.totalAmount || record.actualFees ||
+    record.course?.afterDiscount || record.course?.finalFee,
+  )
+}
+
+function getEnrollmentPaymentFee(enrollment = {}) {
+  const explicitFinal = enrollment.finalCourseAmount ?? enrollment.afterDiscount ?? enrollment.finalFee ?? enrollment.totalFee
+  if (explicitFinal !== undefined && explicitFinal !== null && explicitFinal !== '') return asAmount(explicitFinal)
+  const gross = asAmount(enrollment.totalCourseAmount ?? enrollment.courseAmount ?? enrollment.amount ?? enrollment.feeAmount)
+  const discountAmount = asAmount(enrollment.discountAmount)
+  if (discountAmount) return Math.max(gross - discountAmount, 0)
+  const discountValue = asAmount(enrollment.discountValue)
+  if (String(enrollment.discountType || '').toUpperCase().includes('PERCENT')) return Math.max(gross - gross * discountValue / 100, 0)
+  return Math.max(gross - discountValue, 0)
+}
+
+function getPaymentEntryCourseKey(entry = {}) {
+  return String(entry.courseId || entry.branchCourseId || entry.courseName || entry.course || '').trim().toLowerCase()
+}
+
+function getEnrollmentPaymentEntries(entries = [], enrollments = [], enrollment = {}) {
+  const courseId = String(enrollment.courseId || '').trim().toLowerCase()
+  const courseName = String(enrollment.courseName || '').trim().toLowerCase()
+  const keyed = entries.filter((entry) => {
+    const key = getPaymentEntryCourseKey(entry)
+    return key && (key === courseId || key === courseName || (courseName && key.includes(courseName)))
+  })
+
+  // Legacy ledger rows without a course reference are attributed to Course 1.
+  if (enrollments.indexOf(enrollment) === 0) {
+    return [...keyed, ...entries.filter((entry) => !getPaymentEntryCourseKey(entry))]
+  }
+  return keyed
+}
+
+function getEnrollmentInstallmentCount(enrollment = {}) {
+  const directCount = Number(enrollment.installmentCount || enrollment.paymentPlanInstallmentCount || enrollment.paymentPlan?.installmentCount)
+  if (Number.isFinite(directCount) && directCount > 0) return Math.floor(directCount)
+  const nestedCount = enrollment.installmentSchedule?.length || enrollment.paymentPlan?.installments?.length
+  if (nestedCount) return nestedCount
+  const planName = typeof enrollment.paymentPlan === 'string' ? enrollment.paymentPlan : (enrollment.paymentPlan?.name || enrollment.paymentPlan?.templateName || '')
+  const match = String(planName).match(/(\d+)\s*(?:installment|payment)/i)
+  return match ? Number(match[1]) : 0
+}
+
+function getSequentialCourseInstallments(student = {}, enrollments = [], selectedEnrollment = {}) {
+  const coursePlan = selectedEnrollment.installmentSchedule || selectedEnrollment.paymentPlan?.installments
+  if (Array.isArray(coursePlan) && coursePlan.length) return coursePlan
+
+  const allInstallments = Array.isArray(student.installmentSchedule) && student.installmentSchedule.length
+    ? student.installmentSchedule
+    : Array.isArray(student.paymentPlan?.installments) ? student.paymentPlan.installments : []
+  if (!allInstallments.length) return []
+
+  const selectedIndex = enrollments.indexOf(selectedEnrollment)
+  if (selectedIndex < 0) return []
+  const counts = enrollments.map(getEnrollmentInstallmentCount)
+  const unknownIndexes = counts.map((count, index) => count ? -1 : index).filter((index) => index >= 0)
+  const knownTotal = counts.reduce((sum, count) => sum + count, 0)
+  const remaining = Math.max(allInstallments.length - knownTotal, 0)
+  if (unknownIndexes.length) {
+    const evenShare = Math.floor(remaining / unknownIndexes.length)
+    let remainder = remaining % unknownIndexes.length
+    unknownIndexes.forEach((index) => {
+      counts[index] = evenShare + (remainder-- > 0 ? 1 : 0)
+    })
+  }
+  const start = counts.slice(0, selectedIndex).reduce((sum, count) => sum + count, 0)
+  const count = counts[selectedIndex]
+  if (!count) return []
+  return allInstallments.slice(start, start + count)
+}
+
+function getSequentialCoursePaymentSummary(student = {}, enrollments = [], enrollment = {}, paymentEntries = []) {
+  const fee = getEnrollmentPaymentFee(enrollment)
+  const courseEntries = getEnrollmentPaymentEntries(paymentEntries, enrollments, enrollment)
+  const installments = getSequentialCourseInstallments(student, enrollments, enrollment)
+  const scheduledPaid = installments.reduce((sum, installment) => sum + asAmount(installment.paidAmount || installment.amountPaid), 0)
+  const paid = courseEntries.length
+    ? courseEntries.reduce((sum, entry) => sum + asAmount(entry.amount || entry.credit), 0)
+    : asAmount(enrollment.paidAmount || enrollment.amountPaid || scheduledPaid)
+
+  return {
+    fee,
+    paid,
+    percentage: fee > 0 ? Math.min(Math.round((paid / fee) * 100), 100) : 0,
+  }
+}
+
+function formatPaymentTime(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+}
+
+function getReceiptInstallments(student, paymentEntries, installmentRows) {
+  const plan = Array.isArray(student?.installmentSchedule) && student.installmentSchedule.length
+    ? student.installmentSchedule
+    : Array.isArray(student?.paymentPlan?.installments) ? student.paymentPlan.installments : []
+
+  if (plan.length) {
+    return plan.map((item, index) => {
+      const relatedPayment = paymentEntries.find((entry) => getInstallmentNumber(entry) === index + 1)
+      return {
+        ...item,
+        installmentNumber: item?.installmentNumber || index + 1,
+        amount: item?.amount ?? item?.installmentAmount ?? item?.amountDue ?? 0,
+        paidAmount: item?.paidAmount ?? item?.amountPaid ?? (relatedPayment ? asAmount(relatedPayment.amount || relatedPayment.credit) : 0),
+        dueDate: item?.dueDate || item?.dueOn || '',
+      }
+    })
+  }
+
+  return installmentRows.map((item) => ({
+    installmentNumber: item.number,
+    amount: item.amount,
+    paidAmount: ['paid', 'completed', 'success'].includes(String(item.status).toLowerCase()) ? item.amount : 0,
+    dueDate: item.dueDate,
+  }))
+}
+
+async function downloadStudentReceipt(payment, student, totalPaid, paymentEntries, installmentRows) {
+  const receiptElement = document.createElement('div')
+  try {
+    const currentPayment = asAmount(payment.amount || payment.credit)
+    const totalFee = getStudentTotalFee(student)
+    const receiptNumber = payment.receiptNumber || payment.id || 'receipt'
+    const receiptInstallments = getReceiptInstallments(student, paymentEntries, installmentRows)
+    const branch = student?.branch || {}
+    const course = student?.course || {}
+    const branchId = String(student?.branchId || student?.branchCode || branch?.id || branch?.branchId || '').trim()
+    const branchNameForLookup = String(student?.branchName || branch?.branchName || branch?.name || '').trim().toLowerCase()
+    const branchProfile = loadBranchRegistry().find((entry) => {
+      const identifiers = [entry.id, entry.branchId, entry.branchName].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+      return (branchId && identifiers.includes(branchId.toLowerCase())) || (branchNameForLookup && identifiers.includes(branchNameForLookup))
+    }) || {}
+    const instituteName = firstValue(student?.instituteName, student?.organizationName, student?.organization?.name, 'Cispro Training and Placement Pvt Ltd')
+    const branchAddress = firstValue(student?.instituteLocation, student?.branchAddress, branch?.branchAddress, branch?.address, branch?.location, branchProfile.branchAddress, [branchProfile.branchCity, branchProfile.branchState].filter(Boolean).join(', '), '')
+    const branchPhone = firstValue(student?.institutePhone, student?.branchPhone, branch?.branchPhone, branch?.phone, branchProfile.branchPhone, '')
+    const branchEmail = firstValue(student?.instituteEmail, student?.branchEmail, branch?.branchEmail, branch?.email, branchProfile.branchEmail, '')
+    const collectedBy = firstValue(
+      payment?.collectedBy,
+      payment?.collectedByName,
+      payment?.collectorName,
+      payment?.createdByName,
+      payment?.createdBy,
+      payment?.branchAdminName,
+      student?.collectedBy,
+      student?.branchAdminName,
+      branch?.branchAdminName,
+      branch?.adminName,
+      branchProfile.branchAdminName,
+      '-',
+    )
+    const branchName = student?.branchName || student?.branch?.name || student?.branch?.branchName || student?.branchCode || '-'
+    const courseName = student?.courseName || student?.courseInterested || course.name || student?.course || '-'
+
+    receiptElement.innerHTML = buildModernPaymentReceiptHtml({
+      logoUrl: '/logo.png', instituteName,
+      branchName, branchAddress, branchPhone, branchEmail,
+      studentName: student?.studentName || student?.name || 'Student', studentId: student?.studentId || student?.id || '-',
+      studentEmail: student?.emailAddress || student?.email || '-', studentPhone: student?.mobileNumber || student?.phone || '-', studentAddress: student?.address || student?.fullAddress || '-',
+      courseName, courseCode: student?.courseCode || course.code || '-', courseType: student?.courseType || course.type || course.mode || '-', courseStartDate: student?.courseStartDate || course.startDate || '-',
+      batchName: student?.batchName || student?.batch || student?.batchId || '-', facultyName: student?.facultyName || student?.faculty?.name || course.facultyName || '-',
+      receiptNumber, receiptDate: formatPaymentDate(payment.dateRaw || payment.date), paymentDate: formatPaymentDate(payment.dateRaw || payment.date), paymentTime: formatPaymentTime(payment.dateRaw || payment.date),
+      paymentFor: payment.payAgainst || 'Payment', paymentMode: payment.paymentMode || payment.mode || '-', transactionReference: payment.transactionReference || '-',
+      collectedBy, notes: payment.notes || '-', paymentStatus: payment.status || 'Paid',
+      totalCourseFee: totalFee, discount: student?.discount ?? payment.discount, tax: student?.tax ?? payment.tax ?? student?.gst, lateFee: payment.lateFee,
+      previouslyPaid: Math.max(totalPaid - currentPayment, 0), currentPayment, totalPaid, balance: Math.max(totalFee - totalPaid, 0),
+      installments: receiptInstallments, compactReceipt: true, paymentAlreadyApplied: true,
+    })
+    receiptElement.style.position = 'fixed'
+    receiptElement.style.left = '-10000px'
+    receiptElement.style.top = '0'
+    document.body.appendChild(receiptElement)
+    const receiptPage = receiptElement.querySelector('.receipt-page')
+    if (!receiptPage) throw new Error('Receipt template could not be rendered')
+    await html2pdf().set({
+      margin: 0,
+      filename: `Payment_Receipt_${receiptNumber}.pdf`,
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['.card', '.meta-grid', '.amount-box', '.payment-status', '.next-payment', '.receipt-footer', 'tr'] },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', scrollX: 0, scrollY: 0 },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    }).from(receiptPage).toPdf().get('pdf').then((pdf) => {
+      const pageCount = pdf.internal.getNumberOfPages()
+      pdf.setFontSize(8)
+      pdf.setTextColor(100, 116, 139)
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page)
+        pdf.text(`Page ${page} of ${pageCount}`, 190, 291, { align: 'right' })
+      }
+    }).save()
+  } catch (error) {
+    console.error('Failed to generate student payment receipt:', error)
+    window.alert('Unable to generate payment receipt. Please try again.')
+  } finally {
+    receiptElement.remove()
+  }
+}
+
+function AttendanceChart({ items, period }) {
+  return (
+    <>
+      <div className="student-attendance-chart-legend" aria-label="Attendance chart legend">
+        <span><i className="is-present" />Present</span>
+        <span><i className="is-absent" />Absent</span>
+      </div>
+      <div className={`student-attendance-chart is-${period}`}>
+        {items.map((item, index) => {
+          const present = getAttendancePercentage(item, 'present', period)
+          const absent = getAttendancePercentage(item, 'absent', period)
+          const label = period === 'weekly'
+            ? `Week ${item.week}`
+            : period === 'daily'
+              ? formatDate(item.date || item.startDate, { day: '2-digit', month: 'short' })
+              : String(item.month || '').replace(/\s+\d{4}$/, '')
+          const dateRange = period === 'weekly'
+            ? item.dateRange
+            : period === 'daily'
+              ? (item.status || 'Attendance')
+              : `${formatDate(item.startDate, { day: '2-digit', month: 'short' })} – ${formatDate(item.endDate, { day: '2-digit', month: 'short' })}`
+
+          return (
+            <div className="student-attendance-chart-row" key={`${label}-${item.startDate || index}`}>
+              <div className="student-attendance-bar-pair">
+                <div className="student-attendance-bar-column">
+                  <span>{present === null ? 'N/A' : `${present}%`}</span>
+                  <div className="student-attendance-bar student-attendance-bar-present" title={`Present: ${present === null ? 'Not available' : `${present}%`}`}>
+                    <i style={{ height: `${present || 0}%` }} />
+                  </div>
+                </div>
+                <div className="student-attendance-bar-column">
+                  <span>{absent === null ? 'N/A' : `${absent}%`}</span>
+                  <div className="student-attendance-bar student-attendance-bar-absent" title={`Absent: ${absent === null ? 'Not available' : `${absent}%`}`}>
+                    <i style={{ height: `${absent || 0}%` }} />
+                  </div>
+                </div>
+              </div>
+              <strong>{present === null ? '—' : `${present}%`} / {absent === null ? '—' : `${absent}%`}</strong>
+              <span>{label}<small>{dateRange}</small></span>
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
+export function StudentNewDashboardPage() {
+ const navigate = useNavigate()
+ const location = useLocation()
+ const { session, signOut } = useAuth()
+ const isExamsRoute = location.pathname === '/student-new-dashboard/exams'
+ const isExamReportsRoute = isExamsRoute && new URLSearchParams(location.search).get('tab') === 'reports'
+ const isAssessmentRoute = isExamsRoute && new URLSearchParams(location.search).get('tab') === 'assessments'
+ const isAcademicTestReportRoute = isExamsRoute && new URLSearchParams(location.search).get('tab') === 'academic-report'
+ const isAcademicTestRoute = isExamsRoute && ['academic', 'academic-report'].includes(new URLSearchParams(location.search).get('tab'))
+ const [activeSection, setActiveSection] = useState(isExamsRoute ? 'exams' : 'dashboard')
+ const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+ const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+   try { return window.localStorage.getItem('cispro.student-sidebar-collapsed') === 'true' } catch { return false }
+ })
+ const [isExamsExpanded, setIsExamsExpanded] = useState(isExamsRoute)
+ const [isSyllabusTestExpanded, setIsSyllabusTestExpanded] = useState(isExamsRoute)
+
+ useEffect(() => {
+   setIsExamsExpanded(isExamsRoute)
+   setIsSyllabusTestExpanded(isExamsRoute)
+ }, [isExamsRoute])
+
+ useEffect(() => {
+   const params = new URLSearchParams(location.search)
+   const requestedSection = params.get('section')
+   const shouldOpenDiscontinuation = params.get('open') === 'discontinuation'
+   if (requestedSection === 'profile' && !isExamsRoute) setActiveSection('profile')
+   if (shouldOpenDiscontinuation && !isExamsRoute) setActiveSection('leave-management')
+   if (requestedSection || shouldOpenDiscontinuation) navigate('/student-new-dashboard', { replace: true })
+ }, [isExamsRoute, location.search, navigate])
+
+ useEffect(() => {
+   try { window.localStorage.setItem('cispro.student-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* ignore storage failures */ }
+ }, [isSidebarCollapsed])
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false)
+ const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
+ const [isProfileActionsOpen, setIsProfileActionsOpen] = useState(false)
+ const profileActionsRef = useRef(null)
+
+ useEffect(() => {
+   if (!isProfileActionsOpen) return undefined
+
+   const closeOnOutsideClick = (event) => {
+     if (!profileActionsRef.current?.contains(event.target)) {
+       setIsProfileActionsOpen(false)
+     }
+   }
+
+   document.addEventListener('mousedown', closeOnOutsideClick)
+   return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+ }, [isProfileActionsOpen])
+ const [studentSession] = useState(() => readStudentSession())
+ const [student, setStudent] = useState(null)
+ const [isLoading, setIsLoading] = useState(true)
+ const [loadError, setLoadError] = useState('')
+ const [paymentEntries, setPaymentEntries] = useState([])
+ const [paymentLoadError, setPaymentLoadError] = useState('')
+ const [selectedPaymentCourseId, setSelectedPaymentCourseId] = useState('')
+ const [attendanceOverview, setAttendanceOverview] = useState(null)
+ const [attendanceOverviews, setAttendanceOverviews] = useState({})
+ const [selectedAttendanceCourseId, setSelectedAttendanceCourseId] = useState('')
+ const [attendanceTab, setAttendanceTab] = useState('daily')
+ const [attendanceLoading, setAttendanceLoading] = useState(false)
+ const [attendanceError, setAttendanceError] = useState('')
+ const [courseDetails, setCourseDetails] = useState(null)
+ const [courseDetailsById, setCourseDetailsById] = useState({})
+ const [selectedCourseDetailsId, setSelectedCourseDetailsId] = useState('')
+ const [courseLoading, setCourseLoading] = useState(false)
+ const [courseError, setCourseError] = useState('')
+ const [isAssessmentDetailOpen, setIsAssessmentDetailOpen] = useState(false)
+
+ useEffect(() => {
+   if (!student?.studentId) {
+     return undefined
+   }
+   let isMounted = true
+   const loadPayments = async () => {
+     try {
+       const identifiers = [...new Set([student.studentId, student.id].map((value) => String(value || '').trim()).filter(Boolean))]
+       let ledger = await getBranchStudentLedger(identifiers[0])
+       if (!ledger?.entries?.length && identifiers[1]) ledger = await getBranchStudentLedger(identifiers[1])
+       if (isMounted) {
+         const apiEntries = ledger?.entries || []
+         const localEntries = loadBranchPaymentHistoryEntries().filter((entry) => identifiers.includes(String(entry.studentId || '').trim()))
+         const entries = apiEntries.length ? apiEntries : localEntries
+         setPaymentEntries(entries.filter((entry) => entry.entryType === 'CREDIT' || entry.credit > 0 || (!entry.entryType && asAmount(entry.amount) > 0)))
+         setPaymentLoadError('')
+       }
+     } catch (error) {
+       if (isMounted) {
+         setPaymentEntries([])
+         setPaymentLoadError(error?.message || 'Payment details are temporarily unavailable.')
+       }
+     }
+   }
+   void loadPayments()
+   const refreshPayments = () => { void loadPayments() }
+   window.addEventListener('focus', refreshPayments)
+   window.addEventListener('cispro:branch-payment-history-changed', refreshPayments)
+   return () => {
+     isMounted = false
+     window.removeEventListener('focus', refreshPayments)
+     window.removeEventListener('cispro:branch-payment-history-changed', refreshPayments)
+   }
+ }, [student?.studentId, student?.id])
+
+ const dashboardCourses = useMemo(() => getDashboardCourseEnrollments(student || {}), [student])
+ const isSequentialMultiCourse = String(student?.arrangementType || dashboardCourses.find((course) => course.arrangementType)?.arrangementType || '').toUpperCase() === 'SEQUENTIAL' && dashboardCourses.length > 1
+ const paymentCourseIdKey = dashboardCourses.map((course) => course.courseId).join('|')
+ useEffect(() => {
+   const firstCourseId = String(dashboardCourses[0]?.courseId || '')
+   if (!dashboardCourses.some((course) => String(course.courseId || '') === selectedPaymentCourseId)) setSelectedPaymentCourseId(firstCourseId)
+ }, [paymentCourseIdKey, selectedPaymentCourseId])
+ const selectedPaymentCourse = dashboardCourses.find((course) => String(course.courseId || '') === selectedPaymentCourseId) || dashboardCourses[0]
+ const activeDashboardCourses = dashboardCourses.filter((course) => String(course.status || 'ACTIVE').toUpperCase() !== 'PENDING')
+ const upcomingDashboardCourses = dashboardCourses.filter((course) => String(course.status || '').toUpperCase() === 'PENDING')
+ const dashboardCourseIdsKey = dashboardCourses.map((course) => course.courseId).join('|')
+ const examQuery = new URLSearchParams(location.search)
+ const examCourseId = examQuery.get('courseId') || activeDashboardCourses[0]?.courseId || ''
+ const selectExamCourse = (courseId) => { const params = new URLSearchParams(location.search); params.set('courseId', String(courseId || '')); navigate(`${location.pathname}?${params.toString()}`) }
+ const defaultAttendanceCourseId = String(student?.courseId || student?.course?.id || activeDashboardCourses[0]?.courseId || '')
+
+ useEffect(() => {
+   if (!student?.studentId && !student?.id) return undefined
+   // Dashboard summary cards also need the course-specific progress for every
+   // active enrollment. Previously this request ran only on the Course tab,
+   // so multi-course students saw 0% and null module counts on the dashboard.
+   if (activeSection !== 'dashboard' && activeSection !== 'course') return undefined
+   let isMounted = true
+   Promise.resolve().then(() => {
+     if (!isMounted) return
+     setCourseLoading(true)
+     setCourseError('')
+     const courses = activeDashboardCourses.length ? activeDashboardCourses : [{ courseId: '' }]
+     return Promise.allSettled(courses.map(async (course) => [String(course.courseId || ''), await getCurrentStudentCourse(course.courseId)]))
+       .then((results) => {
+         if (!isMounted) return
+         const byCourse = Object.fromEntries(results.filter((result) => result.status === 'fulfilled').map((result) => result.value))
+         setCourseDetailsById(byCourse)
+         const selected = byCourse[defaultAttendanceCourseId] || Object.values(byCourse)[0] || null
+         setCourseDetails(selected)
+         setSelectedCourseDetailsId(selected?.course?.id || defaultAttendanceCourseId)
+         if (!Object.keys(byCourse).length) setCourseError(results.find((result) => result.status === 'rejected')?.reason?.message || 'Unable to load course details.')
+       })
+       .finally(() => { if (isMounted) setCourseLoading(false) })
+   })
+   return () => { isMounted = false }
+// Enrollment IDs represent the stable set; avoid refetching for student object updates.
+// eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [student?.studentId, student?.id, dashboardCourseIdsKey, defaultAttendanceCourseId, activeSection])
+
+ useEffect(() => {
+   if (!student?.studentId && !student?.id) return undefined
+   let isMounted = true
+   Promise.resolve().then(() => {
+     if (!isMounted) return
+     setAttendanceLoading(true)
+     setAttendanceError('')
+     const courses = activeDashboardCourses.length ? activeDashboardCourses : [{ courseId: '' }]
+     return Promise.all(courses.map(async (course) => {
+       const overview = await getCurrentStudentAttendanceOverview(course.courseId)
+       return [String(course.courseId || ''), overview]
+     }))
+       .then((entries) => {
+         if (!isMounted) return
+         const byCourse = Object.fromEntries(entries)
+         setAttendanceOverviews(byCourse)
+         const nextCourseId = defaultAttendanceCourseId
+         setSelectedAttendanceCourseId(nextCourseId)
+         setAttendanceOverview(byCourse[nextCourseId] || Object.values(byCourse)[0] || null)
+       })
+       .catch((error) => { if (isMounted) setAttendanceError(error?.message || 'Unable to load attendance.') })
+       .finally(() => { if (isMounted) setAttendanceLoading(false) })
+   })
+   return () => { isMounted = false }
+ // selected course is intentionally not a fetch dependency; all enrollments load together.
+ // Course IDs and the primary ID are the stable fetch inputs; course objects and selected tab are not.
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [student?.studentId, student?.id, dashboardCourseIdsKey, defaultAttendanceCourseId])
+
+ useEffect(() => {
+   let isMounted = true
+   const session = readStudentSession()
+
+   const attachCourseMasterData = (studentRecord) => {
+     if (!studentRecord) return studentRecord
+
+     const courseMasterDuration = getCourseMasterDuration(studentRecord?.course)
+     const courseMasterHours = getCourseMasterHours(studentRecord?.course)
+
+     return {
+       ...studentRecord,
+       attendanceByDate: { ...(studentRecord.attendanceByDate || {}), ...getStudentCalendarAttendance(studentRecord) },
+       courseDuration: courseMasterDuration || studentRecord.courseDuration || studentRecord.duration,
+       courseMasterDuration: courseMasterDuration || studentRecord.courseMasterDuration || studentRecord.courseDuration || studentRecord.duration,
+       totalHours: courseMasterHours || studentRecord.totalHours || studentRecord.courseHours,
+     }
+   }
+
+   const attachCalendarData = async (studentRecord, calendarOverride) => {
+     if (!studentRecord) return studentRecord
+
+     try {
+       const calendar = calendarOverride === undefined ? await getCurrentBranchStudentCalendar() : calendarOverride
+       if (!calendar) return studentRecord
+       const calendarStudent = {
+         ...studentRecord,
+         courseEndDate: calendar?.endDate || studentRecord.courseEndDate || '',
+         totalHours: calendar?.totalHours || calendar?.course?.totalHours || studentRecord.totalHours || '',
+         hoursPerDay: calendar?.hoursPerDay || studentRecord.hoursPerDay || '',
+         requiredTeachingDays: calendar?.requiredTeachingDays || studentRecord.requiredTeachingDays || '',
+         actualTeachingDays: calendar?.actualTeachingDays || studentRecord.actualTeachingDays || '',
+         calendarDurationDays: calendar?.calendarDurationDays || studentRecord.calendarDurationDays || '',
+         courseMode: calendar?.courseMode || calendar?.course?.mode || studentRecord.courseMode || '',
+         calendarEvents: Array.isArray(calendar?.events) ? calendar.events : [],
+         scheduleSummary: calendar,
+       }
+       const calculatedCalendar = buildStudentCourseCalendar(calendarStudent)
+       saveStudentCalendarSummary(studentRecord, {
+         ...calendar,
+         presentDays: calculatedCalendar.summary.presentDays,
+         absentDays: calculatedCalendar.summary.absentDays,
+         courseDays: calculatedCalendar.summary.courseDays,
+         noClassDays: calculatedCalendar.summary.noClassDays,
+         calendarDurationDays: calendar?.calendarDurationDays || calculatedCalendar.calendarDurationDays,
+         events: Array.isArray(calendar?.events) ? calendar.events : [],
+       })
+       return {
+         ...studentRecord,
+         courseEndDate: calendar?.endDate || studentRecord.courseEndDate || '',
+         totalWorkingDays: calendar?.totalWorkingDays || studentRecord.totalWorkingDays || '',
+         totalHours: calendar?.totalHours || calendar?.course?.totalHours || studentRecord.totalHours || '',
+         hoursPerDay: calendar?.hoursPerDay || studentRecord.hoursPerDay || '',
+         requiredTeachingDays: calendar?.requiredTeachingDays || studentRecord.requiredTeachingDays || '',
+         actualTeachingDays: calendar?.actualTeachingDays || studentRecord.actualTeachingDays || '',
+         calendarDurationDays: calendar?.calendarDurationDays || studentRecord.calendarDurationDays || '',
+         courseMode: calendar?.courseMode || calendar?.course?.mode || studentRecord.courseMode || '',
+         calendarEvents: Array.isArray(calendar?.events) ? calendar.events : [],
+         scheduleSummary: calendar,
+       }
+     } catch {
+       return studentRecord
+     }
+   }
+
+   const loadStudent = async () => {
+     if (!session) {
+       const [profileResult, calendarResult] = await Promise.allSettled([
+         getCurrentStudentProfile(),
+         getCurrentBranchStudentCalendar(),
+       ])
+       try {
+         if (profileResult.status !== 'fulfilled') throw profileResult.reason
+         const currentProfile = profileResult.value
+         const hydratedProfile = attachCourseMasterData(currentProfile)
+         const calendarProfile = await attachCalendarData(hydratedProfile, calendarResult.status === 'fulfilled' ? calendarResult.value : null)
+         if (isMounted) setStudent(calendarProfile)
+       } catch (error) {
+         if (isMounted) setLoadError(error?.message || 'Student session not found. Please sign in again.')
+       } finally {
+         if (isMounted) setIsLoading(false)
+       }
+       return
+     }
+
+     const scope = session.branchId || session.branchCode || ''
+     const localStudent = loadBranchStudents(scope).find((record) => matchesStudentSession(record, session))
+
+     const [recordsResult, calendarResult] = await Promise.allSettled([
+       refreshBranchStudents(scope),
+       getCurrentBranchStudentCalendar(),
+     ])
+     try {
+       if (recordsResult.status !== 'fulfilled') throw recordsResult.reason
+       const records = recordsResult.value
+       const latestStudent = records.find((record) => matchesStudentSession(record, session))
+       const hydratedStudent = attachCourseMasterData(latestStudent || localStudent)
+       const calendarStudent = await attachCalendarData(hydratedStudent, calendarResult.status === 'fulfilled' ? calendarResult.value : null)
+       if (isMounted) {
+         setStudent(calendarStudent || null)
+         if (!latestStudent && !localStudent) setLoadError('Your student record could not be found.')
+       }
+      } catch (error) {
+       if (isMounted) {
+         setStudent(localStudent ? {
+           ...localStudent,
+           attendanceByDate: { ...(localStudent.attendanceByDate || {}), ...getStudentCalendarAttendance(localStudent) },
+           courseMasterDuration: localStudent.course?.duration || localStudent.courseDuration || localStudent.duration || '',
+         } : null)
+         if (!localStudent) setLoadError(error?.message || 'Unable to load your student details.')
+       }
+     } finally {
+       if (isMounted) setIsLoading(false)
+     }
+   }
+
+   void loadStudent()
+   const refreshCalendar = async () => {
+     try {
+       const calendar = await getCurrentBranchStudentCalendar()
+       if (isMounted) setStudent(current => {
+         if (!current) return current
+         const refreshedStudent = { ...current, courseEndDate: calendar.endDate, calendarEvents: calendar.events, scheduleSummary: calendar, hoursPerDay: calendar.hoursPerDay, totalHours: calendar.totalHours }
+         const calculatedCalendar = buildStudentCourseCalendar(refreshedStudent)
+         saveStudentCalendarSummary(current, {
+           ...calendar,
+           presentDays: calculatedCalendar.summary.presentDays,
+           absentDays: calculatedCalendar.summary.absentDays,
+           courseDays: calculatedCalendar.summary.courseDays,
+           noClassDays: calculatedCalendar.summary.noClassDays,
+           calendarDurationDays: calendar?.calendarDurationDays || calculatedCalendar.calendarDurationDays,
+           events: Array.isArray(calendar?.events) ? calendar.events : [],
+         })
+         return refreshedStudent
+       })
+     } catch (error) { if (isMounted) setLoadError(error.message || 'Unable to refresh calendar') }
+   }
+   const timer = setInterval(refreshCalendar, 30000)
+   window.addEventListener('focus', refreshCalendar)
+   window.addEventListener('institute-leave-updated', refreshCalendar)
+   const refreshSharedAttendance = () => setStudent(current => current ? { ...current, attendanceByDate: { ...(current.attendanceByDate || {}), ...getStudentCalendarAttendance(current) } } : current)
+   window.addEventListener('cispro:student-calendar-attendance-changed', refreshSharedAttendance)
+   return () => { isMounted = false; clearInterval(timer); window.removeEventListener('focus', refreshCalendar); window.removeEventListener('institute-leave-updated', refreshCalendar); window.removeEventListener('cispro:student-calendar-attendance-changed', refreshSharedAttendance) }
+ }, [])
+
+ const courseName = student?.courseName || student?.courseInterested || student?.course?.name || 'Not assigned'
+ const overallAttendanceValue = student?.attendancePercentage ?? student?.attendance ?? student?.attendancePercent
+ const attendance = overallAttendanceValue === undefined || overallAttendanceValue === null || overallAttendanceValue === '' ? 'Not available' : `${overallAttendanceValue}%`
+ const displayName = student?.studentName || studentSession?.studentName || 'Student'
+ const totalFee = getStudentTotalFee(student)
+ const configuredInstallments = Array.isArray(student?.installmentSchedule) && student.installmentSchedule.length
+   ? student.installmentSchedule
+   : Array.isArray(student?.paymentPlan?.installments) ? student.paymentPlan.installments : []
+ const schedulePaidAmount = configuredInstallments.reduce((sum, installment) => sum + asAmount(installment.paidAmount || installment.amountPaid), 0)
+ const paidAmount = paymentEntries.length
+   ? paymentEntries.reduce((sum, entry) => sum + asAmount(entry.amount || entry.credit), 0)
+   : asAmount(student?.paidAmount || student?.amountPaid || student?.totalPaid || schedulePaidAmount)
+ const balanceAmount = Math.max(totalFee - paidAmount, 0)
+ const paymentProgress = totalFee > 0 ? Math.min(Math.round((paidAmount / totalFee) * 100), 100) : 0
+ const paymentStatus = totalFee > 0 && paidAmount >= totalFee ? 'Paid' : paidAmount > 0 ? 'Partially paid' : getPaymentStatus(student)
+ const installmentRows = useMemo(() => buildInstallmentRows(student, paymentEntries), [student, paymentEntries])
+ const paymentHistoryRows = useMemo(() => [...paymentEntries].sort((a, b) => new Date(b.dateRaw || b.date).getTime() - new Date(a.dateRaw || a.date).getTime()), [paymentEntries])
+ const coursePaymentEntries = useMemo(() => {
+   if (!isSequentialMultiCourse || !selectedPaymentCourse) return paymentEntries
+   return getEnrollmentPaymentEntries(paymentEntries, dashboardCourses, selectedPaymentCourse)
+ }, [isSequentialMultiCourse, selectedPaymentCourse, paymentEntries, dashboardCourseIdsKey])
+ const paymentStudent = isSequentialMultiCourse && selectedPaymentCourse
+   ? { ...selectedPaymentCourse, installmentSchedule: getSequentialCourseInstallments(student || {}, dashboardCourses, selectedPaymentCourse), paymentPlan: selectedPaymentCourse.paymentPlan || {} }
+   : student
+ const displayedTotalFee = isSequentialMultiCourse ? getEnrollmentPaymentFee(selectedPaymentCourse || {}) : totalFee
+ const selectedSchedulePaid = (selectedPaymentCourse?.installmentSchedule || selectedPaymentCourse?.paymentPlan?.installments || []).reduce((sum, installment) => sum + asAmount(installment.paidAmount || installment.amountPaid), 0)
+ const displayedPaidAmount = isSequentialMultiCourse
+   ? (coursePaymentEntries.length
+     ? coursePaymentEntries.reduce((sum, entry) => sum + asAmount(entry.amount || entry.credit), 0)
+     : asAmount(selectedPaymentCourse?.paidAmount || selectedPaymentCourse?.amountPaid || selectedSchedulePaid))
+   : paidAmount
+ const displayedBalance = Math.max(displayedTotalFee - displayedPaidAmount, 0)
+ const displayedProgress = displayedTotalFee > 0 ? Math.min(Math.round((displayedPaidAmount / displayedTotalFee) * 100), 100) : 0
+ const displayedPaymentStatus = displayedTotalFee > 0 && displayedPaidAmount >= displayedTotalFee ? 'Paid' : displayedPaidAmount > 0 ? 'Partially paid' : (String(selectedPaymentCourse?.status || '').toUpperCase() === 'PENDING' ? 'Upcoming' : isSequentialMultiCourse ? getPaymentStatus(selectedPaymentCourse) : paymentStatus)
+ const displayedInstallmentRows = isSequentialMultiCourse ? buildInstallmentRows(paymentStudent, coursePaymentEntries) : installmentRows
+ const displayedPaymentHistoryRows = isSequentialMultiCourse
+   ? [...coursePaymentEntries].sort((a, b) => new Date(b.dateRaw || b.date).getTime() - new Date(a.dateRaw || a.date).getTime())
+   : paymentHistoryRows
+ const nextInstallment = displayedInstallmentRows.find((installment) => !['paid', 'completed', 'success'].includes(String(installment.status).toLowerCase()))
+ const qualification = student?.qualification || '-'
+ const passedOutYear = String(student?.passedOutYear ?? student?.yearOfPassing ?? '').trim()
+ const batchName = student?.batchName || (typeof student?.batch === 'string' ? student.batch : '') || student?.batch?.name || '-'
+ const studentStatus = student?.customCurrentStatus || student?.currentStatus || student?.status || '-'
+ const learningProgress = useMemo(() => getModuleProgress(student), [student])
+ const attendanceView = useMemo(() => {
+   const items = attendanceOverview?.[attendanceTab] || []
+   if (attendanceTab !== 'daily') return items
+
+   // Daily attendance is shown for the relevant part of the current week:
+   // weekdays have five entries, while weekends have Saturday and Sunday only.
+   const showWeekend = isWeekendDate(toCalendarDateKey(new Date()))
+   return items
+     .filter((item) => {
+       const itemDate = item?.date || item?.dateKey || item?.startDate
+       return itemDate && isWeekendDate(itemDate) === showWeekend
+     })
+     .map((item) => {
+       const itemDate = item?.date || item?.dateKey || item?.startDate
+       return attendanceOverview?.course?.startDate && (itemDate < attendanceOverview.course.startDate || itemDate > attendanceOverview.course.endDate)
+         ? { ...item, status: 'NOT_APPLICABLE' }
+         : item
+     })
+ }, [attendanceOverview, attendanceTab])
+ const selectedAttendanceCourse = activeDashboardCourses.find((course) => String(course.courseId || '') === selectedAttendanceCourseId) || activeDashboardCourses[0]
+ const courseAttendanceBatch = selectedAttendanceCourse?.batchName || batchName
+ const todayCourseSessions = activeDashboardCourses.flatMap((course) => {
+   const overview = attendanceOverviews[String(course.courseId || '')]
+   return (Array.isArray(overview?.todayAttendance?.sessions) ? overview.todayAttendance.sessions : []).map((session) => ({ ...session, courseId: session.courseId || course.courseId, courseName: session.courseName || course.courseName }))
+ })
+ const currentWeekday = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
+ const todayAttendanceRows = activeDashboardCourses.flatMap((course) => {
+   const sessions = todayCourseSessions.filter((session) => String(session.courseId || '') === String(course.courseId || ''))
+   if (sessions.length) return sessions
+   const isPrimaryCourse = String(course.courseId || '') === String(student?.courseId || student?.course?.id || '')
+   const courseCalendarEvents = (student?.calendarEvents || []).filter((event) => String(event?.courseId || '') === String(course.courseId || '') || (isPrimaryCourse && !event?.courseId))
+   const calendarStatus = courseCalendarEvents.find((event) => toCalendarDateKey(event?.date || event?.attendanceDate) === toCalendarDateKey(new Date()) && String(event?.code || event?.status || '').toUpperCase().replace(/[- ]/g, '_') === 'FACULTY_WEEKLY_OFF')
+   const weeklyOffDay = String(course.weeklyOffDay || course.batch?.weeklyOffDay || (isPrimaryCourse ? student?.weeklyOffDay || student?.batch?.weeklyOffDay : '') || calendarStatus?.weeklyOffDay || '').toUpperCase()
+   const isFacultyWeeklyOff = Boolean(calendarStatus) || weeklyOffDay === currentWeekday
+   return [{ courseId: course.courseId, courseName: course.courseName, status: isFacultyWeeklyOff ? 'FACULTY_WEEKLY_OFF' : 'NO_CLASS' }]
+ })
+ const facultyWeeklyOffCoursesToday = todayAttendanceRows.filter((row) => String(row.status || '').toUpperCase() === 'FACULTY_WEEKLY_OFF')
+ const todayAttendance = attendanceOverview?.todayAttendance || null
+ const todaySessions = todayCourseSessions
+ const todayClassSessions = useMemo(() => activeDashboardCourses.flatMap((course) => {
+   const overview = attendanceOverviews[String(course.courseId || '')]
+   const isPrimaryCourse = String(course.courseId || '') === String(student?.courseId || student?.course?.id || '')
+   const courseCalendarEvents = (student?.calendarEvents || []).filter((event) => String(event?.courseId || '') === String(course.courseId || '') || (isPrimaryCourse && !event?.courseId))
+   const courseStudent = { ...student, courseName: course.courseName, batchName: course.batchName, calendarEvents: courseCalendarEvents }
+   return getTodayClassSessions(overview?.todayAttendance, courseStudent).map((session) => ({ ...session, courseName: session.courseName || course.courseName, batchName: session.batchName || course.batchName }))
+ }), [attendanceOverviews, activeDashboardCourses, student])
+ const todaySummary = todaySessions.reduce((summary, session) => {
+   const status = String(session.status || 'NOT_MARKED').toUpperCase()
+   summary.totalSessions += 1
+   if (status === 'PRESENT') summary.present += 1
+   else if (status === 'ABSENT') summary.absent += 1
+   else if (status === 'LATE') summary.late += 1
+   else if (status === 'LEAVE') summary.leave += 1
+   else if (status === 'NOT_MARKED') summary.notMarked += 1
+   return summary
+ }, { totalSessions: 0, present: 0, absent: 0, late: 0, leave: 0, notMarked: 0, percentage: 0 })
+ todaySummary.percentage = todaySummary.totalSessions ? Math.round(((todaySummary.present + todaySummary.late) / todaySummary.totalSessions) * 100) : 0
+ const facultyName = firstValue(student?.facultyName, student?.faculty?.facultyName, student?.faculty?.name, student?.batch?.faculty)
+ const selectedCourseForDetails = dashboardCourses.find((course) => (
+   String(course.courseId || '') === String(courseDetails?.course?.id || selectedCourseDetailsId || '')
+ )) || {}
+ const selectedCourseProgress = getCourseProgressForDisplay(selectedCourseForDetails, courseDetails)
+
+  const handleMenuClick = (section) => {
+    setActiveSection(section)
+    setIsMobileSidebarOpen(false)
+    if (section !== 'exams') navigate('/student-new-dashboard')
+  }
+
+const handleLogout = () => {
+  setIsProfileMenuOpen(false)
+  setIsLogoutModalOpen(true)
+}
+
+const reloadAttendance = () => {
+  setAttendanceOverview(null)
+  setAttendanceError('')
+  setAttendanceLoading(true)
+  Promise.all(activeDashboardCourses.map(async (course) => {
+    const overview = await getCurrentStudentAttendanceOverview(course.courseId)
+    return [String(course.courseId || ''), overview]
+  }))
+    .then((entries) => {
+      const byCourse = Object.fromEntries(entries)
+      setAttendanceOverviews(byCourse)
+      setAttendanceOverview(byCourse[selectedAttendanceCourseId] || Object.values(byCourse)[0] || null)
+    })
+    .catch((error) => setAttendanceError(error?.message || 'Unable to load attendance.'))
+    .finally(() => setAttendanceLoading(false))
+}
+
+const selectAttendanceCourse = (courseId) => {
+  const key = String(courseId || '')
+  setSelectedAttendanceCourseId(key)
+  setAttendanceOverview(attendanceOverviews[key] || null)
+}
+
+const reloadCourse = (courseId = selectedCourseDetailsId) => {
+  setCourseDetails(null)
+  setCourseError('')
+  setCourseLoading(true)
+  getCurrentStudentCourse(courseId)
+    .then((details) => {
+      setCourseDetails(details)
+      setCourseDetailsById((current) => ({ ...current, [String(courseId || details?.course?.id || '')]: details }))
+      setSelectedCourseDetailsId(String(courseId || details?.course?.id || ''))
+    })
+    .catch((error) => setCourseError(error?.message || 'Unable to load course details.'))
+    .finally(() => setCourseLoading(false))
+}
+
+const handleLogoutCancel = () => {
+  setIsLogoutModalOpen(false)
+}
+
+const handleLogoutConfirm = async () => {
+  setIsLogoutModalOpen(false)
+  try {
+    window.sessionStorage.removeItem('cispro.student-session')
+  } catch {
+    // Ignore storage errors and continue to the login page.
+  }
+  await signOut()
+  navigate('/login', { replace: true })
+}
+
+  return (
+    <section className="student-new-page">
+      <div className={`student-new-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''}`.trim()}>
+
+        {/* ─────────────────────────────────────────────
+            MOBILE SIDEBAR BACKDROP
+        ───────────────────────────────────────────── */}
+        {isMobileSidebarOpen ? (
+          <button
+            type="button"
+            className="student-new-sidebar-backdrop"
+            aria-label="Close navigation menu"
+            onClick={() => setIsMobileSidebarOpen(false)}
+          />
+        ) : null}
+
+        {/* ─────────────────────────────────────────────
+            SIDEBAR
+        ───────────────────────────────────────────── */}
+        <aside
+          className={`student-new-sidebar ${isMobileSidebarOpen ? 'is-open' : ''} ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''}`.trim()}
+          aria-label="Student navigation"
+        >
+          {/* Sidebar Brand */}
+          <div className="student-new-sidebar-brand">
+            <img
+              className="student-new-sidebar-brand-logo"
+              src="/logo1.png"
+              alt="Elite Admin logo"
+            />
+
+            <button type="button" className="student-new-sidebar-collapse-toggle" data-tooltip={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'} aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setIsSidebarCollapsed((current) => !current)}>
+              {isSidebarCollapsed ? <PanelLeftOpen size={19} strokeWidth={2.3} /> : <PanelLeftClose size={19} strokeWidth={2.3} />}
+            </button>
+
+            <button
+              type="button"
+              className="student-new-sidebar-close"
+              aria-label="Close navigation menu"
+              onClick={() => setIsMobileSidebarOpen(false)}
+            >
+              <X
+                size={18}
+                strokeWidth={2.6}
+                aria-hidden="true"
+                focusable="false"
+              />
+            </button>
+          </div>
+
+          {/* Sidebar Navigation */}
+          <nav className="student-new-sidebar-nav">
+
+            {/* MAIN */}
+            <div className="student-new-sidebar-section">
+              <span className="student-new-sidebar-section-label">
+                MAIN
+              </span>
+
+              <button
+                type="button"
+                className={`student-new-sidebar-item ${
+                  activeSection === 'dashboard' ? 'is-active' : ''
+                }`.trim()}
+                data-tooltip="Dashboard"
+                onClick={() => handleMenuClick('dashboard')}
+              >
+                <span className="student-new-sidebar-icon" aria-hidden="true">
+                  <LayoutDashboard
+                    size={18}
+                    strokeWidth={2.2}
+                  />
+                </span>
+
+                <span>Dashboard</span>
+              </button>
+            </div>
+
+            {/* STUDENT */}
+            <div className="student-new-sidebar-section">
+              <span className="student-new-sidebar-section-label">
+                STUDENT
+              </span>
+
+              <button
+                type="button"
+                className={`student-new-sidebar-item ${
+                  activeSection === 'profile' ? 'is-active' : ''
+                }`.trim()}
+                data-tooltip="My Profile"
+                onClick={() => handleMenuClick('profile')}
+              >
+                <span className="student-new-sidebar-icon" aria-hidden="true">
+                  <UserRound
+                    size={18}
+                    strokeWidth={2.2}
+                  />
+                </span>
+
+                <span>My Profile</span>
+              </button>
+
+              <button
+                type="button"
+                className={`student-new-sidebar-item ${
+                  activeSection === 'course' ? 'is-active' : ''
+                }`.trim()}
+                data-tooltip="Course"
+                onClick={() => handleMenuClick('course')}
+              >
+                <span className="student-new-sidebar-icon" aria-hidden="true">
+                  <BookOpen
+                    size={18}
+                    strokeWidth={2.2}
+                  />
+                </span>
+
+                <span>Course</span>
+              </button>
+
+              <button
+                type="button"
+                className={`student-new-sidebar-item ${
+                  activeSection === 'calendar' ? 'is-active' : ''
+                }`.trim()}
+                data-tooltip="Calendar"
+                onClick={() => handleMenuClick('calendar')}
+              >
+                <span className="student-new-sidebar-icon" aria-hidden="true">
+                  <CalendarDays
+                    size={18}
+                    strokeWidth={2.2}
+                  />
+                </span>
+
+                <span>Calendar</span>
+              </button>
+
+              <button
+                type="button"
+                className={`student-new-sidebar-item ${
+                  activeSection === 'payments' ? 'is-active' : ''
+                }`.trim()}
+                data-tooltip="Fees & Payments"
+                onClick={() => handleMenuClick('payments')}
+              >
+                <span className="student-new-sidebar-icon" aria-hidden="true">
+                  <CreditCard
+                    size={18}
+                    strokeWidth={2.2}
+                  />
+                </span>
+
+                <span>Fees &amp; Payments</span>
+              </button>
+
+              <button
+                type="button"
+                className={`student-new-sidebar-item ${
+                  activeSection === 'leave-management' ? 'is-active' : ''
+                }`.trim()}
+                data-tooltip="Leave Management"
+                onClick={() => handleMenuClick('leave-management')}
+              >
+                <span className="student-new-sidebar-icon" aria-hidden="true">
+                  <CalendarCheck size={18} strokeWidth={2.2} />
+                </span>
+
+                <span>Leave Management</span>
+              </button>
+
+              <button
+                type="button"
+                className={`student-new-sidebar-item ${activeSection === 'exams' || isExamsRoute ? 'is-active' : ''}`.trim()}
+                data-tooltip="Exams and Result"
+                aria-expanded={isExamsExpanded}
+                onClick={() => setIsExamsExpanded((current) => !current)}
+              >
+                <span className="student-new-sidebar-icon" aria-hidden="true"><BookOpen size={18} strokeWidth={2.2} /></span>
+                <span>Exams and Result</span>
+                <ChevronDown className={`student-new-sidebar-chevron ${isExamsExpanded ? 'is-expanded' : ''}`.trim()} size={16} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+              {isExamsExpanded ? <div className="student-new-sidebar-subnav"><button type="button" className={`student-new-sidebar-subnav-parent ${isExamsRoute ? 'is-active' : ''}`.trim()} aria-expanded={isSyllabusTestExpanded} onClick={() => setIsSyllabusTestExpanded((current) => !current)}><span>Syllabus Test</span><ChevronDown className={isSyllabusTestExpanded ? 'is-expanded' : ''} size={14} strokeWidth={2.1} aria-hidden="true" /></button>{isSyllabusTestExpanded ? <div className="student-new-sidebar-subnav student-new-sidebar-nested-subnav"><button type="button" className={!isExamReportsRoute && !isAssessmentRoute && !isAcademicTestRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=tests')}>Test</button><button type="button" className={isAssessmentRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=assessments')}>Assessment</button><button type="button" className={isExamReportsRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=reports')}>Report</button></div> : null}<button type="button" className={`student-new-sidebar-subitem ${isAcademicTestRoute ? 'is-active' : ''}`.trim()} onClick={() => navigate('/student-new-dashboard/exams?tab=academic')}>Academic Test</button>{isAcademicTestRoute ? <button type="button" className={`student-new-sidebar-subitem ${isAcademicTestReportRoute ? 'is-active' : ''}`.trim()} onClick={() => navigate('/student-new-dashboard/exams?tab=academic-report')}>Report</button> : null}</div> : null}
+
+              <button
+                type="button"
+                className={`student-new-sidebar-item ${activeSection === 'notifications' ? 'is-active' : ''}`.trim()}
+                data-tooltip="Notifications"
+                onClick={() => navigate('/student-new-dashboard/notifications')}
+              >
+                <span className="student-new-sidebar-icon" aria-hidden="true"><Bell size={18} strokeWidth={2.2} /></span>
+                <span>Notifications</span>
+              </button>
+
+            </div>
+          </nav>
+
+          {/* Sidebar Footer */}
+          <div className="student-new-sidebar-footer">
+            <div className="student-new-sidebar-profile-card">
+
+              <span
+                className="student-new-sidebar-user-avatar"
+                aria-hidden="true"
+              >
+                <CircleUserRound
+                  size={28}
+                  strokeWidth={1.9}
+                />
+
+                <span className="student-new-sidebar-user-status" />
+              </span>
+
+              <div className="student-new-sidebar-profile-copy">
+                <strong>Student</strong>
+                <span>Student Profile</span>
+              </div>
+
+              <button
+                type="button"
+                className="student-new-sidebar-logout-button"
+                aria-label="Logout"
+                onClick={handleLogout}
+              >
+                <LogOut
+                  size={21}
+                  strokeWidth={2.15}
+                />
+              </button>
+
+            </div>
+          </div>
+        </aside>
+
+        {/* ─────────────────────────────────────────────
+            MAIN AREA
+        ───────────────────────────────────────────── */}
+        <div className="student-new-main">
+
+          {/* ─────────────────────────────────────────
+              HEADER
+          ───────────────────────────────────────── */}
+          <header className="student-new-topbar">
+
+            <div className="student-new-topbar-left">
+
+              <button
+                type="button"
+                className={`student-new-sidebar-toggle ${isSidebarCollapsed ? 'is-desktop-expand-toggle' : ''}`.trim()}
+                aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Open navigation menu'}
+                aria-expanded={isSidebarCollapsed ? !isSidebarCollapsed : isMobileSidebarOpen}
+                onClick={() => isSidebarCollapsed ? setIsSidebarCollapsed(false) : setIsMobileSidebarOpen(true)}
+              >
+                {isSidebarCollapsed ? <PanelLeftOpen size={18} strokeWidth={2.3} aria-hidden="true" focusable="false" /> : <Menu size={20} strokeWidth={2.4} aria-hidden="true" focusable="false" />}
+              </button>
+
+              <h1 className="student-new-header-title">
+                Student Dashboard
+              </h1>
+
+            </div>
+
+            <div className="student-new-topbar-right">
+              <NotificationBell />
+
+              <div className="student-new-profile">
+                <button
+                  type="button"
+                  className="student-new-profile-trigger"
+                  onClick={() => setIsProfileMenuOpen((current) => !current)}
+                  aria-haspopup="menu"
+                  aria-expanded={isProfileMenuOpen}
+                >
+                  <span className="student-new-profile-avatar" aria-hidden="true">
+                    <CircleUserRound size={30} strokeWidth={1.9} />
+                  </span>
+                  <span className="student-new-profile-copy">
+                    <strong>{displayName}</strong>
+                    <span>Student</span>
+                  </span>
+                  <ChevronDown className="student-new-profile-chevron" size={17} strokeWidth={2.2} />
+                </button>
+
+                {isProfileMenuOpen ? (
+                  <div className="student-new-profile-menu" role="menu">
+                    <button type="button" role="menuitem" onClick={handleLogout}>
+                      <LogOut size={16} strokeWidth={2.2} />
+                      Logout
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+            </div>
+          </header>
+
+          {/* ─────────────────────────────────────────
+              CONTENT
+          ───────────────────────────────────────── */}
+          <main className="student-new-content">
+
+            {session?.user?.mustResetPassword ? (
+              <section className="student-new-password-notice" role="status">
+                <div>
+                  <strong>Password reset pending</strong>
+                  <p>You are using a temporary password. Reset it to keep your student account secure.</p>
+                </div>
+                <button type="button" onClick={() => navigate('/reset-password')}>
+                  Reset Password
+                </button>
+              </section>
+            ) : null}
+
+            {isExamsRoute && activeDashboardCourses.length > 1 && !(isAssessmentRoute && isAssessmentDetailOpen) ? <div className="student-course-course-tabs student-exam-course-tabs" role="tablist" aria-label="Choose course for exams">{activeDashboardCourses.map((course, index) => { const courseId = String(course.courseId || ''); const selected = courseId === examCourseId; return <button type="button" role="tab" aria-selected={selected} className={selected ? 'is-active' : ''} key={courseId || index} onClick={() => selectExamCourse(courseId)}><small>COURSE {index + 1}</small><strong>{course.courseName}</strong></button> })}</div> : null}
+            {isExamsRoute && isAcademicTestReportRoute ? <StudentAcademicTestReportPage embedded courseId={examCourseId} /> : isExamsRoute && isAcademicTestRoute ? <StudentAcademicTestsPage embedded courseId={examCourseId} /> : isExamsRoute && isAssessmentRoute ? <StudentAssessmentsPage embedded courseId={examCourseId} onDetailChange={setIsAssessmentDetailOpen} /> : isExamsRoute ? <StudentExamsPage embedded student={student} courseId={examCourseId} /> : null}
+
+            {!isExamsRoute && !isLoading && !loadError && activeSection === 'dashboard' ? (
+              <div className="student-new-dashboard student-dashboard-redesign">
+                <section className="student-dashboard-welcome">
+                  <div><p className="student-new-dashboard-kicker">STUDENT DASHBOARD</p><h1>Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'}, {displayName}</h1><p>Here&apos;s an overview of your learning progress.</p></div>
+                </section>
+
+                <section className="student-dashboard-summary-grid" aria-label="Student summary">
+                  {activeDashboardCourses.map((course, index) => {
+                    const isPrimaryCourse = String(course.courseId || '') === String(student?.courseId || student?.course?.id || '')
+                    const courseDetailsForCard = courseDetailsById[String(course.courseId || '')]
+                    const progress = getCourseProgressForDisplay(course, courseDetailsForCard, isPrimaryCourse ? learningProgress.overall : null)
+                    const isCompleted = isCourseCompleted(course, courseDetailsForCard, student)
+                    const progressNumber = Number(progress)
+                    const completedModules = courseDetailsForCard?.progress?.completedCount ?? (isPrimaryCourse ? learningProgress.completedModules : null)
+                    const totalModules = courseDetailsForCard?.progress?.totalCount ?? (isPrimaryCourse ? learningProgress.totalModules : null)
+                    return <Fragment key={`${course.courseId || course.courseName}-${index}`}>
+                      <article className="student-dashboard-summary-card"><span className="student-dashboard-icon"><BookOpen size={21} /></span><div><small>MY COURSE{dashboardCourses.length > 1 ? ` ${index + 1}` : ''}</small><strong>{formatValue(course.courseName)}</strong>{isCompleted ? <span className="student-course-completed-badge">Completed</span> : null}<span>{formatValue(course.batchName)}{course.batchTiming ? ` · ${course.batchTiming}` : ''}</span></div></article>
+                      <article className="student-dashboard-summary-card"><span className="student-dashboard-icon blue"><GraduationCap size={21} /></span><div><small>ASSIGNED FACULTY{dashboardCourses.length > 1 ? ` · COURSE ${index + 1}` : ''}</small><strong>{formatValue(course.facultyName || (isPrimaryCourse ? facultyName : 'Not assigned'))}</strong><span>{formatValue(course.courseName)}</span></div></article>
+                      <article className="student-dashboard-summary-card"><span className="student-dashboard-icon blue"><BarChart3 size={21} /></span><div><small>COURSE PROGRESS{dashboardCourses.length > 1 ? ` · COURSE ${index + 1}` : ''}</small><strong>{Number.isFinite(progressNumber) && progress !== '' && progress !== null ? `${Math.round(progressNumber)}%` : 'Not available'}</strong><span>{Number.isFinite(Number(totalModules)) && Number.isFinite(Number(completedModules)) ? `${completedModules} / ${totalModules} Modules` : 'Module completion data'}</span></div></article>
+                      <article className="student-dashboard-summary-card"><span className="student-dashboard-icon green"><CalendarCheck size={21} /></span><div><small>ATTENDANCE{dashboardCourses.length > 1 ? <><br /><span className="student-dashboard-summary-course-label">{course.courseName || `COURSE ${index + 1}`}</span></> : null}</small><strong>{attendanceLoading ? 'Loading...' : attendanceOverviews[String(course.courseId || '')]?.overall?.percentage === undefined ? 'Not available' : `${attendanceOverviews[String(course.courseId || '')].overall.percentage}%`}</strong><span>{attendanceOverviews[String(course.courseId || '')]?.overall ? `${attendanceOverviews[String(course.courseId || '')].overall.present} Present / ${attendanceOverviews[String(course.courseId || '')].overall.absent} Absent` : 'Attendance records not available'}</span></div></article>
+                    </Fragment>
+                  })}
+                  {upcomingDashboardCourses.map((course, index) => <article className="student-dashboard-summary-card student-dashboard-upcoming-course-card" key={`upcoming-course-${course.courseId || index}`}><span className="student-dashboard-icon"><BookOpen size={21} /></span><div><small>MY COURSE {dashboardCourses.findIndex((item) => item.courseId === course.courseId) + 1}</small><strong>{formatValue(course.courseName)}</strong><span className="student-course-upcoming-badge">Upcoming</span></div></article>)}
+                  {!activeDashboardCourses.length ? <article className="student-dashboard-summary-card"><span className="student-dashboard-icon green"><CalendarCheck size={21} /></span><div><small>ATTENDANCE</small><strong>{attendanceLoading ? 'Loading...' : attendanceOverview?.overall?.percentage === undefined ? 'Not available' : `${attendanceOverview.overall.percentage}%`}</strong><span>{attendanceOverview?.overall ? `${attendanceOverview.overall.present} Present / ${attendanceOverview.overall.absent} Absent` : 'Attendance records not available'}</span></div></article> : null}
+                  {isSequentialMultiCourse
+                    ? dashboardCourses.map((course, index) => {
+                      const coursePayment = getSequentialCoursePaymentSummary(student || {}, dashboardCourses, course, paymentEntries)
+                      return <article className="student-dashboard-summary-card" key={`payment-progress-${course.courseId || index}`}>
+                        <span className="student-dashboard-icon amber"><CreditCard size={21} /></span>
+                        <div>
+                          <small>PAYMENT PROGRESS · COURSE {index + 1}</small>
+                          <strong>{coursePayment.fee > 0 ? `${coursePayment.percentage}%` : 'Not available'}</strong>
+                          <span>{course.courseName}</span>
+                          <span>{coursePayment.fee > 0 ? `${formatPaymentAmount(coursePayment.paid)} paid · ${formatPaymentAmount(coursePayment.fee)} total` : 'Payment data not available'}</span>
+                        </div>
+                      </article>
+                    })
+                    : <article className="student-dashboard-summary-card"><span className="student-dashboard-icon amber"><CreditCard size={21} /></span><div><small>PAYMENT PROGRESS</small><strong>{totalFee > 0 ? `${paymentProgress}%` : 'Not available'}</strong><span>{totalFee > 0 ? `${formatPaymentAmount(paidAmount)} paid` : 'Payment data not available'}</span></div></article>}
+                </section>
+
+
+                <div className="student-attendance-panels-grid">
+                <section className="student-dashboard-panel student-attendance-overview-panel">
+                  <div className="student-dashboard-panel-heading"><div><small>ATTENDANCE</small><h2>Attendance</h2><p className="student-attendance-period">Course Period: {attendanceOverview?.course?.startDate ? formatDate(attendanceOverview.course.startDate) : 'Not available'} → {attendanceOverview?.course?.endDate ? formatDate(attendanceOverview.course.endDate) : 'Not available'}</p></div><button type="button" onClick={() => handleMenuClick('calendar')}>View Calendar</button></div>
+                  {attendanceLoading ? <div className="student-dashboard-empty"><p>Loading attendance...</p></div> : attendanceError ? <div className="student-attendance-error"><p>Unable to load attendance.</p><button type="button" onClick={reloadAttendance}>Retry</button></div> : attendanceOverview ? <>
+                    <div className="student-attendance-course-bar"><label className="student-attendance-course-select"><small>SELECT COURSE ATTENDANCE</small><select value={selectedAttendanceCourseId} onChange={(event) => selectAttendanceCourse(event.target.value)} aria-label="Select course attendance">{activeDashboardCourses.map((course, index) => <option key={course.courseId || index} value={String(course.courseId || '')}>{course.courseName}</option>)}</select></label><div className="student-attendance-batch-field"><small>BATCH</small><span>{courseAttendanceBatch || 'Batch not assigned'}</span></div></div>
+                    <div className="student-attendance-tabs" role="tablist" aria-label="Attendance period"><button type="button" className={attendanceTab === 'daily' ? 'is-active' : ''} onClick={() => setAttendanceTab('daily')}>Daily</button><button type="button" className={attendanceTab === 'weekly' ? 'is-active' : ''} onClick={() => setAttendanceTab('weekly')}>Weekly</button><button type="button" className={attendanceTab === 'monthly' ? 'is-active' : ''} onClick={() => setAttendanceTab('monthly')}>Monthly</button></div>
+                    {attendanceView.length ? <AttendanceChart items={attendanceView} period={attendanceTab} /> : <div className="student-dashboard-empty"><p>No attendance records available for this course period.</p></div>}
+                  </> : null}
+                </section>
+
+                <section className="student-dashboard-panel student-today-combined-panel">
+                  <div className="student-today-combined-section student-today-attendance-panel">
+                  <div className="student-dashboard-panel-heading"><div><small>ATTENDANCE</small><h2>Today&apos;s Attendance</h2><p className="student-attendance-period">{todayAttendance?.date ? formatDate(todayAttendance.date) : 'Date not available'}</p></div></div>
+                  {attendanceLoading ? <div className="student-attendance-card-loading" aria-label="Loading today&apos;s attendance"><span /><span /><span /></div> : attendanceError ? <div className="student-attendance-error"><p>Unable to load today&apos;s attendance.</p><button type="button" onClick={reloadAttendance}>Retry</button></div> : <><div className="student-today-attendance-summary"><strong>{todaySummary.totalSessions} Course Session{todaySummary.totalSessions === 1 ? '' : 's'}</strong><div><span>Present</span><b>{todaySummary.present}</b></div><div><span>Absent</span><b>{todaySummary.absent}</b></div>{todaySummary.late ? <div><span>Late</span><b>{todaySummary.late}</b></div> : null}{todaySummary.leave ? <div><span>Leave</span><b>{todaySummary.leave}</b></div> : null}{todaySummary.notMarked ? <div><span>Not Marked</span><b>{todaySummary.notMarked}</b></div> : null}<p>Overall Today: <strong>{todaySummary.percentage}%</strong></p></div><div className="student-today-course-attendance-list">{todayAttendanceRows.map((session, index) => { const status = String(session.status || 'NOT_MARKED').toUpperCase(); const label = status === 'NO_CLASS' ? 'No class scheduled' : status === 'FACULTY_WEEKLY_OFF' ? 'Faculty Weekly Off' : status === 'NOT_MARKED' ? 'Not Marked' : status === 'WEEK_OFF' ? 'Week Off' : status.charAt(0) + status.slice(1).toLowerCase(); return <div key={`${session.courseId || session.courseName || 'course'}-${session.sessionId || session.id || index}`}><strong>{session.courseName || 'Course'}</strong><span className={`is-${status.toLowerCase()}`}>{label}</span></div> })}</div></>}
+                  </div>
+
+                  <div className="student-today-combined-section student-today-class-panel">
+                  <div className="student-dashboard-panel-heading"><div className="student-today-class-heading"><span className="student-today-class-icon"><CalendarDays size={18} /></span><div><small>SCHEDULE</small><h2>Today&apos;s Class</h2></div></div><button type="button" onClick={() => handleMenuClick('calendar')}>View Full Timetable <span aria-hidden="true">→</span></button></div>
+                  {attendanceLoading ? <div className="student-dashboard-empty"><p>Loading today&apos;s classes...</p></div> : todayClassSessions.length ? <div className="student-today-class-list">{todayClassSessions.map((session, index) => <article className="student-today-class-card" key={`${session.courseId || 'course'}-${session.id || session.sessionId || session.batchId || 'session'}-${session.startTime || index}`}><div className="student-today-class-timeline" aria-hidden="true"><span /></div><div className="student-today-class-time"><strong>{formatSessionTime(session.startTime) || 'Time not available'}</strong>{session.endTime ? <span>{formatSessionTime(session.endTime)}</span> : null}</div><div className="student-today-class-details"><strong>{formatValue(session.moduleName || session.courseName, 'Class')}</strong>{session.facultyName ? <span>Faculty: {session.facultyName}</span> : null}{session.room ? <span>Room: {session.room}</span> : null}{session.mode ? <span>Mode: {session.mode}</span> : null}{session.batchName ? <span>Batch: {session.batchName}</span> : null}</div><span className={`student-today-class-status is-${session.displayStatus.toLowerCase()}`}>{session.displayStatus}</span></article>)}</div> : <div className="student-dashboard-empty"><p>{facultyWeeklyOffCoursesToday.length ? `Faculty weekly off today${facultyWeeklyOffCoursesToday.length === 1 ? ` · ${facultyWeeklyOffCoursesToday[0].courseName}` : ` · ${facultyWeeklyOffCoursesToday.length} courses`}` : 'No classes scheduled for today'}</p></div>}
+                  </div>
+                </section>
+                </div>
+
+              </div>
+            ) : null}
+
+            {isLoading ? (
+              <section className="student-new-placeholder-page">
+                <p className="student-new-dashboard-kicker">STUDENT</p>
+                <h1>Loading your details...</h1>
+              </section>
+            ) : null}
+
+            {!isLoading && loadError && !isExamsRoute ? (
+              <section className="student-new-placeholder-page">
+                <p className="student-new-dashboard-kicker">STUDENT</p>
+                <h1>Student details unavailable</h1>
+                <p>{loadError}</p>
+              </section>
+            ) : null}
+
+            {!isLoading && !loadError && activeSection === 'profile' ? (
+              <section className="student-new-profile-page">
+                <div className="student-new-profile-header-card">
+                  <div className="student-new-profile-header-actions" ref={profileActionsRef}>
+                    <button
+                      type="button"
+                      className="student-new-profile-actions-trigger"
+                      aria-label="Open profile actions"
+                      aria-haspopup="menu"
+                      aria-expanded={isProfileActionsOpen}
+                      onClick={() => setIsProfileActionsOpen((current) => !current)}
+                    >
+                      <span />
+                      <span />
+                      <span />
+                    </button>
+                    {isProfileActionsOpen ? (
+                      <div className="student-new-profile-actions-menu" role="menu">
+                        <button type="button" role="menuitem" onClick={() => { setIsProfileActionsOpen(false); navigate('/forgot-password') }}>
+                          Forgot Password
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="student-new-profile-header-avatar" aria-hidden="true">
+                    <CircleUserRound size={30} strokeWidth={1.9} />
+                  </div>
+                  <div className="student-new-profile-header-copy">
+                    <p className="student-new-dashboard-kicker">STUDENT PROFILE</p>
+                    <h1>{displayName}</h1>
+                    <div className="student-new-profile-header-meta">
+                      <span>Student ID: {student?.studentId || '-'}</span>
+                      <span>{qualification}{passedOutYear ? <> <b>•</b> {passedOutYear}</> : null}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="student-new-profile-layout">
+                  <div className="student-new-profile-main-column">
+                    <section className="student-new-profile-card">
+                      <div className="student-new-profile-card-heading">
+                        <span className="student-new-profile-section-icon"><UserRound size={18} /></span>
+                        <div><p>STUDENT DETAILS</p><h2>Personal Information</h2></div>
+                      </div>
+                      <div className="student-new-profile-fields">
+                        <div className="student-new-profile-field"><Mail size={16} /><div><span>Email</span><strong>{student?.emailAddress || student?.email || '-'}</strong></div></div>
+                        <div className="student-new-profile-field"><Phone size={16} /><div><span>Mobile</span><strong>{student?.mobileNumber || '-'}</strong></div></div>
+                        <div className="student-new-profile-field"><Users size={16} /><div><span>Parent / Guardian</span><strong>{student?.parentSpouseNumber || '-'}</strong></div></div>
+                      </div>
+                    </section>
+
+                    <section className="student-new-profile-card">
+                      <div className="student-new-profile-card-heading">
+                        <span className="student-new-profile-section-icon"><GraduationCap size={18} /></span>
+                        <div><p>EDUCATION</p><h2>Academic Information</h2></div>
+                      </div>
+                      <div className="student-new-profile-fields student-new-profile-fields-two-column">
+                        <div className="student-new-profile-field"><GraduationCap size={16} /><div><span>Qualification</span><strong>{qualification}</strong></div></div>
+                        {passedOutYear ? <div className="student-new-profile-field"><CalendarDays size={16} /><div><span>Passed Out Year</span><strong>{passedOutYear}</strong></div></div> : null}
+                        <div className="student-new-profile-field"><GraduationCap size={16} /><div><span>Education</span><strong>{[student?.educationLevel, student?.educationStatus].filter(Boolean).join(' · ') || '-'}</strong></div></div>
+                        <div className="student-new-profile-field"><FileText size={16} /><div><span>Purpose</span><strong>{student?.customPurpose || student?.purpose || '-'}</strong></div></div>
+                        {student?.currentStatus === 'Employee' ? <div className="student-new-profile-field"><BriefcaseBusiness size={16} /><div><span>Company / Designation</span><strong>{[student?.companyName, student?.designation].filter(Boolean).join(' · ') || '-'}</strong></div></div> : null}
+                        {dashboardCourses.map((course, index) => <Fragment key={`profile-academic-${course.courseId || index}`}>
+                          <div className="student-new-profile-field"><BookOpen size={16} /><div><span>{dashboardCourses.length > 1 ? `Course ${index + 1}` : 'Course'}</span><strong>{course.courseName || '-'}{String(course.status || '').toUpperCase() === 'PENDING' ? <> <em className="student-course-upcoming-badge">Upcoming</em></> : isCourseCompleted(course, courseDetailsById[String(course.courseId || '')], student) ? <> <em className="student-course-completed-badge">Completed</em></> : null}</strong></div></div>
+                          <div className="student-new-profile-field"><Users size={16} /><div><span>{dashboardCourses.length > 1 ? `Batch ${index + 1}` : 'Batch'}</span><strong>{course.batchName || '-'}</strong></div></div>
+                        </Fragment>)}
+                      </div>
+                    </section>
+
+                    <section className="student-new-profile-card">
+                      <div className="student-new-profile-card-heading">
+                        <span className="student-new-profile-section-icon"><Building2 size={18} /></span>
+                        <div><p>ENROLLMENT</p><h2>Admission Information</h2></div>
+                      </div>
+                      <div className="student-new-profile-fields student-new-profile-fields-two-column">
+                        <div className="student-new-profile-field"><CalendarDays size={16} /><div><span>Admission Date</span><strong>{student?.admissionDate ? formatPaymentDate(student.admissionDate) : '-'}</strong></div></div>
+                        {dashboardCourses.map((course, index) => <Fragment key={`profile-enrollment-${course.courseId || index}`}>
+                          {String(course.status || '').toUpperCase() === 'PENDING' ? <div className="student-new-profile-field"><BookOpen size={16} /><div><span>Upcoming Course</span><strong>{course.courseName || '-'} <em className="student-course-upcoming-badge">Upcoming</em></strong></div></div> : <>
+                          <div className="student-new-profile-field"><CalendarDays size={16} /><div><span>{dashboardCourses.length > 1 ? `Course ${index + 1} Start Date` : 'Course Start Date'}</span><strong>{course.startDate ? formatPaymentDate(course.startDate) : '-'}</strong></div></div>
+                          <div className="student-new-profile-field"><CalendarDays size={16} /><div><span>{dashboardCourses.length > 1 ? `Course ${index + 1} End Date` : 'Course End Date'}</span><strong>{course.endDate ? formatPaymentDate(course.endDate) : '-'}</strong></div></div>
+                          <div className="student-new-profile-field"><Users size={16} /><div><span>{dashboardCourses.length > 1 ? `Course ${index + 1} Faculty / Batch` : 'Faculty / Batch'}</span><strong>{[course.facultyName, course.batchName].filter(Boolean).join(' · ') || '-'}</strong></div></div>
+                          <div className="student-new-profile-field"><Clock3 size={16} /><div><span>{dashboardCourses.length > 1 ? `Course ${index + 1} Schedule` : 'Course Schedule'}</span><strong>{[course.mode, course.scheduleType || course.schedule, course.batchTiming].filter(Boolean).join(' · ') || '-'}</strong></div></div>
+                          </>}
+                        </Fragment>)}
+                      </div>
+                    </section>
+                  </div>
+
+                  <aside className="student-new-profile-card student-new-course-summary-card">
+                    <div className="student-new-profile-card-heading">
+                      <span className="student-new-profile-section-icon"><BarChart3 size={18} /></span>
+                      <div><p>OVERVIEW</p><h2>Course Summary</h2></div>
+                    </div>
+                    <div className="student-new-profile-summary-list">
+                      {dashboardCourses.map((course, index) => {
+                        const courseId = String(course.courseId || '')
+                        const courseDetails = courseDetailsById[courseId]
+                        const progressValue = getCourseProgressForDisplay(course, courseDetails, courseId === String(student?.courseId || student?.course?.id || '') ? learningProgress.overall : null)
+                        const progressNumber = Number(progressValue)
+                        const attendanceTotals = attendanceOverviews[courseId]?.overall
+                        const attendanceValue = attendanceTotals?.percentage
+                        const attendanceNumber = Number(attendanceValue)
+                        return <section className="student-new-profile-course-summary" key={`profile-summary-${courseId || index}`}>
+                          <div><span>Course{dashboardCourses.length > 1 ? ` ${index + 1}` : ''}</span><strong>{course.courseName || '-'}{String(course.status || '').toUpperCase() === 'PENDING' ? <> <em className="student-course-upcoming-badge">Upcoming</em></> : isCourseCompleted(course, courseDetails, student) ? <> <em className="student-course-completed-badge">Completed</em></> : null}</strong></div>
+                          <div><span>Faculty · Batch</span><strong>{String(course.status || '').toUpperCase() === 'PENDING' ? 'To be scheduled' : [course.facultyName, course.batchName].filter(Boolean).join(' · ') || '-'}</strong></div>
+                          <div className="student-new-profile-progress-item">
+                            <div><span>Course Progress</span><strong>{Number.isFinite(progressNumber) && progressValue !== '' && progressValue !== null && progressValue !== undefined ? `${Math.round(progressNumber)}%` : '-'}</strong></div>
+                            <div className="student-new-profile-progress"><i style={{ width: `${Number.isFinite(progressNumber) ? Math.max(0, Math.min(progressNumber, 100)) : 0}%` }} /></div>
+                          </div>
+                          <div className="student-new-profile-progress-item">
+                            <div><span>Attendance</span><strong>{attendanceValue === undefined || attendanceValue === null ? 'Not available' : `${attendanceValue}%`}</strong></div>
+                            <div className="student-new-profile-progress"><i style={{ width: `${Number.isFinite(attendanceNumber) ? Math.max(0, Math.min(attendanceNumber, 100)) : 0}%` }} /></div>
+                            {attendanceTotals ? <small>{attendanceTotals.present || 0} Present / {attendanceTotals.absent || 0} Absent</small> : null}
+                          </div>
+                        </section>
+                      })}
+                      <div className="student-new-profile-summary-status"><span>Status</span><strong>{studentStatus}</strong></div>
+                    </div>
+                  </aside>
+                </div>
+
+              </section>
+            ) : null}
+
+            {!isLoading && !loadError && activeSection === 'course' ? (
+              <section className="student-course-page">
+                {activeDashboardCourses.length > 1 ? <div className="student-course-course-tabs" role="tablist" aria-label="My courses">{activeDashboardCourses.map((course, index) => { const courseId = String(course.courseId || ''); const isSelected = (selectedCourseDetailsId || String(student?.courseId || student?.course?.id || '')) === courseId; return <button type="button" role="tab" aria-selected={isSelected} className={isSelected ? 'is-active' : ''} key={courseId || index} onClick={() => { if (courseId !== selectedCourseDetailsId) reloadCourse(courseId) }}><small>COURSE {index + 1}</small><strong>{course.courseName}</strong></button> })}</div> : null}
+                <div className="student-course-page-heading"><div><p className="student-new-dashboard-kicker">MY COURSE</p><h1>{courseLoading ? 'Loading course details...' : courseDetails?.course?.name || 'My Course'}</h1></div></div>
+                {courseLoading ? <div className="student-course-loading"><span /><span /><span /><span /><span /></div> : courseError ? <div className="student-attendance-error"><p>Unable to load course details.</p><button type="button" onClick={reloadCourse}>Retry</button></div> : !courseDetails?.course ? <div className="student-dashboard-empty"><p>No course assigned</p></div> : <>
+                  <div className="student-course-summary-grid">
+                    <div><span className="student-course-summary-label"><BookOpen size={15} />Course</span><strong>{formatValue(courseDetails.course.name)}</strong></div>
+                    <div><span className="student-course-summary-label"><GraduationCap size={15} />Faculty</span><strong>{formatValue(courseDetails.faculty?.name)}</strong></div>
+                    <div><span className="student-course-summary-label"><Users size={15} />Batch</span><strong>{formatValue(courseDetails.batch?.name)}</strong></div>
+                    <div><span className="student-course-summary-label"><Clock3 size={15} />Batch Timing</span><strong>{formatValue(courseDetails.batch?.timing)}</strong></div>
+                    <div><span className="student-course-summary-label"><BarChart3 size={15} />Course Progress</span><strong>{selectedCourseProgress === null ? 'Not available' : `${Math.round(selectedCourseProgress)}%`}</strong><div className="student-course-progress"><i style={{ width: `${Math.max(0, Math.min(100, Number(selectedCourseProgress) || 0))}%` }} /></div><small>Overall module progress</small></div>
+                  </div>
+                  <section className="student-course-content"><div className="student-course-section-heading"><div><p className="student-new-dashboard-kicker">COURSE CONTENT</p><h2>Modules</h2></div></div>{courseDetails.modules?.length ? <div className="student-course-module-list">{courseDetails.modules.map((module, index) => <article className="student-course-module" key={module.id}><div className="student-course-module-toggle"><span className="student-course-module-number">{String(module.sequenceNo || index + 1).padStart(2, '0')}</span><span className="student-course-module-title"><small>MODULE {String(module.sequenceNo || index + 1).padStart(2, '0')}</small><strong>{formatValue(module.name)}</strong></span><span className="student-course-module-meta"><b>{module.progress === null || module.progress === undefined ? 'Not available' : `${module.progress}%`}</b></span></div></article>)}</div> : <div className="student-dashboard-empty"><p>No modules available for this course</p></div>}</section>
+                </>}
+              </section>
+            ) : null}
+
+            {!isLoading && !loadError && activeSection === 'attendance' ? (
+              <section className="student-new-placeholder-page">
+                <p className="student-new-dashboard-kicker">
+                  STUDENT
+                </p>
+
+                <h1>Attendance</h1>
+
+                <div className="student-new-detail-grid">
+                  <div className="student-new-detail-item"><span>Overall attendance</span><strong>{attendance}</strong></div>
+                  <div className="student-new-detail-item"><span>Course</span><strong>{courseName}</strong></div>
+                  <div className="student-new-detail-item"><span>Current status</span><strong>{student?.currentStatus || student?.status || '-'}</strong></div>
+                </div>
+              </section>
+            ) : null}
+
+            {!isLoading && !loadError && activeSection === 'payments' ? (
+              <section className="student-new-payment-page">
+                <p className="student-new-dashboard-kicker">STUDENT</p>
+                <div className="student-new-payment-heading"><div><h1>Payment History</h1><p>{student?.studentName || 'Student'} · {student?.studentId || '-'}</p></div><span className={`student-new-payment-badge ${(isSequentialMultiCourse ? displayedPaymentStatus : paymentStatus).toLowerCase().replace(/\s+/g, '-')}`}>{isSequentialMultiCourse ? displayedPaymentStatus : paymentStatus}</span></div>
+                {paymentLoadError ? <p className="student-new-payment-note">{paymentLoadError}</p> : null}
+                {isSequentialMultiCourse ? <div className="student-payment-course-tabs" role="tablist" aria-label="Course payments">{dashboardCourses.map((course, index) => { const courseId = String(course.courseId || ''); const isSelected = courseId === String(selectedPaymentCourse?.courseId || ''); return <button type="button" role="tab" aria-selected={isSelected} className={isSelected ? 'is-active' : ''} key={courseId || index} onClick={() => setSelectedPaymentCourseId(courseId)}><small>COURSE {index + 1}</small><strong>{course.courseName}</strong></button> })}</div> : null}
+                <div className="student-new-payment-summary">
+                  <div><span>Payment amount</span><strong>{formatPaymentAmount(displayedTotalFee)}</strong><small>Total fee</small></div>
+                  <div><span>Paid Amount</span><strong>{formatPaymentAmount(displayedPaidAmount)}</strong><small>Collected so far</small></div>
+                  <div><span>Balance</span><strong>{formatPaymentAmount(displayedBalance)}</strong><small>Remaining amount</small></div>
+                  <div><span>Payment Progress (%)</span><strong>{displayedProgress}%</strong><small>Collected against total fee</small><div className="student-new-payment-progress"><i style={{ width: `${displayedProgress}%` }} /></div></div>
+                </div>
+                <div className="student-new-payment-card"><h2>Installment Details{isSequentialMultiCourse && selectedPaymentCourse ? ` · ${selectedPaymentCourse.courseName}` : ''}</h2><p>Each installment shows the due date, payment mode, and status.</p><div className="student-new-payment-table-wrap"><table><thead><tr><th>Installment</th><th>Amount</th><th>Due Date</th><th>Payment Mode</th><th>Paid Date</th><th>Status</th></tr></thead><tbody>{displayedInstallmentRows.length ? displayedInstallmentRows.map((row) => <tr key={row.number}><td>{row.number}/{displayedInstallmentRows.length}</td><td>{formatPaymentAmount(row.amount)}</td><td>{formatPaymentDate(row.dueDate)}</td><td>{row.paymentMode}</td><td>{formatPaymentDate(row.paidDate)}</td><td><span className={`student-new-status ${String(row.status).toLowerCase()}`}>{row.status}</span></td></tr>) : <tr><td colSpan="6" className="student-new-payment-empty">No installment plan has been configured.</td></tr>}</tbody></table></div></div>
+                <div className="student-new-payment-card"><h2>Payment History{isSequentialMultiCourse && selectedPaymentCourse ? ` · ${selectedPaymentCourse.courseName}` : ''}</h2><p>Download any receipt directly from the history rows.</p><div className="student-new-payment-table-wrap"><table><thead><tr><th>Payment Date</th><th>Amount</th><th>Payment Mode</th><th>Receipt Download</th><th>Payment Status</th></tr></thead><tbody>{displayedPaymentHistoryRows.length ? displayedPaymentHistoryRows.map((row) => <tr key={row.id}><td>{formatPaymentDate(row.dateRaw || row.date)}</td><td><strong>{formatPaymentAmount(row.amount || row.credit)}</strong></td><td>{row.paymentMode || '-'}</td><td><button type="button" className="student-new-receipt-button" onClick={() => void downloadStudentReceipt(row, paymentStudent, displayedPaidAmount, displayedPaymentHistoryRows, displayedInstallmentRows)}><Download size={14} /> Download</button></td><td><span className="student-new-status paid">{row.status || 'Paid'}</span></td></tr>) : <tr><td colSpan="5" className="student-new-payment-empty">No payments recorded yet.</td></tr>}</tbody></table></div></div>
+                {nextInstallment ? <div className="student-new-next-payment"><span>Next Payment</span><strong>{formatPaymentAmount(nextInstallment.amount)}</strong><span>Due Date</span><strong>{formatPaymentDate(nextInstallment.dueDate)}</strong><span>Status</span><strong className="pending">{nextInstallment.status}</strong></div> : null}
+              </section>
+            ) : null}
+
+            {!isLoading && !loadError && activeSection === 'calendar' ? (
+              <StudentCalendarPanel student={student} />
+            ) : null}
+
+            {!isLoading && !loadError && activeSection === 'leave-management' ? (
+              <section className="student-new-leave-management-page">
+                <div className="student-new-page-heading">
+                  <div>
+                    <p className="student-new-dashboard-kicker">LEAVE MANAGEMENT</p>
+                    <h1>Discontinuation Request</h1>
+                    <p>Submit and track your course discontinuation request from one place.</p>
+                  </div>
+                </div>
+                <StudentDiscontinuationPanel />
+              </section>
+            ) : null}
+
+          </main>
+        </div>
+      </div>
+      {/* =====================================================
+    LOGOUT CONFIRMATION MODAL
+===================================================== */}
+{isLogoutModalOpen ? (
+  <div
+    className="student-new-logout-overlay"
+    role="presentation"
+  >
+    <div
+      className="student-new-logout-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="student-logout-title"
+      onClick={(event) => event.stopPropagation()}
+    >
+      {/* Close Button */}
+      <button
+        type="button"
+        className="student-new-logout-close"
+        aria-label="Close logout confirmation"
+        onClick={handleLogoutCancel}
+      >
+        <X
+          size={22}
+          strokeWidth={2}
+        />
+      </button>
+
+      {/* Message */}
+      <div className="student-new-logout-content">
+        <h2 id="student-logout-title">
+          Are you sure you want
+          <br />
+          to logout?
+        </h2>
+      </div>
+
+      {/* Actions */}
+      <div className="student-new-logout-actions">
+
+        <button
+          type="button"
+          className="student-new-logout-cancel"
+          onClick={handleLogoutCancel}
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          className="student-new-logout-confirm"
+          onClick={handleLogoutConfirm}
+        >
+          Logout
+        </button>
+
+      </div>
+    </div>
+  </div>
+) : null}
+    </section>
+  )
+}
+
+function StudentDiscontinuationPanel({ showPanel = true, openSignal = 0 }) {
+  const [request, setRequest] = useState(null)
+  const [financePreview, setFinancePreview] = useState(null)
+  const [isOpen, setIsOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [details, setDetails] = useState('')
+  const [refundRequested, setRefundRequested] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      getStudentDiscontinuationRequests().catch(() => []),
+      getStudentDiscontinuationFinancePreview().catch(() => null),
+    ])
+      .then(([items, preview]) => {
+        if (!active) return
+        const rows = Array.isArray(items) ? items : []
+        setRequest(rows[0] || null)
+        setFinancePreview(preview || null)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (openSignal > 0) setIsOpen(true)
+  }, [openSignal])
+
+  const submitRequest = async (event) => {
+    event.preventDefault()
+    if (!reason.trim()) {
+      setError('Please select a reason for your request.')
+      return
+    }
+
+    setSubmitting(true)
+    setError('')
+    try {
+      const saved = await createStudentDiscontinuationRequest({
+        reason: reason.trim(),
+        details: details.trim(),
+        refundRequested,
+      })
+      setRequest(saved)
+      setFinancePreview(saved?.financialSnapshot || null)
+      setIsOpen(false)
+      setReason('')
+      setDetails('')
+      setRefundRequested(false)
+    } catch (submitError) {
+      setError(submitError?.message || 'Unable to submit the request. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const status = String(request?.status || '').toUpperCase()
+  const isRejected = status === 'REJECTED'
+  const isApproved = status === 'APPROVED'
+  const currentOutstanding = Number(financePreview?.outstandingAmount ?? request?.financialSnapshot?.outstandingAmount ?? 0)
+  const canSubmitAgain = isRejected && currentOutstanding <= 0
+  const rejectionReason = normalizeCurrencyText(request?.branchReviewNote || request?.contactNotes || 'The discontinuation request was not approved by the Branch Admin.')
+  const statusLabel = status === 'SUPER_ADMIN_REVIEW'
+    ? 'Waiting for final approval'
+    : status === 'APPROVED'
+      ? 'Approved'
+      : status === 'REJECTED'
+        ? 'Rejected'
+        : status === 'CONTACTED_CONTINUE'
+          ? 'Student will continue the course'
+          : status === 'UNABLE_TO_CONTACT'
+            ? 'Follow-up required'
+            : status === 'LEAVE_REQUESTED'
+              ? 'Leave request recorded'
+        : 'Under review'
+
+  return (
+    <>
+      {showPanel ? <section className={`student-discontinuation-panel panel-card${isRejected ? ' is-rejected' : ''}`} aria-label="Course discontinuation">
+      <div className="student-discontinuation-copy">
+        <p className="student-payment-overview-kicker">COURSE SUPPORT</p>
+        <h3>Need to discontinue your course?</h3>
+        <p>{isRejected ? 'Your request was reviewed by the Branch Admin. Please follow the reason below before submitting a new request.' : 'You can submit a request to your Branch Admin. Your course access will remain active until the request is reviewed and approved.'}</p>
+        {!loading && isRejected && canSubmitAgain ? (
+          <div className="student-discontinuation-amount-card is-paid" role="status">
+            <span>Request eligible amount</span>
+            <strong>{formatPaymentAmount(0)}</strong>
+            <small>You have paid the eligible amount. You can submit a new discontinuation request.</small>
+          </div>
+        ) : !loading && currentOutstanding > 0 ? (
+          <div className="student-discontinuation-amount-card">
+            <span>Request eligible amount</span>
+            <strong>{formatPaymentAmount(currentOutstanding)}</strong>
+            <small>Amount pending based on your completed course progress.</small>
+          </div>
+        ) : null}
+      </div>
+
+      {loading ? (
+        <span className="student-discontinuation-loading">Checking request status...</span>
+      ) : request ? (
+        <div className="student-discontinuation-status">
+          <strong>{statusLabel}</strong>
+          <span>Submitted on {formatDate(request.createdAt)}</span>
+          {request.reason ? <span>Reason: {request.reason}</span> : null}
+          {isApproved ? <div className="student-discontinuation-approved-info" role="status">
+            <strong>Access remains active for 2 hours</strong>
+            <span>Access will be disabled on {request.accessDeactivationAt ? formatDate(request.accessDeactivationAt, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'within 2 hours'}.</span>
+          </div> : null}
+          {isRejected ? <div className="student-discontinuation-status-cards has-rejection">
+            <div className="student-discontinuation-rejection" role="alert">
+              <strong>{canSubmitAgain ? 'Payment completed' : 'Why was this request rejected?'}</strong>
+              <p>{canSubmitAgain ? 'The eligible amount has been paid. You can submit a new discontinuation request now.' : rejectionReason}</p>
+              {currentOutstanding > 0
+                ? <small>Please pay the eligible amount shown below before requesting discontinuation again.</small>
+                : <small>Request eligible amount: {formatPaymentAmount(0)}</small>}
+            </div>
+          </div> : null}
+          {canSubmitAgain ? (
+            <button
+              type="button"
+              className="student-discontinuation-button"
+              onClick={() => {
+                setError('')
+                setIsOpen(true)
+              }}
+            >
+              Request Discontinuation Again
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="student-discontinuation-button"
+          onClick={() => {
+            setError('')
+            setIsOpen(true)
+          }}
+        >
+          Request Discontinuation
+        </button>
+      )}
+
+      </section> : null}
+
+      {isOpen ? (
+        <div
+          className="student-discontinuation-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsOpen(false)
+          }}
+        >
+          <form className="student-discontinuation-modal" onSubmit={submitRequest}>
+            <button type="button" className="student-discontinuation-close" onClick={() => setIsOpen(false)} aria-label="Close request form">
+              <X size={18} />
+            </button>
+            <p className="student-payment-overview-kicker">COURSE REQUEST</p>
+            <h3>Request course discontinuation</h3>
+            <p>Your request will be reviewed by the Branch Admin and then Super Admin. You will keep access until a final decision is made.</p>
+            {financePreview?.outstandingAmount > 0 ? (
+              <div className="student-discontinuation-finance-note" role="status">
+                <span>Pending amount before discontinuation</span>
+                <strong>{formatPaymentAmount(financePreview.outstandingAmount)}</strong>
+              </div>
+            ) : null}
+            <label>
+              Reason
+              <select value={reason} onChange={(event) => setReason(event.target.value)} required>
+                <option value="">Select a reason</option>
+                <option value="Financial difficulty">Financial difficulty</option>
+                <option value="Health or personal reason">Health or personal reason</option>
+                <option value="Relocation or travel">Relocation or travel</option>
+                <option value="Course change">Course change</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+            <label>
+              Additional details
+              <textarea value={details} onChange={(event) => setDetails(event.target.value)} rows={4} placeholder="Share any information that will help the branch support you." />
+            </label>
+            <label className="student-discontinuation-refund-option">
+              <input type="checkbox" checked={refundRequested} onChange={(event) => setRefundRequested(event.target.checked)} />
+              <span>Request refund review for any amount paid above the completed course progress.</span>
+            </label>
+            {error ? <p className="student-discontinuation-error">{error}</p> : null}
+            <div className="student-discontinuation-actions">
+              <button type="button" className="student-discontinuation-secondary" onClick={() => setIsOpen(false)}>Keep Course</button>
+              <button type="submit" className="student-discontinuation-button" disabled={submitting}>
+                {submitting ? 'Sending request...' : 'Continue to submit'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+export default StudentNewDashboardPage

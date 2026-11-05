@@ -1,0 +1,2667 @@
+.batch-management-section {
+  gap: 18px;
+}
+
+.batch-management-table-shell {
+  min-width: 0;
+}
+
+.batch-management-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #dbe4f0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.04);
+}
+
+.batch-management-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.batch-management-table thead th {
+  padding: 16px 14px;
+  border-bottom: 1px solid #e5edf5;
+  background: linear-gradient(180deg, #f8fbff 0%, #fdfefe 100%);
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.batch-management-table tbody td {
+  padding: 16px 14px;
+  border-bottom: 1px solid #edf2f7;
+  color: #0f172a;
+  vertical-align: top;
+}
+
+.batch-management-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.batch-management-table-row {
+  background: #fff;
+  transition: background 160ms ease, box-shadow 160ms ease;
+  cursor: pointer;
+}
+
+.batch-management-table-row:hover {
+  background: #fcfdff;
+}
+
+.batch-management-table-row.is-expanded {
+  background: #f8fbff;
+}
+
+.batch-management-table-cell {
+  min-width: 0;
+}
+
+.batch-management-table-batch-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.batch-management-table-batch-copy > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.batch-management-table-batch-copy strong,
+.batch-management-table-course strong,
+.batch-management-table-faculty strong,
+.batch-management-table-schedule strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-management-table-batch-copy strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+.batch-management-table-batch-copy span {
+  color: #2563eb;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.batch-management-status-dot {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.96);
+}
+
+.batch-management-status-dot.is-active {
+  background: #22c55e;
+}
+
+.batch-management-status-dot.is-inactive {
+  background: #ef4444;
+}
+
+.batch-management-status-dot::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #111827;
+  color: #fff;
+  content: attr(data-status);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  white-space: nowrap;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.18);
+}
+
+.batch-management-status-dot.is-active::after {
+  background: #ecfdf3;
+  color: #16a34a;
+}
+
+.batch-management-status-dot.is-inactive::after {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.batch-management-status-dot:hover::after,
+.batch-management-status-dot:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.batch-management-table-schedule,
+.batch-management-table-seats,
+.batch-management-table-students,
+.batch-management-table-status {
+  display: table-cell;
+  vertical-align: top;
+}
+
+.batch-management-table-schedule span,
+.batch-management-table-seats span,
+.batch-management-table-seats small {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.batch-management-table-seats strong,
+.batch-management-table-students strong {
+  display: block;
+  color: #1d4ed8;
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.batch-management-table-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #e6eef9;
+  overflow: hidden;
+}
+
+.batch-management-table-students .batch-detail-students-button {
+  margin-top: 8px;
+}
+
+.batch-management-table-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa, #2563eb);
+}
+
+.batch-management-table-status {
+  text-align: left;
+}
+
+.batch-management-table tbody td.batch-management-table-status {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.batch-management-detail-row td {
+  padding-top: 0;
+  padding-bottom: 16px;
+  background: #fbfdff;
+}
+
+.batch-management-detail-panel {
+  margin-top: 0;
+}
+
+.batch-management-empty-cell {
+  padding: 28px 18px;
+  color: #94a3b8;
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.batch-management-pagination {
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+
+.batch-management-list-card {
+  max-width: none;
+  min-width: 0;
+}
+
+.batch-management-list-card .batch-detail-card-timing {
+  grid-column: 1;
+  grid-row: 2;
+  justify-items: start;
+  text-align: left;
+  padding-right: 34px;
+}
+
+.batch-management-list-card .batch-detail-card-head > .batch-detail-students-button {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
+  position: relative;
+  left: -24px;
+}
+
+.batch-management-list-card .batch-detail-card-seats {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+}
+
+.batch-management-card-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid #eef2f7;
+}
+
+.batch-management-card-meta > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.batch-management-card-meta span {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.batch-management-card-meta strong {
+  overflow: hidden;
+  color: #334155;
+  font-size: 0.83rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-management-list-card.is-expanded .batch-management-card-meta {
+  display: none;
+}
+
+.batch-management-card-actions {
+  position: absolute;
+  top: 16px;
+  right: -6px;
+  z-index: 3;
+}
+
+.batch-management-list-card .batch-management-actions-trigger,
+.batch-management-list-card .batch-management-actions-trigger:hover,
+.batch-management-list-card .batch-management-actions-trigger:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.batch-management-card-empty {
+  grid-column: 1 / -1;
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+}
+
+.batch-management-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.batch-management-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.batch-management-toolbar input,
+.batch-management-toolbar select,
+.batch-management-field input,
+.batch-management-field select,
+.batch-management-row input,
+.batch-management-row select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.batch-management-search {
+  flex: 1;
+  min-width: 0;
+  min-height: 58px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font-size: 0.98rem;
+}
+
+.batch-management-search-button {
+  min-width: 120px;
+  min-height: 48px;
+  border-radius: 14px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.batch-management-filter-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.batch-management-filter-controls .branch-course-custom-filter {
+  flex: 0 0 auto;
+}
+
+.batch-management-filter-controls label {
+  display: block;
+  min-width: 142px;
+  flex: 1 1 142px;
+}
+
+.batch-management-filter-controls select {
+  min-height: 48px;
+  padding: 0 34px 0 13px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.batch-management-filter-controls select:focus {
+  outline: none;
+  border-color: #8ab4f8;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.batch-management-toolbar input:focus,
+.batch-management-toolbar select:focus,
+.batch-management-field input:focus,
+.batch-management-field select:focus,
+.batch-management-row input:focus,
+.batch-management-row select:focus {
+  outline: none;
+  border-color: #8ab4f8;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.batch-management-count-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.batch-management-actions-cell {
+  position: relative;
+  text-align: right;
+}
+
+.batch-management-table thead th:last-child {
+  text-align: right;
+}
+
+.batch-management-row-clickable {
+  cursor: pointer;
+}
+
+.batch-management-row-clickable:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.25);
+  outline-offset: -2px;
+}
+
+.batch-management-table thead th:nth-child(6),
+.batch-management-table tbody td:nth-child(6) {
+  text-align: center;
+}
+
+.batch-management-table tbody td:nth-child(6) strong {
+  display: inline-block;
+  min-width: 2ch;
+}
+
+.batch-management-actions {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.batch-management-actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  color: #2563eb;
+  cursor: pointer;
+}
+
+.batch-management-actions-trigger:hover,
+.batch-management-actions-trigger:focus-visible {
+  border-color: #93c5fd;
+  background: #f8fbff;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.batch-management-actions-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 160px;
+  padding: 8px;
+  gap: 6px;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+}
+
+.batch-management-actions-menu button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #1e293b;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.batch-management-actions-menu button:hover,
+.batch-management-actions-menu button:focus-visible {
+  background: #f8fbff;
+  outline: none;
+}
+
+.batch-management-actions-menu button.is-danger {
+  color: #dc2626;
+}
+
+.batch-management-actions-menu button.is-danger:hover,
+.batch-management-actions-menu button.is-danger:focus-visible {
+  background: #fef2f2;
+}
+
+.batch-create-button {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.branch-dashboard-section-heading-actions .batch-create-button {
+  margin-left: 0;
+}
+
+.batch-create-button svg {
+  flex: 0 0 auto;
+}
+
+.batch-management-count-summary {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 14px;
+  margin-bottom: 12px;
+}
+
+.batch-management-count-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 7px 13px;
+  border: 1px solid #dbe6f3;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #536681;
+}
+
+.batch-management-count-card-inline {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 164px;
+  min-height: 68px;
+  margin-left: 2px;
+  overflow: hidden;
+  padding: 9px 14px;
+  border-color: #1d4ed8;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.batch-management-count-card-inline::after {
+  position: absolute;
+  right: -18px;
+  bottom: -24px;
+  z-index: -1;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  content: '';
+  animation: batch-count-glow 3.2s ease-in-out infinite;
+}
+
+.batch-management-count-card-inline:hover {
+  border-color: #1e40af;
+  box-shadow: 0 12px 26px rgba(30, 64, 175, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transform: translateY(-2px);
+}
+
+.batch-management-count-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 9px;
+  color: #2563eb;
+  background: #fff;
+  box-shadow: 0 4px 10px rgba(30, 64, 175, 0.2);
+}
+
+.batch-management-count-card-copy {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.batch-management-count-card-inline strong {
+  color: #fff !important;
+  font-size: 1.35rem;
+  line-height: 1;
+  animation: batch-count-pop 260ms ease-out;
+}
+
+.batch-management-count-card-inline .batch-management-count-label {
+  color: #fff;
+}
+
+@keyframes batch-count-pop {
+  from { opacity: 0; transform: translateY(4px) scale(0.88); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes batch-count-glow {
+  0%, 100% { opacity: 0.55; transform: scale(0.94); }
+  50% { opacity: 0.9; transform: scale(1.08); }
+}
+
+.batch-management-count-card strong {
+  color: #173b72;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.batch-management-count-label {
+  color: #61738e;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.batch-management-count-card small {
+  color: #7b8da6;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.batch-management-count-card.is-filtered {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.batch-management-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.batch-management-status-pill.open {
+  background: #ecfeff;
+  color: #0f766e;
+}
+
+.batch-management-status-pill.full {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.batch-management-status-pill.closed {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.batch-management-status-pill.inactive {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.batch-management-status-pill.completed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.batch-management-status-dot.is-completed {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px #dcfce7;
+}
+
+.batch-modal-backdrop {
+  z-index: 1200;
+}
+
+.batch-success-modal {
+  position: relative;
+  width: min(92vw, 440px);
+  border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.18);
+  padding: 14px 20px 12px;
+  text-align: center;
+  overflow: hidden;
+  pointer-events: auto;
+  animation: batchSuccessPopIn 0.22s ease-out;
+}
+
+.batch-success-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  cursor: pointer;
+}
+
+.batch-success-close:hover,
+.batch-success-close:focus-visible {
+  background: #eef4ff;
+  color: #0f172a;
+  outline: none;
+}
+
+.batch-success-hero {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin: 2px auto 12px;
+  display: grid;
+  place-items: center;
+}
+
+.batch-success-icon {
+  position: relative;
+  z-index: 1;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%);
+  color: #16a34a;
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.12);
+}
+
+.batch-success-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.12) 0%, rgba(34, 197, 94, 0) 70%);
+}
+
+.batch-success-copy {
+  max-width: 290px;
+  margin: 0 auto;
+}
+
+.batch-success-kicker {
+  margin: 0 0 4px;
+  color: #22c55e;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.batch-success-modal h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.batch-success-modal p {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.batch-success-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.batch-success-secondary,
+.batch-success-primary {
+  height: 40px;
+  border-radius: 10px;
+  padding: 0 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.batch-success-secondary {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #475569;
+}
+
+.batch-success-primary {
+  border: 1px solid #2563eb;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+}
+
+.batch-success-secondary:hover,
+.batch-success-secondary:focus-visible {
+  background: #f8fafc;
+  outline: none;
+}
+
+.batch-success-primary:hover,
+.batch-success-primary:focus-visible {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  outline: none;
+}
+
+@keyframes batchSuccessPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.batch-management-modal,
+.batch-detail-modal {
+  width: min(1120px, calc(100vw - 32px));
+  max-height: min(88vh, 860px);
+  overflow: auto;
+}
+
+.batch-detail-modal {
+  width: min(980px, calc(100vw - 32px));
+  padding: 24px 30px 30px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfffd 100%);
+}
+
+.batch-detail-list.batch-students-modal-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.batch-students-modal-count {
+  color: #0f172a;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.batch-students-modal-list .batch-detail-list-title,
+.batch-students-modal-count {
+  grid-column: 1;
+}
+
+.batch-students-modal-list .batch-detail-list-title {
+  grid-row: 1;
+}
+
+.batch-students-modal-list > .batch-detail-students-list,
+.batch-students-modal-list > .batch-detail-students-empty {
+  grid-column: 1;
+  grid-row: auto;
+}
+
+.batch-students-modal-list > .batch-detail-students-list {
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.batch-students-modal-list.has-single-student {
+  grid-template-columns: 1fr;
+}
+
+.batch-students-modal-list.has-single-student > .batch-detail-students-list {
+  grid-column: 1;
+  grid-row: auto;
+  grid-template-columns: 1fr;
+  margin-top: 0;
+}
+
+.batch-students-modal-list.has-single-student > .batch-detail-students-list .batch-detail-student-row {
+  max-width: 100%;
+}
+
+.batch-students-modal-list .batch-detail-student-row {
+  grid-template-columns: 34px minmax(260px, 1fr) 100px minmax(220px, 0.7fr);
+  gap: 14px;
+  min-height: 76px;
+  padding: 14px 16px;
+  overflow: hidden;
+}
+
+.batch-students-modal-list .batch-detail-student-copy {
+  gap: 5px;
+}
+
+.batch-students-modal-list .batch-detail-student-progress-label {
+  min-width: 0;
+}
+
+.batch-students-modal-list .batch-detail-student-progress-label span {
+  white-space: nowrap;
+}
+
+.batch-detail-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  pointer-events: auto;
+}
+
+.batch-detail-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 2px 16px;
+}
+
+.batch-detail-hero-badge {
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  color: #2563eb;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+  flex: 0 0 auto;
+}
+
+.batch-detail-hero-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.batch-detail-hero-topline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.batch-detail-hero-topline h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.25rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.batch-detail-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 8px;
+  color: #475569;
+  font-size: 0.96rem;
+  font-weight: 700;
+}
+
+.batch-detail-hero-meta strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.batch-detail-academic-progress {
+  max-width: 430px;
+  margin-top: 13px;
+}
+
+.batch-detail-academic-progress-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.batch-detail-academic-progress-label strong {
+  color: #2563eb;
+  font-weight: 850;
+}
+
+.batch-detail-academic-progress-track {
+  height: 7px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.batch-detail-academic-progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa, #2563eb);
+  transition: width 0.2s ease;
+}
+
+.batch-detail-download-attendance {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 0 auto;
+  min-height: 38px;
+  padding: 0 15px;
+  border: 1px solid #2563eb;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.batch-detail-hero-topline .batch-detail-download-attendance {
+  flex: 0 0 auto;
+  margin-right: 48px;
+}
+
+.batch-detail-download-attendance:hover,
+.batch-detail-download-attendance:focus-visible {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+  box-shadow: 0 11px 22px rgba(37, 99, 235, 0.28);
+  outline: none;
+}
+
+.batch-detail-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.batch-management-modal-header {
+  margin-bottom: 4px;
+}
+
+.batch-management-modal-subtitle {
+  margin-top: 4px;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.batch-management-form-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.batch-management-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.batch-management-field {
+  display: grid;
+  gap: 2px;
+}
+
+.batch-management-field span,
+.batch-management-details-head p,
+.batch-management-context span,
+.batch-detail-summary span {
+  color: #64748b;
+  font-size: 0.88rem;
+}
+
+.batch-management-field strong,
+.batch-management-context strong,
+.batch-detail-summary strong,
+.batch-detail-card strong {
+  color: #0f172a;
+}
+
+.batch-management-field small {
+  color: #94a3b8;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.batch-search-results {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: min(300px, 42vh);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 35, 70, 0.14);
+  scrollbar-width: thin;
+  scrollbar-color: #93c5fd transparent;
+}
+
+.batch-management-modal .batch-management-field:has(.batch-search-results) > div > input {
+  font-weight: 600;
+  color: #173568;
+}
+
+.batch-search-results button + button {
+  margin-top: 3px;
+}
+
+.batch-search-results button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px 12px;
+  gap: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.batch-search-results button:hover,
+.batch-search-results button:focus-visible {
+  outline: none;
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.batch-search-results button strong {
+  color: #173568;
+  font-size: 0.91rem;
+  line-height: 1.25;
+}
+
+.batch-search-results button small {
+  color: #64748b;
+  font-size: 0.76rem;
+}
+
+.batch-management-field .batch-management-field-error,
+.batch-management-row .batch-management-field-error,
+.batch-management-row .batch-management-row-error {
+  color: #dc2626 !important;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.batch-management-field-warning {
+  display: block;
+  color: #b45309;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 6px;
+}
+
+.batch-management-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.batch-management-details {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.batch-management-details-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.batch-management-details-head h4 {
+  color: #0f172a;
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.batch-add-row-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.batch-management-details-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.batch-management-details-grid-head,
+.batch-management-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.85fr) minmax(320px, 1.7fr) minmax(92px, 112px) minmax(92px, 112px);
+  gap: 12px;
+  align-items: center;
+}
+
+.batch-management-details-grid-head {
+  padding: 0 6px;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.batch-management-row {
+  padding: 12px 12px;
+  border: 1px solid #e5edf7;
+  border-radius: 16px;
+  background: #fff;
+  align-items: start;
+}
+
+.batch-management-row-name {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.batch-management-identifiers-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.batch-management-identifiers-grid .batch-management-id-top-field { order: -1; }
+
+.batch-management-id-field {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  overflow: hidden;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.batch-management-id-field > span {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-right: 1px solid #bfdbfe;
+  background: #f8fbff;
+}
+
+.batch-management-id-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px 7px 2px;
+  border: 0;
+  outline: 0;
+  color: #1e40af;
+  background: transparent;
+  font: inherit;
+}
+
+.batch-management-id-field.student-id-input-group { display:flex; align-items:stretch; width:100%; min-height:0; overflow:visible; border:0; border-radius:0; background:transparent; }
+.batch-management-id-field.student-id-input-group .student-id-prefix { padding:0 14px; border-radius:12px 0 0 12px; border-right:0; }
+.batch-management-id-field.student-id-input-group input { padding:8px 10px; border:1px solid #dbe4f0; border-left:0; border-radius:0 12px 12px 0; background:#fff; color:#475569; }
+
+.batch-management-row-name small {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+
+.batch-management-row-timing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.batch-management-row-seats-wrap,
+.batch-management-row-status-wrap {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.batch-management-row-status-wrap {
+  position: relative;
+}
+
+.batch-management-row-status-wrap::after {
+  position: absolute;
+  top: 36px;
+  right: 14px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid #0f172a;
+  border-bottom: 2px solid #0f172a;
+  transform: rotate(45deg);
+  pointer-events: none;
+  content: '';
+}
+
+.batch-management-row input,
+.batch-management-row select {
+  min-width: 0;
+  min-height: 44px;
+  height: 44px;
+  box-sizing: border-box;
+}
+
+.batch-management-row-seats {
+  width: 100%;
+  padding: 0 12px;
+  border-radius: 10px;
+}
+
+.batch-management-row-status {
+  appearance: none;
+  padding-right: 34px !important;
+}
+
+.batch-management-row-error {
+  display: block;
+  margin-top: 4px;
+}
+
+.batch-management-availability-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.batch-management-availability-badge.tone-today { color: #b91c1c; background: #fee2e2; }
+.batch-management-availability-badge.tone-soon { color: #c2410c; background: #ffedd5; }
+.batch-management-availability-badge.tone-available { color: #1d4ed8; background: #dbeafe; }
+.batch-management-availability-badge.tone-completed { color: #475569; background: #e2e8f0; }
+.batch-management-availability-badge.tone-neutral { color: #64748b; background: #f1f5f9; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.batch-management-time-group {
+  display: grid;
+  gap: 6px;
+  align-items: start;
+}
+
+.batch-management-row-timing > .batch-management-time-group:first-child {
+  transform: translateX(-8px);
+}
+
+.batch-management-time-title {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.batch-management-time-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(72px, 1fr));
+  gap: 6px;
+}
+
+.batch-management-time-select {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  position: relative;
+}
+
+.batch-management-time-select select {
+  min-width: 0;
+  min-height: 44px;
+  appearance: none;
+  padding: 0 10px;
+  padding-right: 30px;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.batch-management-time-select::after {
+  position: absolute;
+  top: 17px;
+  right: 12px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid #0f172a;
+  border-bottom: 2px solid #0f172a;
+  transform: rotate(45deg);
+  pointer-events: none;
+  content: '';
+}
+
+.batch-management-row-timing span {
+  color: #94a3b8;
+  font-weight: 800;
+  align-self: center;
+  padding-top: 16px;
+}
+
+.batch-management-row-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: end;
+  width: 44px;
+  height: 44px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  color: #ef4444;
+  cursor: pointer;
+}
+
+.batch-management-row-remove:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.batch-management-error {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.batch-management-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.batch-delete-confirm-modal {
+  position: relative;
+  width: min(400px, calc(100vw - 28px));
+  padding: 20px 22px 18px;
+  border-radius: 24px;
+  text-align: center;
+}
+
+.batch-delete-close {
+  top: 14px;
+  right: 14px;
+}
+
+.batch-delete-confirm-head {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding-top: 4px;
+}
+
+.batch-delete-confirm-kicker {
+  color: #ef2b2b;
+  font-size: 0.98rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.batch-delete-confirm-head h3 {
+  max-width: 20ch;
+  color: #1f2a44;
+  font-size: 1.25rem;
+  font-weight: 900;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.batch-delete-confirm-subtitle {
+  color: #7183a6;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.batch-delete-confirm-divider {
+  height: 1px;
+  margin: 14px 0 12px;
+  background: #e6eef9;
+}
+
+.batch-delete-confirm-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.batch-delete-confirm-actions .button {
+  min-width: 140px;
+  min-height: 44px;
+  border-radius: 14px;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.batch-delete-confirm-actions .button.button-ghost {
+  background: #fff;
+  border-color: #d6e0f0;
+  color: #4b5d7c;
+}
+
+.batch-delete-confirm-actions .button.is-danger {
+  background: #e02525;
+  border-color: #e02525;
+  color: #fff;
+  box-shadow: 0 18px 30px rgba(224, 37, 37, 0.24);
+}
+
+.batch-delete-confirm-actions .button.is-danger:hover,
+.batch-delete-confirm-actions .button.is-danger:focus-visible {
+  background: #cf2020;
+  border-color: #cf2020;
+}
+
+.batch-delete-confirm-actions .button.button-ghost:hover,
+.batch-delete-confirm-actions .button.button-ghost:focus-visible {
+  background: #f8fbff;
+  border-color: #cfdaf0;
+}
+
+.batch-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.batch-detail-summary > div,
+.batch-detail-card {
+  padding: 14px 16px;
+  border: 1px solid #e4ebf1;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #fcfefe 100%);
+}
+
+.batch-detail-summary > div {
+  display: grid;
+  gap: 6px;
+}
+
+.batch-detail-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.batch-detail-list-title {
+  grid-column: 1 / -1;
+  margin: 0 0 2px;
+  color: #2563eb;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.batch-detail-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  position: relative;
+  gap: 16px;
+  align-items: start;
+  padding: 14px 16px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.batch-detail-card:hover,
+.batch-detail-card.is-expanded {
+  border-color: #bfdbfe;
+  box-shadow: 0 16px 36px rgba(37, 99, 235, 0.1);
+  transform: translateY(-1px);
+}
+
+.batch-detail-card.is-expanded,
+.batch-detail-card.is-closing {
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+}
+
+.batch-detail-card.is-expanded {
+  animation: batchFullCardFlipIn 300ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.batch-detail-card.is-expanded.is-closing {
+  animation: batchFullCardFlipOut 320ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.batch-detail-card-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.batch-detail-card-body {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding-top: 5px;
+}
+
+.batch-detail-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.batch-detail-card-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 15px;
+}
+
+.batch-detail-card-title span {
+  order: -1;
+}
+
+.batch-detail-card-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-detail-status-indicator {
+  position: absolute;
+  top: 24px;
+  left: 17px;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9);
+  cursor: default;
+}
+
+.batch-detail-status-indicator.is-active {
+  background: #22c55e;
+}
+
+.batch-detail-status-indicator.is-inactive {
+  background: #ef4444;
+}
+
+.batch-detail-status-indicator::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #111827;
+  color: #fff;
+  content: attr(data-status);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  white-space: nowrap;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.18);
+}
+
+.batch-detail-status-indicator::before {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 3px);
+  z-index: 6;
+  border-width: 5px 5px 0;
+  border-style: solid;
+  border-color: #111827 transparent transparent;
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.batch-detail-status-indicator.is-active::after {
+  background: #ecfdf3;
+  color: #16a34a;
+  box-shadow: 0 10px 22px rgba(22, 163, 74, 0.16);
+}
+
+.batch-detail-status-indicator.is-active::before {
+  border-color: #ecfdf3 transparent transparent;
+}
+
+.batch-detail-status-indicator.is-inactive::after {
+  background: #fef2f2;
+  color: #dc2626;
+  box-shadow: 0 10px 22px rgba(220, 38, 38, 0.16);
+}
+
+.batch-detail-status-indicator.is-inactive::before {
+  border-color: #fef2f2 transparent transparent;
+}
+
+.batch-detail-status-indicator:hover::before,
+.batch-detail-status-indicator:hover::after,
+.batch-detail-status-indicator:focus-visible::before,
+.batch-detail-status-indicator:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.batch-detail-students-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #2563eb;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.batch-detail-students-button:hover,
+.batch-detail-students-button:focus-visible,
+.batch-detail-students-button.is-active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.batch-detail-card-head > .batch-detail-card-title {
+  flex: 1 1 auto;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.batch-detail-card-timing {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  gap: 3px;
+  justify-items: end;
+  text-align: right;
+}
+
+.batch-detail-card-timing span {
+  color: #94a3b8;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.batch-detail-card-timing strong {
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.batch-detail-card-head > .batch-detail-students-button {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.batch-detail-card-seats {
+  display: grid;
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-columns: max-content max-content;
+  gap: 3px 3px;
+  justify-items: start;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  padding: 7px 10px 8px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%);
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.batch-detail-card-seats .batch-detail-seat-track {
+  grid-column: 1 / -1;
+  width: 110px;
+  height: 5px;
+  margin-top: 3px;
+}
+
+.batch-detail-card-seats strong {
+  color: #2563eb;
+  font-size: 0.8rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.batch-detail-card-seats span:last-child {
+  color: #16a34a;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.batch-detail-card-seats .batch-detail-offline-seats {
+  grid-column: 1 / -1;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.batch-detail-card-head span {
+  color: #2563eb;
+  font-size: 0.84rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.batch-detail-card-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(120px, 0.7fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.batch-detail-card-grid > div {
+  display: grid;
+  gap: 4px;
+}
+
+.batch-detail-seat-track {
+  width: min(130px, 100%);
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7effb;
+}
+
+.batch-detail-seat-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa, #2563eb);
+  transition: width 420ms ease;
+}
+
+.batch-detail-students-panel {
+  display: grid;
+  gap: 10px;
+  padding-top: 13px;
+  border-top: 1px solid #e8eef7;
+  animation: batchStudentsReveal 220ms ease both;
+}
+
+.batch-detail-card.is-expanded .batch-detail-card-body {
+  min-height: 0;
+  position: relative;
+  gap: 4px;
+}
+
+.batch-detail-card.is-expanded .batch-detail-card-title,
+.batch-detail-card.is-expanded .batch-detail-card-timing,
+.batch-detail-card.is-expanded .batch-detail-card-seats,
+.batch-detail-card.is-expanded .batch-detail-card-grid {
+  display: none;
+}
+
+.batch-detail-card.is-expanded .batch-detail-card-head {
+  display: grid;
+  height: 34px;
+}
+
+.batch-detail-card.is-expanded .batch-detail-card-head > .batch-detail-students-button {
+  position: static;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  z-index: 2;
+  width: auto;
+}
+
+.batch-detail-card.is-expanded .batch-detail-students-panel {
+  min-height: 0;
+  max-height: 190px;
+  margin-top: -34px;
+  overflow: hidden;
+  padding-top: 0;
+  border-top: 0;
+  animation: batchCardFlipIn 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  transform-origin: center;
+}
+
+.batch-detail-card.is-expanded.is-closing .batch-detail-students-panel {
+  animation: batchCardFlipOut 320ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.batch-detail-card.is-expanded .batch-detail-students-list {
+  min-height: 0;
+  max-height: 120px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #93c5fd transparent;
+}
+
+.batch-detail-card.is-expanded .batch-detail-students-heading {
+  min-height: 34px;
+  padding-right: 122px;
+  padding-left: 15px;
+  align-items: center;
+}
+
+.batch-detail-card.is-expanded > .batch-detail-status-indicator {
+  top: 29px;
+  left: 17px;
+}
+
+.batch-detail-card.is-expanded .batch-detail-students-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.batch-detail-card.is-expanded .batch-detail-students-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #93c5fd;
+}
+
+@keyframes batchCardFlipIn {
+  from {
+    opacity: 0;
+    transform: perspective(700px) rotateY(76deg) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: perspective(700px) rotateY(0) scale(1);
+  }
+}
+
+@keyframes batchCardFlipOut {
+  from {
+    opacity: 1;
+    transform: perspective(700px) rotateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: perspective(700px) rotateY(-76deg) scale(0.97);
+  }
+}
+
+@keyframes batchFullCardFlipIn {
+  from {
+    opacity: 0.7;
+    transform: perspective(900px) rotateY(-86deg) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: perspective(900px) rotateY(0) scale(1) translateY(-1px);
+  }
+}
+
+@keyframes batchFullCardFlipOut {
+  from {
+    opacity: 1;
+    transform: perspective(900px) rotateY(0) scale(1) translateY(-1px);
+  }
+
+  to {
+    opacity: 0.7;
+    transform: perspective(900px) rotateY(86deg) scale(0.96);
+  }
+}
+
+.batch-detail-students-heading {
+  display: grid;
+  gap: 3px;
+}
+
+.batch-detail-students-kicker {
+  color: #2563eb;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.batch-detail-students-list {
+  display: grid;
+  gap: 7px;
+}
+
+.batch-detail-student-row {
+  display: grid;
+  grid-template-columns: 34px minmax(260px, 1fr) 100px minmax(220px, 0.7fr);
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid #e6eef9;
+  border-radius: 12px;
+  background: #fbfdff;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.batch-detail-student-row:hover {
+  border-color: #bfdbfe;
+  background: #f4f8ff;
+  transform: translateX(2px);
+}
+
+.batch-detail-student-number {
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.batch-detail-student-attendance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.batch-detail-student-attendance.present {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.batch-detail-student-attendance.absent {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.batch-detail-student-attendance.unmarked {
+  color: #64748b;
+  background: #f1f5f9;
+}
+
+.batch-detail-student-attendance.completed {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.batch-detail-student-attendance.discontinued {
+  color: #be123c;
+  background: #fff1f2;
+}
+
+.batch-detail-student-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.batch-detail-student-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.batch-detail-student-copy::after {
+  width: 4px;
+  height: 4px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #cbd5e1;
+  content: '';
+  order: 1;
+}
+
+.batch-detail-student-copy span {
+  order: 0;
+}
+
+.batch-detail-student-copy strong {
+  order: 2;
+}
+
+.batch-detail-student-copy strong,
+.batch-detail-student-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-detail-student-copy span {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.batch-detail-student-progress {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.batch-detail-student-progress-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.batch-detail-student-progress-label strong {
+  color: #2563eb;
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.batch-detail-student-progress .academic-test-progress-label {
+  margin-top: 4px;
+}
+
+.batch-detail-student-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.batch-detail-student-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa, #2563eb);
+  transition: width 350ms ease;
+}
+
+.batch-detail-students-empty {
+  padding: 13px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  color: #64748b;
+  background: #f8fafc;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+@keyframes batchStudentsReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.batch-detail-card-grid > div span {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.batch-detail-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  width: fit-content;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.batch-detail-status-pill.open,
+.batch-detail-status-pill.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.batch-detail-status-pill.inactive,
+.batch-detail-status-pill.closed {
+  background: #eef2f7;
+  color: #64748b;
+}
+
+@media (max-width: 640px) {
+  .batch-management-table {
+    min-width: 980px;
+  }
+
+  .batch-management-search-bar,
+  .batch-management-filter-controls {
+    max-width: none;
+    width: 100%;
+  }
+
+  .batch-management-filter-controls {
+    justify-content: stretch;
+  }
+
+  .batch-management-count-summary {
+    width: 100%;
+  }
+
+  .batch-management-count-card {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
+  .batch-management-filter-controls .branch-course-custom-filter {
+    width: calc(50% - 4px) !important;
+  }
+
+  .batch-management-toolbar,
+  .batch-management-form-grid,
+  .batch-detail-list,
+  .batch-detail-summary,
+  .batch-detail-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-detail-card-head {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-detail-students-button {
+    grid-column: 1;
+    grid-row: auto;
+    width: 100%;
+  }
+
+  .batch-detail-card.is-expanded .batch-detail-card-head > .batch-detail-students-button {
+    position: static;
+    width: 100%;
+  }
+
+  .batch-detail-card-timing {
+    grid-column: 1;
+    grid-row: auto;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .batch-detail-card-seats {
+    grid-column: 1;
+    grid-row: auto;
+    justify-items: start;
+  }
+
+  .batch-detail-card.is-expanded .batch-detail-students-panel {
+    margin-top: 0;
+  }
+
+  .batch-detail-card.is-expanded .batch-detail-students-heading {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .batch-detail-student-row {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .batch-detail-student-progress {
+    grid-column: 2;
+    justify-self: start;
+    width: 100%;
+  }
+
+  .batch-detail-modal {
+    width: calc(100vw - 20px);
+    padding: 16px 14px 16px;
+    border-radius: 18px;
+  }
+
+  .batch-students-modal-list {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-students-modal-list .batch-detail-list-title,
+  .batch-students-modal-count,
+  .batch-students-modal-list > .batch-detail-students-list,
+  .batch-students-modal-list > .batch-detail-students-empty {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .batch-students-modal-list > .batch-detail-students-list {
+    grid-template-columns: 1fr;
+    margin-top: 0;
+  }
+
+  .batch-students-modal-list.has-single-student {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-students-modal-list .batch-detail-student-row {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .batch-students-modal-list .batch-detail-student-attendance,
+  .batch-students-modal-list .batch-detail-student-progress {
+    grid-column: 2;
+  }
+
+  .batch-students-modal-list .batch-detail-student-progress {
+    grid-row: auto;
+  }
+
+  .batch-detail-hero {
+    align-items: flex-start;
+    gap: 12px;
+    padding-top: 2px;
+  }
+
+  .batch-detail-hero-badge {
+    width: 50px;
+    height: 50px;
+    border-radius: 16px;
+  }
+
+  .batch-detail-hero-topline h3 {
+    font-size: 1.05rem;
+  }
+
+  .batch-detail-card {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-management-list-card .batch-detail-card-timing,
+  .batch-management-list-card .batch-detail-card-head > .batch-detail-students-button,
+  .batch-management-list-card .batch-detail-card-seats {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .batch-management-list-card .batch-detail-card-head > .batch-detail-students-button {
+    left: 0;
+  }
+
+  .batch-management-card-meta {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .batch-detail-card-icon {
+    width: 50px;
+    height: 50px;
+  }
+
+  .batch-detail-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-management-details-grid-head,
+  .batch-management-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .batch-management-row-name {
+    max-width: none;
+  }
+
+  .batch-management-row-timing {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-management-time-group {
+    gap: 4px;
+  }
+
+  .batch-management-time-controls {
+    grid-template-columns: repeat(3, minmax(72px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .batch-management-identifiers-grid { grid-template-columns: 1fr; }
+}
+
+/* Keep the create/edit form aligned at desktop widths. The timing controls
+   used to force the details row wider than the modal, which made the upper
+   fields appear clipped or overlap the batch details section. */
+.batch-management-modal {
+  box-sizing: border-box;
+  width: min(1280px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  padding: 26px 28px 24px;
+  overflow-x: hidden;
+}
+
+.batch-management-modal .batch-management-form-shell,
+.batch-management-modal .batch-management-form-grid,
+.batch-management-modal .batch-management-details,
+.batch-management-modal .batch-management-details-grid {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.batch-management-modal .batch-management-form-shell {
+  display: block !important;
+}
+
+.batch-management-modal .batch-management-details {
+  display: block !important;
+  clear: both;
+  margin-top: 18px;
+}
+
+.batch-management-modal .batch-management-error,
+.batch-management-modal .batch-management-footer {
+  display: flex !important;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.batch-management-modal .batch-management-footer {
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e5edf7;
+}
+
+.batch-management-modal .batch-management-footer > button {
+  min-width: 128px;
+  min-height: 48px;
+}
+
+.batch-management-modal .batch-management-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 14px;
+}
+
+.batch-management-modal .batch-management-field,
+.batch-management-modal .batch-management-field > div,
+.batch-management-modal .batch-management-field input,
+.batch-management-modal .batch-management-field select {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.batch-management-modal .batch-management-details-grid-head,
+.batch-management-modal .batch-management-row {
+  grid-template-columns: minmax(160px, 1.05fr) minmax(300px, 1.85fr) minmax(100px, 0.7fr) minmax(112px, 0.75fr);
+  gap: 12px;
+}
+
+.batch-management-modal .batch-management-row-timing {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.batch-management-modal .batch-management-row-timing > .batch-management-time-group:first-child {
+  transform: none;
+}
+
+.batch-management-modal .batch-management-time-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.batch-management-modal .batch-management-time-select select {
+  padding-left: 7px;
+  padding-right: 22px;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 860px) {
+  .batch-management-modal {
+    width: min(720px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    padding: 22px 18px 20px;
+  }
+
+  .batch-management-modal .batch-management-details-grid-head,
+  .batch-management-modal .batch-management-row {
+    grid-template-columns: minmax(140px, 1fr) minmax(250px, 1.5fr);
+  }
+
+  .batch-management-modal .batch-management-details-grid-head span:nth-child(3),
+  .batch-management-modal .batch-management-details-grid-head span:nth-child(4) {
+    display: none;
+  }
+
+  .batch-management-modal .batch-management-row-seats-wrap,
+  .batch-management-modal .batch-management-row-status-wrap {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .batch-management-modal {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+    padding: 20px 14px 18px;
+  }
+
+  .batch-management-modal .batch-management-form-grid,
+  .batch-management-modal .batch-management-details-grid-head,
+  .batch-management-modal .batch-management-row {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-management-modal .batch-management-details-grid-head span:nth-child(3),
+  .batch-management-modal .batch-management-details-grid-head span:nth-child(4) {
+    display: block;
+  }
+
+  .batch-management-modal .batch-management-row-timing {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-management-modal .batch-management-row-timing > span {
+    display: none;
+  }
+}
+
+.branch-batch-skeleton-row td { height: 62px; }
+.branch-batch-skeleton-row td span { display: block; width: 74%; height: 13px; border-radius: 5px; background: linear-gradient(90deg, #edf2f7 25%, #f8fafc 50%, #edf2f7 75%); background-size: 200% 100%; animation: branch-batch-table-shimmer 1.2s ease-in-out infinite; }
+.branch-batch-skeleton-row td:nth-child(2) span,
+.branch-batch-skeleton-row td:nth-child(3) span,
+.branch-batch-skeleton-row td:nth-child(4) span { width: 86%; }
+.branch-batch-skeleton-row td:nth-child(5) span,
+.branch-batch-skeleton-row td:nth-child(6) span,
+.branch-batch-skeleton-row td:nth-child(8) span { width: 58%; }
+@keyframes branch-batch-table-shimmer { to { background-position: -200% 0; } }

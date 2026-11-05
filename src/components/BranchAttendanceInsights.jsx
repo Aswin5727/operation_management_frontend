@@ -1,0 +1,70 @@
+import { useMemo } from 'react'
+import { buildAttendanceInsights } from '../lib/branchAttendanceInsights'
+import { attendancePercentage } from '../lib/branchAttendanceSummary'
+
+function normalizeAttendanceInsightsData(data) {
+  const source = data?.data && typeof data.data === 'object' ? data.data : (data || {})
+  const sourceBatches = Array.isArray(source.batches) ? source.batches : []
+  const batchStudents = sourceBatches.flatMap((batch) => (
+    (Array.isArray(batch?.students) ? batch.students : []).map((student) => ({
+      ...student,
+      batchId: student?.batchId || batch?.batchId || batch?.id || '',
+      batchName: student?.batchName || batch?.batchName || '',
+    }))
+  ))
+  const sourceStudents = Array.isArray(source.students) ? source.students : []
+  const students = [...sourceStudents, ...batchStudents]
+    .reduce((unique, student) => {
+      const id = String(student?.id || student?.studentId || student?.studentCode || '').trim()
+      if (!id) return unique
+      const existingIndex = unique.findIndex((item) => String(item?.id || item?.studentId || item?.studentCode || '').trim() === id)
+      if (existingIndex === -1) {
+        unique.push(student)
+      } else {
+        unique[existingIndex] = {
+          ...unique[existingIndex],
+          ...student,
+          records: [...(unique[existingIndex].records || []), ...(student.records || [])],
+        }
+      }
+      return unique
+    }, [])
+    .filter((student) => !student?.isDiscontinued && String(student?.discontinuationStatus || '').toUpperCase() !== 'APPROVED')
+    .map((student) => {
+      const status = String(student?.attendanceStatus || student?.status || '').trim().toUpperCase()
+      const records = Array.isArray(student?.records) ? [...student.records] : []
+      const date = String(source.date || source.attendanceDate || '').trim()
+      if (date && ['PRESENT', 'ABSENT'].includes(status) && !records.some((record) => record?.attendanceDate === date)) {
+        records.push({ attendanceDate: date, status, batchId: student?.batchId || '', courseId: student?.courseId || '' })
+      }
+      return { ...student, id: student?.id || student?.studentId || student?.studentCode, records }
+    })
+
+  return { ...source, students }
+}
+
+export function BranchAttendanceInsights({ data }) {
+  const info = useMemo(() => buildAttendanceInsights(normalizeAttendanceInsightsData(data)), [data])
+  const segments = [
+    { key: 'present', label: 'Present', color: '#0db369', students: info.present },
+    { key: 'absent', label: 'Absent', color: '#1686f8', students: info.absent },
+    { key: 'unmarked', label: 'Not marked', color: '#cbd5e1', students: info.unmarked },
+    { key: 'long-absent', label: 'Long Absent', color: '#ef646b', students: info.longAbsent },
+    { key: 'yesterday-absent', label: 'Yesterday Absent', color: '#8b70f5', students: info.yesterdayAbsent },
+  ]
+  const totalSegments = segments.reduce((sum, segment) => sum + segment.students.length, 0)
+  let cursor = 0
+  const donutStops = segments.map((segment) => {
+    const start = totalSegments ? (cursor / totalSegments) * 100 : 0
+    cursor += segment.students.length
+    const end = totalSegments ? (cursor / totalSegments) * 100 : 0
+    return `${segment.color} ${start}% ${end}%`
+  })
+  return <aside className="attendance-insights" aria-label="Today's attendance and absence details">
+    <h3>Today's Attendance</h3>
+    <div className="attendance-donut-layout">
+      <div className="attendance-insights-donut-chart" role="img" aria-label={`Attendance: ${info.present.length} present, ${info.absent.length} absent, ${info.unmarked.length} not marked, ${info.longAbsent.length} long absent, ${info.yesterdayAbsent.length} yesterday absent`} style={{ background: totalSegments ? `conic-gradient(${donutStops.join(', ')})` : '#e5e7eb' }}><div><strong>{info.total}</strong><span>Students</span></div></div>
+      <div className="attendance-donut-legend">{segments.map((segment) => <div key={segment.key}><span><i style={{ background: segment.color }} />{segment.label === 'Not marked' ? 'Not Marked' : segment.label}</span><small>{segment.students.length}</small></div>)}</div>
+    </div>
+  </aside>
+}

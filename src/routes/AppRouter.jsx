@@ -1,0 +1,503 @@
+import { lazy, Suspense, useEffect, useState } from 'react'
+import {
+  BrowserRouter,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
+import { courseAccessRoles, roleDashboards, dashboardPathByRole } from '../data/authData'
+import { LoadingPage } from '../pages/LoadingPage'
+import { ProtectedRoute, RoleDashboardRedirect } from './ProtectedRoute'
+import { BranchProtectedRoute } from './BranchRoute'
+import { PublicRoute } from './PublicRoute'
+import {
+  clearPendingLoginEmail,
+  loadPendingLoginEmail,
+} from '../lib/session'
+
+const lazyNamed = (loader, exportName) =>
+  Object.assign(
+    lazy(() => loader().then((module) => ({ default: module[exportName] }))),
+    { preload: loader },
+  )
+
+const AuthShell = lazyNamed(() => import('../layouts/AuthShell'), 'AuthShell')
+const AppShell = lazyNamed(() => import('../layouts/AppShell'), 'AppShell')
+const DashboardPage = lazyNamed(() => import('../pages/DashboardPage'), 'DashboardPage')
+const ForgotPasswordPage = lazyNamed(() => import('../pages/ForgotPasswordPage'), 'ForgotPasswordPage')
+const LoginPage = lazyNamed(() => import('../pages/LoginPage'), 'LoginPage')
+const NotFoundPage = lazyNamed(() => import('../pages/NotFoundPage'), 'NotFoundPage')
+const CoursesPage = lazyNamed(() => import('../pages/CoursesPage'), 'CoursesPage')
+const FacultyDetailsPage = lazyNamed(() => import('../pages/FacultyDetailsPage'), 'FacultyDetailsPage')
+const FacultyManagementPage = lazyNamed(
+  () => import('../pages/FacultyManagementPage'),
+  'FacultyManagementPage',
+)
+const FacultyCourseCatalogPage = lazyNamed(
+  () => import('../pages/FacultyCourseCatalogPage'),
+  'FacultyCourseCatalogPage',
+)
+const FacultyCourseFacultyPage = lazyNamed(
+  () => import('../pages/FacultyCourseFacultyPage'),
+  'FacultyCourseFacultyPage',
+)
+const BatchStudentsPage = lazyNamed(() => import('../pages/BatchStudentsPage'), 'BatchStudentsPage')
+const CourseBatchesPage = lazyNamed(() => import('../pages/CourseBatchesPage'), 'CourseBatchesPage')
+const StudentManagementPage = lazyNamed(
+  () => import('../pages/StudentManagementPage'),
+  'StudentManagementPage',
+)
+const NotificationsPage = lazyNamed(() => import('../pages/NotificationsPage'), 'NotificationsPage')
+const StudentNotificationsPage = lazyNamed(() => import('../pages/StudentNotificationsPage'), 'StudentNotificationsPage')
+const ResetPasswordPage = lazyNamed(() => import('../pages/ResetPasswordPage'), 'ResetPasswordPage')
+const SessionExpiredPage = lazyNamed(() => import('../pages/SessionExpiredPage'), 'SessionExpiredPage')
+const UnauthorizedPage = lazyNamed(() => import('../pages/UnauthorizedPage'), 'UnauthorizedPage')
+const FacultyMyBatchesPage = lazyNamed(
+  () => import('../pages/FacultyDashboardPage'),
+  'FacultyMyBatchesPage',
+)
+const SuperAdminDashboardPage = lazyNamed(
+  () => import('../pages/SuperAdminDashboardPage'),
+  'SuperAdminDashboardPage',
+)
+const SuperAdminNotificationsPage = lazyNamed(
+  () => import('../pages/SuperAdminNotificationsPage'),
+  'SuperAdminNotificationsPage',
+)
+const SalesAdminManagementPage = lazyNamed(() => import('../pages/SalesAdminManagementPage'), 'SalesAdminManagementPage')
+const SalesAdminDashboardPage = lazyNamed(() => import('../pages/SalesAdminDashboardPage'), 'SalesAdminDashboardPage')
+const LeadManagementPage = lazyNamed(() => import('../pages/LeadManagementPage'), 'LeadManagementPage')
+const StudentNewDashboardPage = lazyNamed(
+  () => import('../pages/StudentNewDashboardPage'),
+  'StudentNewDashboardPage',
+)
+const BranchNotificationsPage = lazyNamed(
+  () => import('../pages/BranchNotificationsPage'),
+  'BranchNotificationsPage',
+)
+const BranchDashboardPage = lazyNamed(
+  () => import('../pages/BranchDashboardPage'),
+  'BranchDashboardPage',
+)
+const FacultyExamsPage = lazyNamed(() => import('../pages/FacultyExamsPage'), 'FacultyExamsPage')
+const FacultyExamReportsPage = lazyNamed(() => import('../pages/FacultyExamReportsPage'), 'FacultyExamReportsPage')
+const FacultyStudentExamReportPage = lazyNamed(() => import('../pages/FacultyStudentExamReportPage'), 'FacultyStudentExamReportPage')
+const StudentExamsPage = lazyNamed(() => import('../pages/StudentExamsPage'), 'StudentExamsPage')
+const FacultySkillsUpgradePage = lazyNamed(() => import('../pages/FacultySkillsUpgradePage'), 'FacultySkillsUpgradePage')
+const FacultySkillDevelopmentPage = lazyNamed(() => import('../pages/FacultySkillDevelopmentPage'), 'FacultySkillDevelopmentPage')
+
+function BranchStudent360Route() {
+  const { studentId = '' } = useParams()
+  return (
+    <BranchDashboardPage
+      key={`branch-student-360-${studentId}`}
+      initialSection="student-360"
+      initialStudent360Id={studentId}
+    />
+  )
+}
+
+const routeChunks = [
+  AuthShell,
+  AppShell,
+  DashboardPage,
+  ForgotPasswordPage,
+  LoginPage,
+  NotFoundPage,
+  CoursesPage,
+  FacultyDetailsPage,
+  FacultyManagementPage,
+  FacultyCourseCatalogPage,
+  FacultyCourseFacultyPage,
+  BatchStudentsPage,
+  CourseBatchesPage,
+  StudentManagementPage,
+  NotificationsPage,
+  ResetPasswordPage,
+  SessionExpiredPage,
+  UnauthorizedPage,
+  FacultyMyBatchesPage,
+  SuperAdminDashboardPage,
+  SuperAdminNotificationsPage,
+  SalesAdminManagementPage,
+  SalesAdminDashboardPage,
+  LeadManagementPage,
+  StudentNewDashboardPage,
+  BranchNotificationsPage,
+  BranchDashboardPage,
+  FacultyExamsPage,
+  FacultyExamReportsPage,
+  FacultyStudentExamReportPage,
+  StudentExamsPage,
+  FacultySkillsUpgradePage,
+  FacultySkillDevelopmentPage,
+]
+
+function preloadRouteChunks() {
+  routeChunks.forEach((chunk) => {
+    if (typeof chunk?.preload === 'function') {
+      void chunk.preload()
+    }
+  })
+}
+
+const workspacePathsByRole = {
+  'business-owner': {
+    courses: '/courses',
+    studentManagement: '/student-management',
+    facultyManagement: '/faculty-management',
+  },
+  'operation-manager': {
+    courses: '/dashboard/operation-manager/courses',
+    studentManagement: '/dashboard/operation-manager/student-management',
+    facultyManagement: '/dashboard/operation-manager/faculty-management',
+  },
+}
+
+function LoginScreen() {
+  const [form, setForm] = useState({
+    email: loadPendingLoginEmail(),
+    password: '',
+    rememberMe: false,
+  })
+  const [errorMessage, setErrorMessage] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({ email: '', password: '' })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const { signIn } = useAuth()
+  const navigate = useNavigate()
+  const updateForm = (updater) => {
+    setErrorMessage('')
+    setFieldErrors({ email: '', password: '' })
+    setForm(updater)
+  }
+
+  const onSubmit = async (event) => {
+    event.preventDefault()
+    setErrorMessage('')
+    setFieldErrors({ email: '', password: '' })
+
+    const nextFieldErrors = {
+      email: form.email.trim() ? '' : 'Student ID or Email is required',
+      password: form.password.trim() ? '' : 'Password is required',
+    }
+
+    if (nextFieldErrors.email || nextFieldErrors.password) {
+      setFieldErrors(nextFieldErrors)
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      const target = await signIn(form)
+      clearPendingLoginEmail()
+      navigate(target)
+    } catch (error) {
+      const status = error?.status
+      const serverMessage = String(error?.body?.message || error?.message || '').trim()
+      const isInactiveAccount =
+        status === 403 && /inactive|deactivated|disabled/i.test(serverMessage)
+      const message =
+        isInactiveAccount
+          ? 'This account is inactive and cannot be used to sign in.'
+          : status === 400 || status === 401 || status === 403 || status === 422
+          ? 'Invalid Email or Password'
+          : /invalid/i.test(serverMessage)
+            ? 'Invalid Email or Password'
+            : serverMessage || 'Unable to sign in right now. Please try again.'
+
+      setErrorMessage(message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <LoginPage
+      form={form}
+      setForm={updateForm}
+      onSubmit={onSubmit}
+      errorMessage={errorMessage}
+      fieldErrors={fieldErrors}
+      isSubmitting={isSubmitting}
+    />
+  )
+}
+
+function AuthLayout() {
+  return (
+    <AuthShell>
+      <Outlet />
+    </AuthShell>
+  )
+}
+
+function AppLayout() {
+  const { role, signOut, user } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const dashboard = role ? roleDashboards[role] : null
+  const workspacePaths = workspacePathsByRole[role] || workspacePathsByRole['business-owner']
+  const canAccessCourses = courseAccessRoles.includes(role)
+  const canAccessFacultyBatches = role === 'faculty'
+  const canAccessStudentManagement = courseAccessRoles.includes(role)
+  const canAccessFacultyManagement = courseAccessRoles.includes(role)
+  const isSuperAdmin = role === 'super-admin'
+
+  const showChrome =
+    location.pathname !== '/dashboard/business-owner' &&
+    location.pathname !== '/dashboard/operation-manager' &&
+    location.pathname !== '/dashboard/operation-manager/courses' &&
+    location.pathname !== '/dashboard/operation-manager/student-management' &&
+    location.pathname !== '/dashboard/operation-manager/faculty-management' &&
+    location.pathname !== '/dashboard/faculty' &&
+    location.pathname !== '/dashboard/student' &&
+    location.pathname !== '/notifications' &&
+    location.pathname !== '/courses' &&
+    location.pathname !== '/student-management' &&
+    location.pathname !== '/faculty-management' &&
+    !location.pathname.startsWith('/faculty-management/')
+  const isFlatMainArea = location.pathname === '/dashboard/student'
+
+  return (
+    <AppShell
+      dashboard={dashboard}
+      user={user}
+      onNavigateDashboard={() => navigate(dashboardPathByRole[role])}
+      onNavigateFacultyBatches={() => navigate('/dashboard/faculty/my-batches')}
+      onNavigateCourses={() => navigate(isSuperAdmin ? '/dashboard/super-admin' : workspacePaths.courses)}
+      onNavigateStudentManagement={() =>
+        navigate(isSuperAdmin ? '/dashboard/super-admin' : workspacePaths.studentManagement)
+      }
+      onNavigateFacultyManagement={() =>
+        navigate(isSuperAdmin ? '/dashboard/super-admin' : workspacePaths.facultyManagement)
+      }
+      onNavigateNotifications={() => navigate(isSuperAdmin ? '/dashboard/super-admin' : '/notifications')}
+      onLogout={async () => {
+        await signOut()
+        navigate('/login')
+      }}
+      showCoursesNav={isSuperAdmin ? false : canAccessCourses}
+      showFacultyBatchesNav={canAccessFacultyBatches}
+      showStudentManagementNav={isSuperAdmin ? false : canAccessStudentManagement}
+      showFacultyManagementNav={isSuperAdmin ? false : canAccessFacultyManagement}
+      showNotificationsNav={!isSuperAdmin}
+      showChrome={showChrome}
+      forceFlatMainArea={isFlatMainArea}
+    >
+      <Outlet />
+    </AppShell>
+  )
+}
+
+function RootRoute() {
+  const { isReady, isAuthenticated, role } = useAuth()
+
+  if (!isReady) {
+    return <LoadingPage />
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to={dashboardPathByRole[role] || '/dashboard'} replace />
+  }
+
+  return <Navigate to="/login" replace />
+}
+
+function StatusRoute({ kind }) {
+  const navigate = useNavigate()
+
+  if (kind === 'unauthorized') {
+    return <UnauthorizedPage onGoLogin={() => navigate('/login')} />
+  }
+
+  if (kind === 'session-expired') {
+    return <SessionExpiredPage onGoLogin={() => navigate('/login')} />
+  }
+
+  return null
+}
+
+function NotFoundRoute() {
+  const navigate = useNavigate()
+  const { role } = useAuth()
+
+  return (
+    <NotFoundPage
+      onGoLogin={() => navigate('/login')}
+      onGoDashboard={() => navigate(dashboardPathByRole[role] || '/login')}
+    />
+  )
+}
+
+function ProfileRedirectRoute() {
+  const { role } = useAuth()
+
+  return <Navigate to={dashboardPathByRole[role] || '/dashboard'} replace />
+}
+
+export function AppRouter() {
+  const { isReady } = useAuth()
+
+  useEffect(() => {
+    if (!isReady || typeof window === 'undefined') {
+      return undefined
+    }
+
+    const runPreload = () => {
+      preloadRouteChunks()
+    }
+
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(runPreload, { timeout: 1500 })
+      return () => window.cancelIdleCallback(idleId)
+    }
+
+    const timerId = window.setTimeout(runPreload, 0)
+    return () => window.clearTimeout(timerId)
+  }, [isReady])
+
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<LoadingPage />}>
+        <Routes>
+          <Route path="/" element={<RootRoute />} />
+          <Route path="/loading" element={<LoadingPage />} />
+          <Route element={<PublicRoute />}>
+            <Route element={<AuthLayout />}>
+              <Route path="/login" element={<LoginScreen />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+            </Route>
+          </Route>
+
+          <Route path="/unauthorized" element={<StatusRoute kind="unauthorized" />} />
+          <Route path="/session-expired" element={<StatusRoute kind="session-expired" />} />
+          <Route path="/branch-login" element={<Navigate to="/login" replace />} />
+
+          <Route element={<BranchProtectedRoute />}>
+            <Route path="/branch-dashboard/students/:studentId" element={<BranchStudent360Route />} />
+            <Route path="/branch-dashboard/students/:studentId/calendar" element={<BranchDashboardPage />} />
+            <Route path="/branch-dashboard" element={<BranchDashboardPage />} />
+            <Route path="/branch-dashboard/notifications" element={<BranchNotificationsPage />} />
+            <Route path="/branch-dashboard/faculty-skills" element={<BranchDashboardPage initialSection="faculty-skills" />} />
+            <Route path="/branch-dashboard/faculty-skills/:id" element={<BranchDashboardPage initialSection="faculty-skills" />} />
+          </Route>
+      <Route
+  element={
+    <ProtectedRoute allowedRoles={['student']} />
+  }
+>
+  <Route
+    path="/student-new-dashboard"
+    element={<StudentNewDashboardPage />}
+  />
+  <Route
+    path="/student-new-dashboard/notifications"
+    element={<StudentNotificationsPage />}
+  />
+  <Route path="/student-new-dashboard/exams" element={<StudentNewDashboardPage />} />
+</Route>
+          <Route
+            element={
+              <ProtectedRoute allowedRoles={['faculty']} />
+            }
+          >
+            <Route path="/dashboard/faculty/my-batches" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/dashboard" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/courses" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/batches" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/calendar" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/exams" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/exams/assessments" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/exams/reports" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/exams/academic-tests" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/exams/academic-tests/report" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/exams/academic-tests/:itemId/:batchId" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/exams/reports/:moduleId/:batchId" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/students" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/leave-requests" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/notifications" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/skill-development" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/skill-development/:id" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/profile" element={<FacultyMyBatchesPage />} />
+            <Route path="/dashboard/faculty/my-batches/students/:studentId/calendar" element={<FacultyMyBatchesPage />} />
+          </Route>
+
+          <Route
+            element={
+              <ProtectedRoute
+                allowedRoles={['business-owner', 'operation-manager', 'super-admin', 'hr', 'faculty', 'student']}
+              />
+            }
+          >
+            <Route path="/dashboard/super-admin" element={<SuperAdminDashboardPage />} />
+            <Route path="/dashboard/super-admin/notifications" element={<SuperAdminNotificationsPage />} />
+            <Route element={<AppLayout />}>
+              <Route path="/dashboard" element={<RoleDashboardRedirect />} />
+              <Route path="/dashboard/business-owner" element={<DashboardPage role="business-owner" />} />
+              <Route path="/dashboard/operation-manager" element={<DashboardPage role="operation-manager" />} />
+              <Route path="/dashboard/operation-manager/courses" element={<CoursesPage />} />
+              <Route
+                path="/dashboard/operation-manager/student-management"
+                element={<StudentManagementPage />}
+              />
+              <Route
+                path="/dashboard/operation-manager/faculty-management"
+                element={<FacultyManagementPage />}
+              />
+              <Route path="/dashboard/hr" element={<DashboardPage role="hr" />} />
+              <Route path="/dashboard/faculty" element={<Navigate to="/dashboard/faculty/dashboard" replace />} />
+              {/* <Route path="/dashboard/student" element={<DashboardPage role="student" />} /> */}
+    
+              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route element={<ProtectedRoute allowedRoles={courseAccessRoles} />}>
+                <Route path="/courses" element={<CoursesPage />} />
+                <Route path="/student-management" element={<StudentManagementPage />} />
+                <Route path="/faculty-management" element={<FacultyManagementPage />} />
+                <Route path="/faculty-management/courses" element={<FacultyCourseCatalogPage />} />
+                <Route
+                  path="/faculty-management/course/:courseId"
+                  element={<FacultyCourseFacultyPage />}
+                />
+                <Route
+                  path="/faculty-management/course/:courseId/faculty/:facultyId/batches"
+                  element={<CourseBatchesPage />}
+                />
+                <Route
+                  path="/faculty-management/course/:courseId/faculty/:facultyId/batches/:batchId"
+                  element={<BatchStudentsPage />}
+                />
+                <Route path="/faculty-management/:facultyId" element={<FacultyDetailsPage />} />
+                <Route
+                  path="/faculty-management/:facultyId/courses/:courseId"
+                  element={<CourseBatchesPage />}
+                />
+                <Route
+                  path="/faculty-management/:facultyId/courses/:courseId/batches/:batchId"
+                  element={<BatchStudentsPage />}
+                />
+              </Route>
+              <Route path="/profile" element={<ProfileRedirectRoute />} />
+            </Route>
+          </Route>
+          <Route element={<ProtectedRoute allowedRoles={['sales-admin']} />}>
+            <Route path="/dashboard/sales-admin" element={<SalesAdminDashboardPage />} />
+            <Route path="/dashboard/sales-admin/leads" element={<SalesAdminDashboardPage />} />
+            <Route path="/dashboard/sales-admin/reports" element={<SalesAdminDashboardPage />} />
+            <Route path="/dashboard/sales-admin/notifications" element={<SalesAdminDashboardPage />} />
+            <Route path="/dashboard/sales-admin/admissions" element={<SalesAdminDashboardPage />} />
+            <Route path="/dashboard/sales-admin/profile" element={<SalesAdminDashboardPage />} />
+          </Route>
+
+          <Route path="*" element={<NotFoundRoute />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  )
+}

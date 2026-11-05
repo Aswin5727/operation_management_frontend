@@ -1,0 +1,3170 @@
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  CheckCircle2,
+  MoreVertical,
+  Pencil,
+  Plus,
+  Trash2,
+  UsersRound,
+  Download,
+  ChevronDown,
+  Layers3,
+  X,
+} from 'lucide-react'
+import { PaginationBar } from '../components/PaginationBar'
+import {
+  createBranchBatch,
+  deleteBranchBatch,
+  listBranchBatches,
+  updateBranchBatch,
+} from '../services/branchBatchService'
+import {
+  loadBranchBatchGroups,
+  saveBranchBatchGroups,
+} from '../lib/branchBatchStore'
+import {
+  FACULTY_ATTENDANCE_SYNC_EVENT,
+  getAttendanceDateKey,
+  getBatchStartDateTime,
+} from '../lib/facultyAttendanceStore'
+import { getMatchingStudents } from '../lib/facultyFlow'
+import { buildFacultyTodayWorkProgressSummary } from '../lib/facultyProgress'
+import { getStudentCalendarAttendance } from '../lib/studentAttendanceCalendar'
+import { getBranchAttendanceOverview, getCurrentFacultyAttendanceOverview } from '../services/attendanceService'
+import { getBranchStudentAcademicReports, listAcademicTests, listBranchAcademicTestReports } from '../services/academicTestService'
+import { calculateBatchCourseEndDate, getBatchAvailability } from '../lib/batchAllocation'
+import '../styles/BranchBatchManagementSection.css'
+import '../styles/SuperAdminDashboardPage.css'
+import { BranchAttendanceReportModal } from '../components/BranchAttendanceReportModal'
+
+function normalizeText(value = '') {
+  return String(value || '').trim()
+}
+
+function cycleCourseDateUpdateKey(batch = {}, group = {}) {
+  const batchKey = normalizeText(batch?.batchId || batch?.id || group?.batchId || group?.id).toLowerCase()
+  // Cycle IDs can be regenerated when the batch is refreshed after an update.
+  // The cycle number is stable for the lifetime of the cycle, so use it first.
+  const cycleKey = normalizeText(batch?.currentCycleNumber || group?.currentCycleNumber || batch?.currentCycleId || group?.currentCycleId).toLowerCase()
+  return batchKey && cycleKey ? `cispro:batch-course-date-updated:${batchKey}:${cycleKey}` : ''
+}
+
+function isCycleCourseDateUpdated(batch = {}, group = {}) {
+  const cycleNumber = Number(batch?.currentCycleNumber || group?.currentCycleNumber || 0)
+  if (cycleNumber <= 1) return true
+  const key = cycleCourseDateUpdateKey(batch, group)
+  const batchKey = normalizeText(batch?.batchId || batch?.id || group?.batchId || group?.id).toLowerCase()
+  const legacyCycleKey = normalizeText(batch?.currentCycleId || group?.currentCycleId).toLowerCase()
+  const legacyKey = batchKey && legacyCycleKey
+    ? `cispro:batch-course-date-updated:${batchKey}:${legacyCycleKey}`
+    : ''
+  return Boolean(
+    (key && window.localStorage.getItem(key) === 'true')
+    || (legacyKey && window.localStorage.getItem(legacyKey) === 'true'),
+  )
+}
+
+function markCycleCourseDateUpdated(batch = {}, group = {}) {
+  const key = cycleCourseDateUpdateKey(batch, group)
+  if (key && typeof window !== 'undefined') window.localStorage.setItem(key, 'true')
+}
+
+function BranchBatchFilterSelect({ value, options, onChange, ariaLabel, width = 150 }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const containerRef = useRef(null)
+  const selectedOption = options.find((option) => String(option.value) === String(value)) || options[0]
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+
+    const closeOnOutsideClick = (event) => {
+      if (!containerRef.current?.contains(event.target)) setIsOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setIsOpen(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [isOpen])
+
+  return (
+    <div
+      ref={containerRef}
+      className={`super-admin-branch-filter branch-course-custom-filter ${isOpen ? 'is-open' : ''}`.trim()}
+      style={{ width: `${width}px` }}
+    >
+      <button
+        type="button"
+        className="super-admin-branch-filter-trigger"
+        aria-label={ariaLabel}
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <span>{selectedOption?.label || 'Select'}</span>
+        <ChevronDown size={15} strokeWidth={2.2} aria-hidden="true" />
+      </button>
+      {isOpen ? (
+        <div className="super-admin-branch-filter-menu" role="listbox" aria-label={ariaLabel}>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={String(option.value) === String(value)}
+              className={`super-admin-branch-filter-option ${String(option.value) === String(value) ? 'is-selected' : ''}`.trim()}
+              onClick={() => {
+                onChange(option.value)
+                setIsOpen(false)
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function getWeeklyOffStartMessage(startDate, weekType, weeklyOffDay) {
+  if (!startDate || String(weekType).toUpperCase() !== 'WEEKDAY' || !weeklyOffDay) return ''
+  const date = new Date(`${startDate}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return ''
+  const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY']
+  if (days[date.getDay()] !== String(weeklyOffDay).toUpperCase()) return ''
+  const nextDate = new Date(date)
+  nextDate.setDate(nextDate.getDate() + 1)
+  const nextDay = nextDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return `Selected start date is ${weeklyOffDay.charAt(0) + weeklyOffDay.slice(1).toLowerCase()}, the faculty weekly off. The first class will be scheduled from ${nextDay}.`
+}
+
+function normalizeStatus(value = '') {
+  const text = normalizeText(value)
+  if (!text) return 'Active'
+  const lower = text.toLowerCase()
+  if (['active', 'open', 'full', 'inactive', 'closed'].includes(lower)) {
+    return lower.charAt(0).toUpperCase() + lower.slice(1)
+  }
+  return text
+}
+
+function extractAttendanceStatuses(payload = {}, filters = {}) {
+  const source = payload?.data ?? payload
+  const expectedCourseId = normalizeMatchKey(filters?.courseId || '')
+  const expectedBatchId = normalizeMatchKey(filters?.batchId || '')
+  const expectedDate = String(filters?.date || '').trim()
+  const responseDate = String(source?.date || source?.attendanceDate || '').trim()
+  const rows = [
+    ...(Array.isArray(source) ? source : []),
+    ...(Array.isArray(source?.students) ? source.students : []),
+    ...(Array.isArray(source?.attendance) ? source.attendance : []),
+    ...(Array.isArray(source?.attendanceRecords) ? source.attendanceRecords : []),
+    ...(Array.isArray(source?.batches) ? source.batches.flatMap((batch) => (
+      Array.isArray(batch?.students)
+        ? batch.students.map((student) => ({
+            ...student,
+            batchId: student?.batchId || student?.batchEntryId || batch?.batchId || batch?.id,
+            batchEntryId: student?.batchEntryId || batch?.batchEntryId,
+            courseId: student?.courseId || batch?.courseId || batch?.branchCourseId,
+            branchCourseId: student?.branchCourseId || batch?.branchCourseId,
+          }))
+        : []
+    )) : []),
+  ]
+  const statuses = {}
+
+  const firstValue = (...values) => values.find((value) => String(value || '').trim()) || ''
+
+  const getScope = (row = {}, record = null) => {
+    const item = record || row
+    const course = item?.course || item?.courseRecord || item?.courseDetails || row?.course || {}
+    const batch = item?.batch || item?.batchRecord || item?.batchDetails || row?.batch || {}
+    const enrollment = item?.enrollment || item?.courseEnrollment || row?.enrollment || {}
+    return {
+      courseId: normalizeMatchKey(firstValue(
+        item?.courseId,
+        item?.branchCourseId,
+        enrollment?.courseId,
+        course?.courseId,
+        course?.id,
+        row?.courseId,
+        row?.branchCourseId,
+      )),
+      batchId: normalizeMatchKey(firstValue(
+        item?.batchId,
+        item?.batchEntryId,
+        item?.batchRecordId,
+        enrollment?.batchId,
+        enrollment?.batchEntryId,
+        batch?.batchId,
+        batch?.id,
+        row?.batchId,
+        row?.batchEntryId,
+        row?.batchRecordId,
+      )),
+    }
+  }
+
+  const matchesScope = (scope) => {
+    // The branch overview is branch-wide. A row without explicit course/batch
+    // scope must not leak a status from another batch into this detail modal.
+    if (expectedCourseId && scope.courseId !== expectedCourseId) return false
+    if (expectedBatchId && scope.batchId !== expectedBatchId) return false
+    return true
+  }
+
+  rows.forEach((row) => {
+    const nestedStudent = row?.student || row?.learner || row?.user || {}
+    const studentId = normalizeMatchKey(
+      nestedStudent?.studentId || nestedStudent?.studentCode || nestedStudent?.id ||
+      row?.studentId || row?.studentCode || row?.branchStudentId || row?.studentRecordId || row?.id,
+    )
+    const rowScope = getScope(row)
+    const rawStatus = String(row?.attendanceStatus || row?.attendanceStatusLabel || row?.status || '').trim().toUpperCase()
+    const rowDate = String(row?.attendanceDate || row?.date || '').trim()
+    const hasExpectedDate = !expectedDate || rowDate === expectedDate || responseDate === expectedDate || row?.attendanceMarkedAt || row?.markedAt
+    if (studentId && matchesScope(rowScope) && ['PRESENT', 'ABSENT'].includes(rawStatus) && hasExpectedDate) {
+      statuses[studentId] = rawStatus
+    }
+
+    const records = Array.isArray(row?.records) ? row.records : []
+    records.forEach((record) => {
+      const recordStudent = record?.student || record?.learner || record?.user || {}
+      const recordStudentId = normalizeMatchKey(
+        recordStudent?.studentId || recordStudent?.studentCode || recordStudent?.id ||
+        record?.studentId || record?.studentCode || record?.branchStudentId || record?.studentRecordId || studentId,
+      )
+      const recordDate = String(record?.attendanceDate || record?.date || '').trim()
+      if (expectedDate && recordDate !== expectedDate && responseDate !== expectedDate) return
+      if (!matchesScope(getScope(row, record))) return
+      const recordStatus = String(record?.attendanceStatus || record?.attendanceStatusLabel || record?.status || '').trim().toUpperCase()
+      if (recordStudentId && ['PRESENT', 'ABSENT'].includes(recordStatus)) statuses[recordStudentId] = recordStatus
+    })
+  })
+
+  return statuses
+}
+
+function normalizeId(value = '') {
+  return normalizeText(value).toLowerCase()
+}
+
+function getStudentIdentityKey(student = {}) {
+  return normalizeId(
+    student?.studentId ||
+    student?.id ||
+    student?._id ||
+    student?.recordId ||
+    student?._recordId ||
+    student?.originalStudentId ||
+    student?._originalStudentId ||
+    `${student?.courseId || ''}|${student?.batchGroupId || ''}|${student?.batchId || ''}|${student?.batchName || ''}|${student?.facultyId || ''}|${student?.studentName || ''}|${student?.admissionDate || ''}`,
+  )
+}
+
+function getCurrentCycleStudents(students = [], batch = {}) {
+  const currentCycleId = normalizeMatchKey(batch?.currentCycleId || batch?.activeCycleId)
+  if (!currentCycleId) return Array.isArray(students) ? students : []
+
+  const courseId = normalizeMatchKey(batch?.courseId || batch?.branchCourseId)
+  return (Array.isArray(students) ? students : []).filter((student) => {
+    const enrollments = Array.isArray(student?.courseEnrollments) ? student.courseEnrollments : []
+    return enrollments.some((enrollment) => (
+      normalizeMatchKey(enrollment?.batchCycleId) === currentCycleId &&
+      String(enrollment?.status || '').toUpperCase() === 'ACTIVE' &&
+      (!courseId || normalizeMatchKey(enrollment?.courseId) === courseId)
+    ))
+  })
+}
+
+function getBatchSeatSummary(batch = {}, students = []) {
+  const matchingStudents = getCurrentCycleStudents(getMatchingStudents(students, {
+    facultyId: batch?.facultyId || '',
+    facultyName: batch?.facultyName || '',
+    courseId: batch?.courseId || '',
+    courseName: batch?.courseName || '',
+    batchGroupId: batch?.batchGroupId || '',
+    batchId: batch?.batchId || batch?.id || '',
+    batchName: batch?.batchName || '',
+    batchTiming: batch?.batchTiming || '',
+  }), batch)
+
+  const uniqueStudents = new Set()
+  matchingStudents.forEach((student) => {
+    const studentKey = getStudentIdentityKey(student)
+    if (!studentKey) return
+    uniqueStudents.add(studentKey)
+  })
+
+  const totalSeats = Math.max(Number(batch?.totalSeats || 0) || 0, 0)
+  const usedSeats = Object.prototype.hasOwnProperty.call(batch, 'activeStudentCount')
+    ? Math.max(Number(batch.activeStudentCount || 0), 0)
+    : uniqueStudents.size
+  const remainingSeats = Math.max(totalSeats - usedSeats, 0)
+
+  return {
+    totalSeats,
+    usedSeats,
+    remainingSeats,
+  }
+}
+
+function getBatchCourseProgress(batch = {}, students = [], course = null, workEntries = []) {
+  const courseId = normalizeMatchKey(batch?.courseId || batch?.branchCourseId)
+  const batchIds = new Set([batch?.id, batch?.batchId].map(normalizeMatchKey).filter(Boolean))
+  const progressValues = (Array.isArray(students) ? students : [])
+    .map((student) => {
+      const workProgress = course && Array.isArray(workEntries) && workEntries.length
+        ? buildFacultyTodayWorkProgressSummary(
+          workEntries,
+          { ...course, id: course.id || course.courseId || batch.courseId || batch.branchCourseId },
+          { ...student, courseId: batch.courseId || batch.branchCourseId || student.courseId },
+        )?.courseProgress
+        : null
+      if (Number.isFinite(Number(workProgress))) return Number(workProgress)
+      const enrollment = (student?.courseEnrollments || []).find((item) => (
+        (!courseId || normalizeMatchKey(item?.courseId) === courseId) &&
+        (!batchIds.size || batchIds.has(normalizeMatchKey(item?.batchId)))
+      ))
+      const value = enrollment?.courseProgress ?? (
+        (!courseId || normalizeMatchKey(student?.courseId) === courseId)
+          ? student?.courseProgress ?? student?.progress
+          : null
+      )
+      return Number(value)
+    })
+    .filter((progress) => Number.isFinite(progress))
+
+  if (progressValues.length) {
+    const average = progressValues.reduce((total, progress) => total + progress, 0) / progressValues.length
+    return Math.round(Math.min(Math.max(average, 0), 100))
+  }
+
+  const persistedProgress = Number(batch?.courseProgress ?? batch?.progress)
+  return Number.isFinite(persistedProgress)
+    ? Math.round(Math.min(Math.max(persistedProgress, 0), 100))
+    : 0
+}
+
+function getStudentBatchCourseProgress(student = {}, batch = {}, course = null, workEntries = []) {
+  const workProgress = course && Array.isArray(workEntries) && workEntries.length
+    ? buildFacultyTodayWorkProgressSummary(
+      workEntries,
+      { ...course, id: course.id || course.courseId || batch.courseId || batch.branchCourseId },
+      { ...student, courseId: batch.courseId || batch.branchCourseId || student.courseId },
+    )?.courseProgress
+    : null
+  if (Number.isFinite(Number(workProgress))) return Math.min(Math.max(Number(workProgress), 0), 100)
+  const courseId = normalizeMatchKey(batch?.courseId || batch?.branchCourseId)
+  const batchIds = new Set([batch?.id, batch?.batchId].map(normalizeMatchKey).filter(Boolean))
+  const enrollment = (student?.courseEnrollments || []).find((item) => (
+    (!courseId || normalizeMatchKey(item?.courseId) === courseId) &&
+    (!batchIds.size || batchIds.has(normalizeMatchKey(item?.batchId)))
+  ))
+  const value = enrollment?.courseProgress ?? (
+    (!courseId || normalizeMatchKey(student?.courseId) === courseId)
+      ? student?.courseProgress ?? student?.progress
+      : null
+  )
+  const progress = Number(value)
+  return Number.isFinite(progress) ? Math.min(Math.max(progress, 0), 100) : 0
+}
+
+function isStudentBatchCourseCompleted(student = {}, batch = {}, progress = 0, academicProgress = null) {
+  const courseId = normalizeMatchKey(batch?.courseId || batch?.branchCourseId)
+  const courseName = normalizeMatchKey(batch?.courseName)
+  const completionByCourse = student?.courseCompletionByCourse
+  const mappedEntry = completionByCourse && typeof completionByCourse === 'object' && !Array.isArray(completionByCourse)
+    ? Object.entries(completionByCourse).find(([key]) => {
+      const normalizedKey = normalizeMatchKey(key)
+      return (courseId && normalizedKey === courseId) || (courseName && normalizedKey === courseName)
+    })?.[1]
+    : null
+  const mappedCompletion = typeof mappedEntry === 'object'
+    ? mappedEntry?.courseCompletion || mappedEntry?.courseCompletionStatus || mappedEntry?.completionStatus || mappedEntry?.status
+    : mappedEntry
+  const enrollment = (student?.courseEnrollments || []).find((item) => {
+    const enrollmentCourseId = normalizeMatchKey(item?.courseId || item?.id)
+    const enrollmentCourseName = normalizeMatchKey(item?.courseName || item?.name)
+    return (courseId && enrollmentCourseId === courseId) || (courseName && enrollmentCourseName === courseName)
+  })
+  const enrollmentCompletion = enrollment?.courseCompletion || enrollment?.courseCompletionStatus || enrollment?.completionStatus || enrollment?.status
+  const progressValues = [
+    progress,
+    enrollment?.courseProgress,
+    enrollment?.courseCompletionPercentage,
+    enrollment?.progress,
+    student?.courseProgress,
+    student?.courseCompletionPercentage,
+    student?.courseProgressPercentage,
+    student?.progress,
+  ].map((value) => Number(String(value ?? '').replace('%', '').trim())).filter(Number.isFinite)
+  const hasCourseCompletionFlag = String(mappedCompletion || enrollmentCompletion || student?.courseCompletion || student?.courseCompletionStatus || '').trim().toUpperCase() === 'COMPLETED'
+    || mappedEntry?.isCompleted === true
+    || enrollment?.isCompleted === true
+    || enrollment?.completed === true
+  const hasCourseProgress = progressValues.some((value) => value >= 100)
+  const hasAcademicProgress = academicProgress == null
+    ? true
+    : Number(academicProgress?.total) > 0
+      && Number(academicProgress?.completed) >= Number(academicProgress?.total)
+
+  return (hasCourseCompletionFlag || hasCourseProgress) && hasAcademicProgress
+}
+
+function toNumber(value = '') {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function formatClockLabel(value = '') {
+  const text = normalizeText(value)
+  if (!text) return ''
+
+  const amPmMatch = text.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (amPmMatch) {
+    const hours = Number(amPmMatch[1])
+    const minutes = Number(amPmMatch[2])
+    const period = String(amPmMatch[3] || '').toUpperCase()
+
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return text
+
+    const convertedHours =
+      period === 'PM'
+        ? (hours === 12 ? 12 : hours + 12)
+        : (hours === 12 ? 0 : hours)
+
+    const displayHours = convertedHours % 12 || 12
+    const displayPeriod = convertedHours >= 12 ? 'PM' : 'AM'
+    return `${String(displayHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${displayPeriod}`
+  }
+
+  const [hoursText, minutesText] = text.split(':')
+  const hours = Number(hoursText)
+  const minutes = Number(minutesText || '0')
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return text
+
+  const period = hours >= 12 ? 'PM' : 'AM'
+  const normalizedHours = hours % 12 || 12
+  return `${String(normalizedHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${period}`
+}
+
+function convertTimeTo24Hour(value = '', meridiem = 'AM') {
+  const text = normalizeText(value)
+  const normalized = formatTimeInput(text)
+  const match = normalized.match(/^(\d{2}):(\d{2})$/)
+  if (!match) return text
+
+  let hours = Number(match[1])
+  const minutes = String(match[2]).padStart(2, '0')
+  const period = String(meridiem || 'AM').toUpperCase()
+
+  if (!Number.isFinite(hours)) return text
+
+  if (period === 'AM') {
+    if (hours === 12) hours = 0
+  } else if (period === 'PM') {
+    if (hours < 12) hours += 12
+  }
+
+  return `${String(hours).padStart(2, '0')}:${minutes}`
+}
+
+function formatTimeInput(value = '') {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 4)
+  if (!digits) return ''
+  if (digits.length === 1) return `0${digits}:00`
+  if (digits.length === 2) return `${digits}:00`
+  if (digits.length === 3) return `0${digits.slice(0, 1)}:${digits.slice(1)}`
+  return `${digits.slice(0, 2)}:${digits.slice(2, 4)}`
+}
+
+function parseStoredTimeParts(value = '') {
+  const text = normalizeText(value)
+  if (!text) {
+    return { time: '', period: 'AM' }
+  }
+
+  const withPeriodMatch = text.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (withPeriodMatch) {
+    let hours = Number(withPeriodMatch[1])
+    const minutes = String(withPeriodMatch[2]).padStart(2, '0')
+    const period = String(withPeriodMatch[3] || 'AM').toUpperCase()
+
+    if (!Number.isFinite(hours)) {
+      return { time: '', period }
+    }
+
+    if (period === 'AM') {
+      if (hours === 12) hours = 0
+    } else if (hours < 12) {
+      hours += 12
+    }
+
+    return {
+      time: `${String(hours % 12 || 12).padStart(2, '0')}:${minutes}`,
+      period: hours >= 12 ? 'PM' : 'AM',
+    }
+  }
+
+  const clockMatch = text.match(/^(\d{1,2}):(\d{2})$/)
+  if (!clockMatch) {
+    return { time: '', period: 'AM' }
+  }
+
+  const hours = Number(clockMatch[1])
+  const minutes = String(clockMatch[2]).padStart(2, '0')
+
+  if (!Number.isFinite(hours)) {
+    return { time: '', period: 'AM' }
+  }
+
+  return {
+    time: `${String(hours % 12 || 12).padStart(2, '0')}:${minutes}`,
+    period: hours >= 12 ? 'PM' : 'AM',
+  }
+}
+
+const TIME_HOUR_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'))
+const TIME_MINUTE_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0'))
+
+function getTimePickerParts(time = '', period = 'AM', fallbackHour = '09') {
+  const parsed = parseStoredTimeParts(`${time || ''} ${period || ''}`.trim())
+  const [hour = '', minute = ''] = String(parsed.time || '').split(':')
+
+  if (!String(time || '').trim() && !String(period || '').trim()) {
+    return {
+      hour: '',
+      minute: '',
+      period: '',
+    }
+  }
+
+  return {
+    hour: hour || fallbackHour,
+    minute: minute || '00',
+    period: parsed.period || period || 'AM',
+  }
+}
+
+function parseTimeToMinutes(value = '', period = '') {
+  const text = normalizeText(value)
+  if (!text) return null
+
+  const amPmMatch = text.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (amPmMatch) {
+    let hours = Number(amPmMatch[1])
+    const minutes = Number(amPmMatch[2])
+    const meridiem = String(amPmMatch[3] || '').toUpperCase()
+
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
+
+    if (meridiem === 'AM') {
+      if (hours === 12) hours = 0
+    } else if (hours < 12) {
+      hours += 12
+    }
+
+    return hours * 60 + minutes
+  }
+
+  const clockMatch = text.match(/^(\d{1,2}):(\d{2})$/)
+  if (!clockMatch) return null
+
+  let hours = Number(clockMatch[1])
+  const minutes = Number(clockMatch[2])
+  const meridiem = String(period || '').trim().toUpperCase()
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
+
+  // API records can contain either a 12-hour value ("02:00" + "PM") or
+  // an already-normalized 24-hour value ("14:00" + "PM"). Do not add 12
+  // twice to the latter format.
+  if (meridiem === 'AM') {
+    if (hours === 12) hours = 0
+  } else if (meridiem === 'PM') {
+    if (hours < 12) hours += 12
+  } else if (hours > 23 || minutes > 59) {
+    return null
+  }
+
+  if (hours > 23 || minutes > 59) return null
+
+  return hours * 60 + minutes
+}
+
+function formatRangeLabel(startValue = '', startPeriod = '', endValue = '', endPeriod = '') {
+  const startLabel = formatClockLabel(`${startValue} ${startPeriod}`.trim())
+  const endLabel = formatClockLabel(`${endValue} ${endPeriod}`.trim())
+  return `${startLabel}${startLabel && endLabel ? ' - ' : ''}${endLabel}`.trim()
+}
+
+function isSameFacultyGroup(group = {}, facultyId = '', facultyName = '') {
+  const targetFacultyId = normalizeMatchKey(facultyId)
+  const targetFacultyName = normalizeMatchKey(facultyName)
+  const groupFacultyId = normalizeMatchKey(group?.facultyId || group?.branchFacultyId || '')
+  const groupFacultyName = normalizeMatchKey(group?.facultyName || group?.branchFacultyName || '')
+
+  const facultyIdMatches = Boolean(targetFacultyId && groupFacultyId && targetFacultyId === groupFacultyId)
+  const facultyNameMatches = Boolean(targetFacultyName && groupFacultyName && targetFacultyName === groupFacultyName)
+
+  // IDs can differ between course mappings and the faculty master record, so
+  // a matching faculty name must also identify the same faculty.
+  return Boolean(targetFacultyId || targetFacultyName) && (facultyIdMatches || facultyNameMatches)
+}
+
+function getBatchTimingClashMessage() {
+  return 'Time Clash! This faculty is already assigned to another batch during the selected time.'
+}
+
+function getRequiredBatchDuration(weekType = '', mode = '') {
+  const normalizedWeekType = normalizeText(weekType).toUpperCase()
+  const normalizedMode = normalizeText(mode).toUpperCase()
+
+  if (normalizedMode === 'ONLINE') return { minutes: 60, label: '1 hour' }
+  if (normalizedWeekType === 'WEEKEND' && normalizedMode === 'OFFLINE') return { minutes: 180, label: '3 hours' }
+  if (normalizedWeekType === 'WEEKDAY' && normalizedMode === 'OFFLINE') return { minutes: 120, label: '2 hours' }
+  return null
+}
+
+function getBatchDurationError(row = {}, weekType = '', mode = '') {
+  const requirement = getRequiredBatchDuration(weekType, mode)
+  if (!requirement || !normalizeText(row.startTime) || !normalizeText(row.endTime)) return ''
+
+  const startMinutes = parseTimeToMinutes(row.startTime, row.startPeriod || 'AM')
+  const endMinutes = parseTimeToMinutes(row.endTime, row.endPeriod || 'AM')
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+    return 'Please choose a valid time range.'
+  }
+
+  if (endMinutes - startMinutes !== requirement.minutes) {
+    return `${normalizeText(weekType).toLowerCase() === 'weekend' ? 'Weekend' : 'Weekday'} ${normalizeText(mode).toLowerCase() === 'online' ? 'online' : 'offline'} batches must be exactly ${requirement.label}.`
+  }
+
+  return ''
+}
+
+function getBatchTimingRange(batch = {}) {
+  const startMinutes = parseTimeToMinutes(batch?.startTime || '', batch?.startPeriod || '')
+  const endMinutes = parseTimeToMinutes(batch?.endTime || '', batch?.endPeriod || '')
+
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+    return null
+  }
+
+  return {
+    batchId: normalizeText(batch?.batchId || batch?.id || ''),
+    batchName: normalizeText(batch?.batchName || ''),
+    startMinutes,
+    endMinutes,
+    label: normalizeText(
+      batch?.batchTiming ||
+      formatRangeLabel(batch?.startTime || '', batch?.startPeriod || '', batch?.endTime || '', batch?.endPeriod || ''),
+    ),
+  }
+}
+
+function findTimingConflict(startMinutes, endMinutes, ranges = []) {
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return null
+
+  return (Array.isArray(ranges) ? ranges : []).find((range) => {
+    if (!range) return false
+    return startMinutes < range.endMinutes && endMinutes > range.startMinutes
+  }) || null
+}
+
+function isStartTimeOptionDisabled(hour, minute, period, ranges = []) {
+  const candidateMinutes = parseTimeToMinutes(`${hour}:${minute}`, period)
+  if (!Number.isFinite(candidateMinutes)) return false
+
+  return (Array.isArray(ranges) ? ranges : []).some((range) => {
+    if (!range) return false
+    return candidateMinutes >= range.startMinutes && candidateMinutes < range.endMinutes
+  })
+}
+
+function getCourseLabel(course = {}) {
+  return normalizeText(course?.name || course?.courseName || course?.courseCode || '')
+}
+
+function getFacultyLabel(faculty = {}) {
+  return normalizeText(faculty?.name || faculty?.facultyName || faculty?.fullName || faculty?.facultyId || '')
+}
+
+function resolveFacultyIdForGroup(group = {}, facultyOptions = []) {
+  const directFacultyId = normalizeText(group?.facultyId || group?.branchFacultyId || group?.facultyUserId || '')
+  if (directFacultyId) return directFacultyId
+
+  const facultyName = normalizeMatchKey(group?.facultyName || '')
+  if (!facultyName) return ''
+
+  const matchedFaculty = (Array.isArray(facultyOptions) ? facultyOptions : []).find((faculty) => {
+    const optionId = normalizeMatchKey(faculty?.id || faculty?.facultyId || faculty?.facultyUserId || faculty?.userId || '')
+    const optionName = normalizeMatchKey(getFacultyLabel(faculty))
+
+    return optionName === facultyName || optionId === facultyName
+  })
+
+  return normalizeText(matchedFaculty?.id || matchedFaculty?.facultyId || matchedFaculty?.facultyUserId || '')
+}
+
+function resolveFacultyNameForGroup(group = {}, facultyOptions = []) {
+  const directFacultyName = normalizeText(group?.facultyName || group?.branchFacultyName || '')
+  if (directFacultyName) return directFacultyName
+
+  const facultyId = normalizeMatchKey(group?.facultyId || group?.branchFacultyId || '')
+  if (!facultyId) return ''
+
+  const matchedFaculty = (Array.isArray(facultyOptions) ? facultyOptions : []).find((faculty) => {
+    const optionId = normalizeMatchKey(faculty?.id || faculty?.facultyId || faculty?.facultyUserId || faculty?.userId || '')
+    return optionId === facultyId
+  })
+
+  return getFacultyLabel(matchedFaculty)
+}
+
+function isFacultyNameFallbackValue(value = '') {
+  return String(value || '').trim().startsWith('faculty-name:')
+}
+
+function getFacultyNameFromFallbackValue(value = '') {
+  const text = String(value || '').trim()
+  return text.startsWith('faculty-name:') ? text.slice('faculty-name:'.length) : ''
+}
+
+function createBatchRow(batchId = '') {
+  return {
+    batchId,
+    batchName: '',
+    startTime: '09:00',
+    startPeriod: 'AM',
+    endTime: '11:00',
+    endPeriod: 'AM',
+    totalSeats: '',
+    status: 'Active',
+  }
+}
+
+function makeBatchId(sequenceNumber = 1) {
+  const safeSequence = Math.max(1, Number(sequenceNumber) || 1)
+  return `BAT-${String(safeSequence).padStart(3, '0')}`
+}
+
+function getBatchEntityPrefix(branchCode, entityPrefix) {
+  const compact = String(branchCode || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const branchPrefix = compact.replace(/\d{3}$/, '')
+  return branchPrefix ? `${branchPrefix.startsWith('CIS') ? branchPrefix : `CIS${branchPrefix}`}${entityPrefix}` : `${entityPrefix}-`
+}
+
+function getAllowedBatchModes(courseMode) {
+  const mode = normalizeText(courseMode).toUpperCase()
+  return mode === 'HYBRID' ? ['ONLINE', 'OFFLINE'] : mode === 'ONLINE' || mode === 'OFFLINE' ? [mode] : []
+}
+
+function makeBatchGroupId(sequenceNumber = 1) {
+  const safeSequence = Math.max(1, Number(sequenceNumber) || 1)
+  return `BBG-${String(safeSequence).padStart(3, '0')}`
+}
+
+function getNextBatchSequenceNumber(groups = []) {
+  let maxSequence = 0
+
+  const rows = Array.isArray(groups) ? groups.flatMap((group) => {
+    if (Array.isArray(group?.batches) && group.batches.length) {
+      return group.batches
+    }
+    return group ? [group] : []
+  }) : []
+
+  rows.forEach((row) => {
+    // Backend stores branch-scoped IDs such as CISBRBAT006, while older
+    // local records may still use BAT-006. Read the numeric suffix from both.
+    const match = String(row?.batchId || '').trim().match(/(\d+)$/)
+    if (!match) return
+    const value = Number(match[1])
+    if (Number.isInteger(value) && value > maxSequence) {
+      maxSequence = value
+    }
+  })
+
+  return maxSequence + 1
+}
+
+function getNextBatchGroupSequenceNumber(groups = []) {
+  let maxSequence = 0
+
+  const items = Array.isArray(groups) ? groups : []
+  items.forEach((group) => {
+    const match = String(group?.batchGroupId || group?.id || '').trim().match(/^BBG-(\d+)$/i)
+    if (!match) return
+    const value = Number(match[1])
+    if (Number.isInteger(value) && value > maxSequence) {
+      maxSequence = value
+    }
+  })
+
+  return maxSequence + 1
+}
+
+function createInitialDraft(sequenceStart, groupSequence = 1, count = 1) {
+  const rowCount = Math.max(1, count)
+  const rows = Array.from({ length: rowCount }, (_, index) => createBatchRow(makeBatchId(sequenceStart + index)))
+
+  return {
+    batchGroupId: makeBatchGroupId(groupSequence),
+    courseId: '',
+    facultyId: '',
+    facultyName: '',
+    weekType: '',
+    mode: '',
+    courseStartDate: '',
+    courseEndDate: '',
+    rows,
+    nextSequence: sequenceStart + rowCount,
+  }
+}
+
+function createDraftFromGroup(group = {}, sequenceStart = 1, groupSequence = 1, facultyOptions = []) {
+  const batches = Array.isArray(group.batches) ? group.batches : []
+  const rows = batches.length
+    ? [batches[0]].map((batch) => {
+        const startParts = parseStoredTimeParts(`${batch.startTime || ''} ${batch.startPeriod || ''}`.trim())
+        const endParts = parseStoredTimeParts(`${batch.endTime || ''} ${batch.endPeriod || ''}`.trim())
+
+        return {
+          batchId: normalizeText(batch.batchId || makeBatchId(sequenceStart)),
+          batchName: normalizeText(batch.batchName || ''),
+          startTime: startParts.time,
+          startPeriod: startParts.period,
+          endTime: endParts.time,
+          endPeriod: endParts.period,
+          totalSeats: normalizeText(batch.totalSeats || ''),
+          weekType: normalizeText(batch.weekType || group.weekType).toUpperCase(),
+          mode: normalizeText(batch.mode || group.mode).toUpperCase(),
+          courseStartDate: normalizeText(batch.courseStartDate || group.courseStartDate),
+          courseEndDate: normalizeText(batch.courseEndDate || group.courseEndDate),
+          status: normalizeStatus(batch.status || 'Active'),
+        }
+      })
+    : [createBatchRow(makeBatchId(sequenceStart))]
+
+  return {
+    batchGroupId: normalizeText(group.batchGroupId || makeBatchGroupId(groupSequence)),
+    courseId: normalizeText(group.courseId || ''),
+    facultyId: resolveFacultyIdForGroup(group, facultyOptions),
+    facultyName: resolveFacultyNameForGroup(group, facultyOptions),
+    weeklyOffDay: normalizeText(group.weeklyOffDay || rows[0]?.weeklyOffDay).toUpperCase(),
+    weekType: normalizeText(group.weekType || rows[0]?.weekType).toUpperCase(),
+    mode: normalizeText(group.mode || rows[0]?.mode).toUpperCase(),
+    courseStartDate: normalizeText(group.courseStartDate || rows[0]?.courseStartDate),
+    courseEndDate: normalizeText(group.courseEndDate || rows[0]?.courseEndDate),
+    rows,
+    nextSequence: Math.max(sequenceStart, getNextBatchSequenceNumber([group])),
+  }
+}
+
+function buildBatchTiming(row = {}) {
+  const startTime = normalizeText(row.startTime)
+  const endTime = normalizeText(row.endTime)
+  return `${startTime}${startTime && endTime ? ' - ' : ''}${endTime}`.trim()
+}
+
+function getBatchGroupStatus(group = {}) {
+  return normalizeStatus(group?.status || group?.batches?.[0]?.status || 'Active')
+}
+
+function isInactiveBatchGroup(group = {}) {
+  return getBatchGroupStatus(group).toLowerCase() === 'inactive'
+}
+
+function normalizeMatchKey(value = '') {
+  return normalizeId(value)
+}
+
+function getBatchSeatMapKey(batch = {}, group = {}) {
+  const groupKey = normalizeMatchKey(group?.batchGroupId || group?.id || batch?.batchGroupId || '')
+  const batchKey = normalizeMatchKey(batch?.batchId || batch?.id || '')
+  return `${groupKey}|${batchKey}`
+}
+
+function getPrimaryBatchForGroup(group = {}) {
+  const batches = Array.isArray(group?.batches) ? group.batches : []
+  const primaryBatch = batches[0] || {}
+
+  return {
+    ...primaryBatch,
+    batchId: normalizeText(primaryBatch?.batchId || group?.batchId || group?.batchGroupId || group?.id || ''),
+    batchName: normalizeText(primaryBatch?.batchName || group?.batchName || ''),
+    batchTiming: normalizeText(primaryBatch?.batchTiming || group?.batchTiming || ''),
+    totalSeats: Number(primaryBatch?.totalSeats || group?.totalSeats || 0) || 0,
+    status: normalizeStatus(primaryBatch?.status || group?.status || 'Active'),
+    currentCycleId: primaryBatch?.currentCycleId || group?.currentCycleId || null,
+    currentCycleNumber: primaryBatch?.currentCycleNumber || group?.currentCycleNumber || null,
+    currentCycleName: primaryBatch?.currentCycleName || group?.currentCycleName || null,
+    currentCycleStartDate: primaryBatch?.currentCycleStartDate || group?.currentCycleStartDate || null,
+    currentCycleStatus: primaryBatch?.currentCycleStatus || group?.currentCycleStatus || 'ACTIVE',
+    completionStatus: primaryBatch?.completionStatus || group?.completionStatus || '',
+    activeStudentCount: primaryBatch?.activeStudentCount ?? group?.activeStudentCount ?? 0,
+    completedStudentCount: primaryBatch?.completedStudentCount ?? group?.completedStudentCount ?? 0,
+  }
+}
+
+function getBatchDisplayKey(group = {}) {
+  const primaryBatch = getPrimaryBatchForGroup(group)
+  return normalizeMatchKey(primaryBatch.batchId || group?.batchId || group?.batchGroupId || group?.id || '')
+}
+
+function getAcademicTestCountForBatch(rows = [], group = {}, batch = {}) {
+  const courseId = normalizeMatchKey(group?.courseId || group?.branchCourseId)
+  const courseName = normalizeMatchKey(group?.courseName)
+  const batchIds = new Set([
+    group?.batchGroupId,
+    group?.id,
+    group?.batchId,
+    batch?.batchId,
+    batch?.id,
+  ].map(normalizeMatchKey).filter(Boolean))
+  const batchName = normalizeMatchKey(batch?.batchName || group?.batchName)
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    const rowCourse = row?.course || {}
+    const rowCourseId = normalizeMatchKey(rowCourse?.id || rowCourse?.courseId || row?.courseId)
+    const rowCourseName = normalizeMatchKey(rowCourse?.name || rowCourse?.courseName || row?.courseName)
+    const courseMatches = (courseId && rowCourseId === courseId) || (!courseId && courseName && rowCourseName === courseName)
+    if (!courseMatches) return false
+    const assignedBatches = Array.isArray(row?.batches) && row.batches.length
+      ? row.batches
+      : [row?.batch || row]
+    return assignedBatches.some((assignedBatch) => {
+      const assignedId = normalizeMatchKey(assignedBatch?.id || assignedBatch?.batchId)
+      const assignedName = normalizeMatchKey(assignedBatch?.batchName)
+      return (assignedId && batchIds.has(assignedId)) || (batchName && assignedName === batchName)
+    })
+  }).reduce((total, row) => {
+    const itemCount = Array.isArray(row?.items) ? row.items.length : Number(row?.academicTestCount ?? row?.testCount ?? row?.totalTests ?? 0)
+    return total + (Number.isFinite(itemCount) && itemCount > 0 ? itemCount : 0)
+  }, 0)
+}
+
+function getAcademicTestProgressForBatch(rows = [], reports = [], group = {}, batch = {}) {
+  const total = getAcademicTestCountForBatch(rows, group, batch)
+  const batchIds = new Set([
+    group?.batchGroupId,
+    group?.id,
+    group?.batchId,
+    batch?.batchId,
+    batch?.id,
+  ].map(normalizeMatchKey).filter(Boolean))
+  const courseId = normalizeMatchKey(group?.courseId || group?.branchCourseId)
+  const courseName = normalizeMatchKey(group?.courseName)
+  const completedTestIds = new Set()
+  ;(Array.isArray(reports) ? reports : []).forEach((report) => {
+    const reportBatch = report?.batch || {}
+    const reportBatchId = normalizeMatchKey(reportBatch?.id || reportBatch?.batchId || report?.batchId)
+    const reportBatchName = normalizeMatchKey(reportBatch?.batchName || reportBatch?.batchName || report?.batchName)
+    const reportCourse = report?.course || reportBatch || {}
+    const reportCourseId = normalizeMatchKey(reportCourse?.id || reportCourse?.courseId || report?.courseId || reportBatch?.courseId)
+    const reportCourseName = normalizeMatchKey(reportCourse?.name || reportCourse?.courseName || report?.courseName || reportBatch?.courseName)
+    const matchesBatch = (reportBatchId && batchIds.has(reportBatchId)) || (reportBatchName && reportBatchName === normalizeMatchKey(batch?.batchName || group?.batchName))
+    const matchesCourse = (courseId && reportCourseId === courseId) || (courseName && reportCourseName === courseName)
+    if (!matchesBatch || !matchesCourse) return
+    const ids = Array.isArray(report?.academicTestIds)
+      ? report.academicTestIds
+      : Array.isArray(report?.tests)
+        ? report.tests.map((test) => test?.id || test?.testId || test?.testNumber)
+        : report?.id ? [report.id] : []
+    ids.forEach((id) => { if (id !== undefined && id !== null && String(id).trim()) completedTestIds.add(String(id)) })
+  })
+  const completed = Math.min(total, completedTestIds.size)
+  return { total, completed, percentage: total ? Math.round((completed / total) * 100) : 0 }
+}
+
+function getStudentAcademicTestProgress(response = {}, totalConfiguredTests = 0, group = {}) {
+  const payload = response?.data || response || {}
+  const source = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.evaluations)
+      ? payload.evaluations
+      : Array.isArray(payload?.items)
+        ? payload.items
+        : []
+  const courseId = normalizeMatchKey(group?.courseId || group?.branchCourseId)
+  const courseName = normalizeMatchKey(group?.courseName)
+  const scoped = source.filter((item) => {
+    const course = item?.course || item?.courseDetails || {}
+    const itemCourseId = normalizeMatchKey(item?.courseId || course?.id || course?.courseId)
+    const itemCourseName = normalizeMatchKey(item?.courseName || course?.name || course?.courseName)
+    return (!itemCourseId && !itemCourseName) || (courseId && itemCourseId === courseId) || (courseName && itemCourseName === courseName)
+  })
+  const unique = new Map()
+  scoped.forEach((item, index) => {
+    // A combined test + project report must count as one academic test.
+    const key = String(item?.testNumber || item?.evaluationId || item?.id || item?.name || item?.title || item?.testName || index).trim().toUpperCase()
+    unique.set(key, [...(unique.get(key) || []), item])
+  })
+  const completed = [...unique.values()].filter((items) => {
+    const getNestedResults = (item = {}) => [
+      item,
+      ...(Array.isArray(item?.tests) ? item.tests : []),
+      ...(Array.isArray(item?.projects) ? item.projects : []),
+      ...(Array.isArray(item?.attempts) ? item.attempts : []),
+      item?.final,
+      item?.result,
+    ].filter(Boolean)
+    const getStatus = (item) => String(item?.status || item?.reportStatus || item?.final?.status || item?.test?.status || item?.result?.status || '').trim().toUpperCase().replace(/\s+/g, '_')
+    const nestedResults = items.flatMap(getNestedResults)
+    return nestedResults.some((item) => {
+      const status = getStatus(item)
+      // A retest can follow an original Not Attended attempt. Ignore the
+      // incomplete attempt when a later valid result/mark is present.
+      if (['NOT_ATTENDED', 'NOT_SUBMITTED', 'ABSENT'].includes(status)) return false
+      return ['SUBMITTED', 'EVALUATED', 'GRADED', 'COMPLETED', 'PROJECT_SUBMITTED', 'PROJECT_GRADED'].includes(status)
+        || Number(item?.percentage ?? item?.final?.percentage) > 0
+        || Number(item?.overallTestPercentage) > 0
+        || Number(item?.overallProjectPercentage) > 0
+        || Number(item?.projectPercentage) > 0
+        || Number.isFinite(Number(item?.marksObtained ?? item?.marksAwarded ?? item?.final?.marksObtained ?? item?.final?.marksAwarded))
+        || ['PASS', 'FAIL'].includes(String(item?.result || item?.final?.result || '').trim().toUpperCase())
+    })
+  }).length
+  // The batch configuration is the source of truth. Reports must never
+  // increase the number of academic tests shown for the batch.
+  const configuredTotal = Number(totalConfiguredTests) || 0
+  const total = configuredTotal > 0 ? configuredTotal : unique.size
+  return { total, completed: Math.min(total, completed), percentage: total ? Math.round((Math.min(total, completed) / total) * 100) : 0 }
+}
+
+function buildSingleBatchDisplayGroup(group = {}) {
+  const primaryBatch = getPrimaryBatchForGroup(group)
+  const batchId = primaryBatch.batchId || normalizeText(group?.batchId || group?.batchGroupId || group?.id || '')
+
+  return {
+    ...group,
+    id: String(group?.id || batchId || group?.batchGroupId || '').trim(),
+    batchGroupId: String(group?.batchGroupId || group?.id || batchId || '').trim(),
+    batchId,
+    batchName: primaryBatch.batchName || group?.batchName || '',
+    batchTiming: primaryBatch.batchTiming || group?.batchTiming || '',
+    totalSeats: primaryBatch.totalSeats || group?.totalSeats || 0,
+    status: primaryBatch.status || group?.status || 'Active',
+    batches: batchId ? [primaryBatch] : [],
+    batchCount: 1,
+    displayBatch: primaryBatch,
+  }
+}
+
+export function BranchBatchManagementSection({
+  branchId = '',
+  branchCode = '',
+  branchCourses = [],
+  branchFacultyRecords = [],
+  facultyList = [],
+  branchStudents = [],
+  facultyTodayWorkEntries = [],
+  onDownloadAttendance,
+}) {
+  const [batchGroups, setBatchGroups] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({
+    courseId: '',
+    facultyId: '',
+    rows: [],
+  })
+  const [detailGroup, setDetailGroup] = useState(null)
+  const [detailAttendanceStatuses, setDetailAttendanceStatuses] = useState({})
+  const [editingGroup, setEditingGroup] = useState(null)
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState(null)
+  const [draft, setDraft] = useState(() => createInitialDraft(1, 1))
+  const [courseSearch, setCourseSearch] = useState('')
+  const [facultySearch, setFacultySearch] = useState('')
+  const [isCourseSearchFocused, setIsCourseSearchFocused] = useState(false)
+  const [isFacultySearchFocused, setIsFacultySearchFocused] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState('')
+  const [batchStatusFilter, setBatchStatusFilter] = useState('all')
+  const [batchCourseFilter, setBatchCourseFilter] = useState('all')
+  const [batchFacultyFilter, setBatchFacultyFilter] = useState('all')
+  const [batchSortBy, setBatchSortBy] = useState('createdAt')
+  const [batchSortOrder, setBatchSortOrder] = useState('desc')
+  const [batchTablePage, setBatchTablePage] = useState(1)
+  const [actionMenuOpenId, setActionMenuOpenId] = useState('')
+  const [actionMenuPosition, setActionMenuPosition] = useState(null)
+  const [saveSuccessPopup, setSaveSuccessPopup] = useState(null)
+  const [attendanceReportBatch, setAttendanceReportBatch] = useState(null)
+  const [academicTestRows, setAcademicTestRows] = useState([])
+  const [academicTestReports, setAcademicTestReports] = useState([])
+  const [studentAcademicTestProgress, setStudentAcademicTestProgress] = useState({})
+  const actionMenuCloseTimerRef = useRef(null)
+  const completionNoticeShownRef = useRef(new Set())
+
+  useEffect(() => {
+    let active = true
+    Promise.all([listAcademicTests(), listBranchAcademicTestReports()])
+      .then(([rows, reports]) => {
+        const items = Array.isArray(rows) ? rows : Array.isArray(rows?.data) ? rows.data : []
+        const reportItems = Array.isArray(reports) ? reports : Array.isArray(reports?.data) ? reports.data : []
+        if (active) {
+          setAcademicTestRows(items)
+          setAcademicTestReports(reportItems)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAcademicTestRows([])
+          setAcademicTestReports([])
+        }
+      })
+    return () => { active = false }
+  }, [branchId])
+
+  useEffect(() => {
+    if (!detailGroup) {
+      return undefined
+    }
+    const detailBatch = getPrimaryBatchForGroup(detailGroup)
+    const students = getCurrentCycleStudents(getMatchingStudents(branchStudents, {
+      facultyId: detailGroup?.facultyId || detailGroup?.branchFacultyId || '',
+      facultyName: detailGroup?.facultyName || '',
+      courseId: detailGroup?.courseId || detailGroup?.branchCourseId || '',
+      courseName: detailGroup?.courseName || '',
+      batchGroupId: detailGroup?.batchGroupId || detailGroup?.id || '',
+      batchId: detailBatch?.batchId || detailBatch?.id || '',
+      batchName: detailBatch?.batchName || '',
+      batchTiming: detailBatch?.batchTiming || '',
+    }), { ...detailGroup, ...detailBatch })
+    const total = getAcademicTestCountForBatch(academicTestRows, detailGroup, detailBatch)
+    const progressScopeKey = getBatchSeatMapKey(detailBatch, detailGroup)
+    let active = true
+    Promise.all(students.map(async (student) => {
+      const studentId = String(student?.studentId || student?.id || student?._id || '').trim()
+      if (!studentId) return null
+      try {
+        const response = await getBranchStudentAcademicReports(studentId, branchId)
+        return [`${progressScopeKey}:${normalizeMatchKey(studentId)}`, getStudentAcademicTestProgress(response, total, detailGroup)]
+      } catch {
+        return [`${progressScopeKey}:${normalizeMatchKey(studentId)}`, { total, completed: 0, percentage: 0 }]
+      }
+    })).then((entries) => {
+      if (!active) return
+      setStudentAcademicTestProgress(Object.fromEntries(entries.filter(Boolean)))
+    })
+    return () => { active = false }
+  }, [academicTestRows, branchId, branchStudents, detailGroup])
+
+  const refreshBatchGroups = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      // The API defaults to the first 10 records. Batch Management owns the
+      // client-side filters and pagination, so load the complete branch list.
+      const result = await listBranchBatches({ limit: 100 })
+      const backendGroups = Array.isArray(result?.data) ? result.data : []
+      const localGroups = loadBranchBatchGroups(branchId)
+      const mergedGroups = [
+        ...backendGroups,
+        ...localGroups.filter((localGroup) => {
+          if (!isInactiveBatchGroup(localGroup)) {
+            return false
+          }
+
+          const localKey = String(localGroup?.id || localGroup?.batchGroupId || localGroup?.batchId || '').trim()
+          if (!localKey) return true
+
+          return !backendGroups.some((backendGroup) => {
+            const backendKey = String(backendGroup?.id || backendGroup?.batchGroupId || backendGroup?.batchId || '').trim()
+            return backendKey === localKey
+          })
+        }),
+      ]
+
+      saveBranchBatchGroups(mergedGroups)
+      setBatchGroups(mergedGroups)
+      return mergedGroups
+    } catch (error) {
+      console.error('Failed to load branch batches:', error)
+      setBatchGroups([])
+      return []
+    } finally {
+      setIsLoading(false)
+    }
+  }, [branchId])
+
+  useEffect(() => {
+    let active = true
+
+    const syncGroups = async () => {
+      try {
+        const groups = await refreshBatchGroups()
+        if (!active) return
+        if (Array.isArray(groups)) {
+          setBatchGroups(groups)
+        }
+      } catch (error) {
+        if (!active) return
+        console.error('Failed to load branch batches:', error)
+        setBatchGroups([])
+      }
+    }
+
+    syncGroups()
+    return () => {
+      active = false
+    }
+  }, [branchId, refreshBatchGroups])
+
+  useEffect(() => {
+    const handleInstituteLeaveUpdated = () => { void refreshBatchGroups() }
+    window.addEventListener('institute-leave-updated', handleInstituteLeaveUpdated)
+    return () => window.removeEventListener('institute-leave-updated', handleInstituteLeaveUpdated)
+  }, [refreshBatchGroups])
+
+  useEffect(() => {
+    if (!actionMenuOpenId) return undefined
+
+    const handleDocumentPointerDown = (event) => {
+      if (!event.target?.closest?.('.batch-management-actions')) {
+        setActionMenuOpenId('')
+      }
+    }
+
+    const handleDocumentKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setActionMenuOpenId('')
+      }
+    }
+
+    document.addEventListener('mousedown', handleDocumentPointerDown)
+    document.addEventListener('touchstart', handleDocumentPointerDown)
+    document.addEventListener('keydown', handleDocumentKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentPointerDown)
+      document.removeEventListener('touchstart', handleDocumentPointerDown)
+      document.removeEventListener('keydown', handleDocumentKeyDown)
+    }
+  }, [actionMenuOpenId])
+
+  useEffect(() => {
+    return () => {
+      if (actionMenuCloseTimerRef.current) {
+        clearTimeout(actionMenuCloseTimerRef.current)
+        actionMenuCloseTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const openActionMenu = useCallback((group, button) => {
+    if (!button || typeof window === 'undefined') return
+
+    if (actionMenuCloseTimerRef.current) {
+      clearTimeout(actionMenuCloseTimerRef.current)
+      actionMenuCloseTimerRef.current = null
+    }
+
+    const rect = button.getBoundingClientRect()
+    const menuWidth = 180
+    const menuHeight = 176
+    const gap = 8
+    const padding = 8
+
+    let left = rect.right - menuWidth
+    let top = rect.bottom + gap
+
+    if (left < padding) {
+      left = padding
+    }
+
+    if (left + menuWidth > window.innerWidth - padding) {
+      left = window.innerWidth - menuWidth - padding
+    }
+
+    if (top + menuHeight > window.innerHeight - padding) {
+      top = rect.top - menuHeight - gap
+    }
+
+    if (top < padding) {
+      top = padding
+    }
+
+    setActionMenuPosition({ top, left })
+    setActionMenuOpenId(String(group.id || group.batchGroupId || group.batchId || ''))
+  }, [])
+
+  const closeActionMenu = useCallback(() => {
+    if (actionMenuCloseTimerRef.current) {
+      clearTimeout(actionMenuCloseTimerRef.current)
+      actionMenuCloseTimerRef.current = null
+    }
+
+    setActionMenuOpenId('')
+    setActionMenuPosition(null)
+  }, [])
+
+  const scheduleCloseActionMenu = useCallback(() => {
+    if (actionMenuCloseTimerRef.current) {
+      clearTimeout(actionMenuCloseTimerRef.current)
+    }
+
+    actionMenuCloseTimerRef.current = setTimeout(() => {
+      setActionMenuOpenId('')
+      setActionMenuPosition(null)
+      actionMenuCloseTimerRef.current = null
+    }, 140)
+  }, [])
+
+  const activeCourses = useMemo(() => {
+    return (Array.isArray(branchCourses) ? branchCourses : [])
+      .filter((course) => normalizeStatus(course?.status || '').toLowerCase() === 'active')
+      .map((course) => ({
+        id: normalizeText(course?.id || ''),
+        name: getCourseLabel(course),
+        assignedFaculty: Array.isArray(course?.assignedFaculty) ? course.assignedFaculty : [],
+        code: normalizeText(course?.courseCode || ''),
+        mode: normalizeText(course?.mode || course?.courseMode || ''),
+        hours: course?.hours ?? '',
+        duration: course?.duration ?? '',
+      }))
+      .filter((course) => course.id && course.name)
+  }, [branchCourses])
+
+  const activeFaculty = useMemo(() => {
+    const source = Array.isArray(branchFacultyRecords) && branchFacultyRecords.length ? branchFacultyRecords : facultyList
+
+    return source
+      .map((faculty) => {
+        const id = normalizeText(faculty?.id || faculty?.facultyId || faculty?.facultyUserId || faculty?.userId || '')
+        const facultyCode = normalizeText(
+          faculty?.facultyId || faculty?.code || faculty?.facultyCode || (id.match(/^FC[-_]?\d+$/i) ? id : ''),
+        )
+        const name = getFacultyLabel(faculty)
+        const status = normalizeStatus(faculty?.status || faculty?.recordStatus || 'Active')
+        const weeklyOffDay = normalizeText(faculty?.weeklyOffDay || '').toUpperCase()
+
+        return {
+          id,
+          facultyCode,
+          name,
+          status,
+          weeklyOffDay,
+        }
+      })
+      .filter((faculty) => faculty.id && faculty.name && faculty.status.toLowerCase() === 'active')
+  }, [branchFacultyRecords, facultyList])
+
+  const selectedCourse = useMemo(
+    () => activeCourses.find((course) => course.id === draft.courseId) || null,
+    [activeCourses, draft.courseId],
+  )
+
+  const allowedBatchModes = getAllowedBatchModes(selectedCourse?.mode)
+  const weeklyOffStartMessage = getWeeklyOffStartMessage(draft.courseStartDate, draft.weekType, draft.weeklyOffDay)
+
+  const resolvedDraftFacultyId = isFacultyNameFallbackValue(draft.facultyId) ? '' : normalizeText(draft.facultyId)
+  const resolvedDraftFacultyName = isFacultyNameFallbackValue(draft.facultyId)
+    ? getFacultyNameFromFallbackValue(draft.facultyId) || normalizeText(draft.facultyName)
+    : normalizeText(draft.facultyName)
+
+  const mappedFacultyIds = useMemo(() => {
+    const assignedFaculty = Array.isArray(selectedCourse?.assignedFaculty) ? selectedCourse.assignedFaculty : []
+    return assignedFaculty
+      .map((faculty) => normalizeText(faculty?.id || faculty?.facultyId || faculty?.facultyUserId || faculty?.userId || ''))
+      .filter(Boolean)
+  }, [selectedCourse])
+
+  const availableFacultyOptions = useMemo(() => {
+    if (!mappedFacultyIds.length) return activeFaculty
+
+    const allowed = new Set(mappedFacultyIds.map((id) => normalizeId(id)))
+    const mappedOptions = activeFaculty.filter((faculty) => allowed.has(normalizeId(faculty.id)))
+    const remainingOptions = activeFaculty.filter((faculty) => !allowed.has(normalizeId(faculty.id)))
+
+    return [...mappedOptions, ...remainingOptions]
+  }, [activeFaculty, mappedFacultyIds])
+
+  const courseSearchResults = useMemo(() => {
+    const query = courseSearch.trim().toLowerCase()
+    if (draft.courseId) return []
+    return activeCourses
+      .filter((course) => [course.id, course.code, course.name]
+        .some((value) => !query || String(value || '').toLowerCase().includes(query)))
+      .slice(0, 8)
+  }, [activeCourses, courseSearch, draft.courseId])
+
+  const facultySearchResults = useMemo(() => {
+    const query = facultySearch.trim().toLowerCase()
+    if (!draft.courseId || resolvedDraftFacultyId) return []
+
+    const isFacultyIdSearch = /^fc(?:[-_ ]?\d+)?$/i.test(query) || /^\d+$/.test(query)
+    const normalizedQueryId = query.replace(/^fc[-_ ]?/i, '').replace(/^0+(?=\d)/, '')
+
+    return availableFacultyOptions
+      .filter((faculty) => {
+        if (isFacultyIdSearch) {
+          const facultyCode = String(faculty.facultyCode || '').trim().toLowerCase()
+          const facultyCodeId = facultyCode.replace(/^fc[-_ ]?/i, '').replace(/^0+(?=\d)/, '')
+          return facultyCodeId === normalizedQueryId
+        }
+
+        return !query || String(faculty.name || '').toLowerCase().includes(query)
+      })
+      .slice(0, 8)
+  }, [availableFacultyOptions, draft.courseId, facultySearch, resolvedDraftFacultyId])
+
+  const selectedFacultyRecord = useMemo(
+    () => availableFacultyOptions.find((faculty) => faculty.id === resolvedDraftFacultyId) || null,
+    [availableFacultyOptions, resolvedDraftFacultyId],
+  )
+
+  const currentBranchBatchGroups = useMemo(
+    () => batchGroups.filter((group) => !branchId || normalizeId(group.branchId) === normalizeId(branchId)),
+    [batchGroups, branchId],
+  )
+
+  const editingGroupKey = normalizeText(editingGroup?.id || editingGroup?.batchGroupId || editingGroup?.batchId || '')
+
+  const occupiedTimingRanges = useMemo(() => {
+    if (!resolvedDraftFacultyId && !resolvedDraftFacultyName) return []
+
+    const selectedWeekType = normalizeText(draft.weekType).toUpperCase()
+    if (!selectedWeekType) return []
+
+    return currentBranchBatchGroups.flatMap((group) => {
+      const groupKey = normalizeText(group?.id || group?.batchGroupId || group?.batchId || '')
+      if (editingGroupKey && groupKey === editingGroupKey) return []
+      if (!isSameFacultyGroup(group, resolvedDraftFacultyId, resolvedDraftFacultyName)) return []
+      const groupWeekType = normalizeText(group?.weekType || group?.weekTypeName || '').toUpperCase()
+
+      return (Array.isArray(group?.batches) ? group.batches : [])
+        .map((batch) => {
+          if (normalizeStatus(batch?.status || '').toLowerCase() === 'inactive') return null
+          const batchWeekType = normalizeText(batch?.weekType || batch?.weekTypeName || '').toUpperCase()
+          // Batch-level data is authoritative. Older records may only have
+          // the week type on the group, so use that only as a fallback.
+          const effectiveWeekType = batchWeekType || groupWeekType
+          if (effectiveWeekType !== selectedWeekType) return null
+          return getBatchTimingRange(batch)
+        })
+        .filter(Boolean)
+    })
+  }, [currentBranchBatchGroups, draft.weekType, editingGroupKey, resolvedDraftFacultyId, resolvedDraftFacultyName])
+
+  const batchSeatSummaryMap = useMemo(() => {
+    const counts = new Map()
+
+    currentBranchBatchGroups.forEach((group) => {
+      const batches = Array.isArray(group?.batches) ? group.batches : []
+
+      batches.forEach((batch) => {
+        const key = getBatchSeatMapKey(batch, group)
+        if (!key) return
+
+        counts.set(key, getBatchSeatSummary({
+          ...batch,
+          batchGroupId: String(group?.batchGroupId || group?.id || '').trim(),
+          courseId: String(group?.courseId || group?.branchCourseId || '').trim(),
+          courseName: String(group?.courseName || '').trim(),
+          facultyId: String(group?.facultyId || group?.branchFacultyId || '').trim(),
+          facultyName: String(group?.facultyName || '').trim(),
+        }, branchStudents))
+      })
+    })
+
+    return counts
+  }, [branchStudents, currentBranchBatchGroups])
+
+  const nextBatchSequenceStart = useMemo(() => getNextBatchSequenceNumber(currentBranchBatchGroups), [currentBranchBatchGroups])
+  const nextBatchGroupSequenceStart = useMemo(() => getNextBatchGroupSequenceNumber(currentBranchBatchGroups), [currentBranchBatchGroups])
+
+  const resetDraft = useCallback(() => {
+    setCreateError('')
+    setFieldErrors({ courseId: '', facultyId: '', rows: [] })
+    setDraft(createInitialDraft(nextBatchSequenceStart, nextBatchGroupSequenceStart, 1))
+    setEditingGroup(null)
+  }, [nextBatchGroupSequenceStart, nextBatchSequenceStart])
+
+  const openCreateModal = useCallback(() => {
+    const groupSequenceStart = getNextBatchGroupSequenceNumber(currentBranchBatchGroups)
+    setCreateError('')
+    setFieldErrors({ courseId: '', facultyId: '', rows: [] })
+    setSaveSuccessPopup(null)
+    setDraft(createInitialDraft(nextBatchSequenceStart, groupSequenceStart, 1))
+    setEditingGroup(null)
+    setCourseSearch('')
+    setFacultySearch('')
+    setIsCourseSearchFocused(false)
+    setIsFacultySearchFocused(false)
+    setActionMenuOpenId('')
+    setActionMenuPosition(null)
+    setIsCreateOpen(true)
+  }, [currentBranchBatchGroups, nextBatchSequenceStart])
+
+  const openEditModal = useCallback(
+    (group) => {
+      const nextGroupSequence = getNextBatchGroupSequenceNumber(currentBranchBatchGroups)
+      setCreateError('')
+      setFieldErrors({ courseId: '', facultyId: '', rows: [] })
+      setEditingGroup(group)
+      const nextDraft = createDraftFromGroup(group, 1, nextGroupSequence, availableFacultyOptions)
+      setDraft(nextDraft)
+      setCourseSearch(String(group?.courseName || nextDraft.courseId || '').trim())
+      setFacultySearch(String(group?.facultyName || nextDraft.facultyName || '').trim())
+      setIsCourseSearchFocused(false)
+      setIsFacultySearchFocused(false)
+      setIsCreateOpen(true)
+      setActionMenuOpenId('')
+      setActionMenuPosition(null)
+    },
+    [availableFacultyOptions, currentBranchBatchGroups],
+  )
+
+  const closeCreateModal = useCallback(() => {
+    if (isSaving) return
+    setIsCreateOpen(false)
+    setEditingGroup(null)
+    setActionMenuOpenId('')
+    setActionMenuPosition(null)
+    resetDraft()
+  }, [isSaving, resetDraft])
+
+  const closeDetailModal = useCallback(() => {
+    setDetailGroup(null)
+    setDetailAttendanceStatuses({})
+  }, [])
+
+  const loadDetailAttendance = useCallback(async (group) => {
+    const detailBatch = getPrimaryBatchForGroup(group)
+    const detailStudents = getCurrentCycleStudents(getMatchingStudents(branchStudents, {
+      facultyId: group?.facultyId || group?.branchFacultyId || '',
+      facultyName: group?.facultyName || '',
+      courseId: group?.courseId || group?.branchCourseId || '',
+      courseName: group?.courseName || '',
+      batchGroupId: group?.batchGroupId || group?.id || '',
+      batchId: detailBatch?.batchId || detailBatch?.id || '',
+      batchName: detailBatch?.batchName || '',
+      batchTiming: detailBatch?.batchTiming || '',
+    }), { ...group, ...detailBatch })
+    const localStatuses = {}
+    const todayKey = getAttendanceDateKey()
+
+    detailStudents.forEach((student) => {
+      const studentKey = normalizeMatchKey(student?.studentId || student?.id || student?._id || '')
+      const localStatus = String(getStudentCalendarAttendance(student)?.[todayKey] || '').trim().toUpperCase()
+      if (studentKey && ['PRESENT', 'ABSENT'].includes(localStatus)) {
+        localStatuses[studentKey] = localStatus
+      }
+    })
+
+    // A batch must not appear attended before its scheduled start time. Some
+    // attendance responses contain the faculty/session status for the batch;
+    // do not let that status turn every learner into Present early.
+    const batchStartDateTime = getBatchStartDateTime(detailBatch?.batchTiming || '', todayKey)
+    if (batchStartDateTime && batchStartDateTime.getTime() > Date.now()) {
+      setDetailAttendanceStatuses({})
+      return
+    }
+
+    try {
+      const branchId = String(group?.branchId || detailBatch?.branchId || '').trim()
+      const overview = branchId
+        ? await getBranchAttendanceOverview(todayKey, branchId)
+        : await getCurrentFacultyAttendanceOverview({
+            date: todayKey,
+            facultyId: String(group?.facultyId || group?.branchFacultyId || '').trim(),
+            courseId: String(group?.courseId || group?.branchCourseId || '').trim(),
+            batchId: String(detailBatch?.batchId || detailBatch?.id || '').trim(),
+          })
+      // The server response is authoritative. This also clears stale local
+      // browser marks when today's attendance has not actually been saved.
+      setDetailAttendanceStatuses({
+        ...localStatuses,
+        ...extractAttendanceStatuses(overview, {
+        date: todayKey,
+        courseId: group?.courseId || group?.branchCourseId || detailBatch?.courseId || '',
+        batchId: detailBatch?.batchId || detailBatch?.id || '',
+        }),
+      })
+    } catch {
+      // The faculty dashboard also persists today's marks locally. Keep those
+      // marks visible when the branch overview endpoint is unavailable.
+      setDetailAttendanceStatuses(localStatuses)
+    }
+  }, [branchStudents])
+
+  const toggleGroupStudents = useCallback(
+    (group) => {
+      setDetailGroup(group)
+      setDetailAttendanceStatuses({})
+      void loadDetailAttendance(group)
+    },
+    [loadDetailAttendance],
+  )
+
+  useEffect(() => {
+    if (!detailGroup || typeof window === 'undefined') return undefined
+    const refreshAttendance = () => {
+      void loadDetailAttendance(detailGroup)
+    }
+    window.addEventListener(FACULTY_ATTENDANCE_SYNC_EVENT, refreshAttendance)
+    window.addEventListener('storage', refreshAttendance)
+    return () => {
+      window.removeEventListener(FACULTY_ATTENDANCE_SYNC_EVENT, refreshAttendance)
+      window.removeEventListener('storage', refreshAttendance)
+    }
+  }, [detailGroup, loadDetailAttendance])
+
+  const renderActionMenu = () => {
+    if (!actionMenuOpenId || !actionMenuPosition || typeof document === 'undefined') return null
+
+    const activeGroup = displayGroups.find((group) => String(group.id || group.batchGroupId || group.batchId || '') === actionMenuOpenId)
+    if (!activeGroup) return null
+
+    return createPortal(
+      <div
+        className="batch-management-actions batch-management-actions-portal"
+        role="presentation"
+        onClick={(event) => event.stopPropagation()}
+        onMouseEnter={() => {
+          if (actionMenuCloseTimerRef.current) {
+            clearTimeout(actionMenuCloseTimerRef.current)
+            actionMenuCloseTimerRef.current = null
+          }
+        }}
+        onMouseLeave={scheduleCloseActionMenu}
+        style={{
+          position: 'fixed',
+          top: `${actionMenuPosition.top}px`,
+          left: `${actionMenuPosition.left}px`,
+          width: '180px',
+          zIndex: 1600,
+        }}
+      >
+        <div
+          className="batch-management-actions-menu"
+          role="menu"
+          aria-label={`${activeGroup.courseName || activeGroup.batchId || 'Batch'} actions`}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              if (onDownloadAttendance) onDownloadAttendance(activeGroup)
+              else setAttendanceReportBatch(activeGroup)
+              closeActionMenu()
+            }}
+          >
+            <Download size={14} strokeWidth={2.2} aria-hidden="true" />
+            Download Attendance
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              openEditModal(activeGroup)
+              setActionMenuPosition(null)
+            }}
+          >
+            <Pencil size={14} strokeWidth={2.2} aria-hidden="true" />
+            Edit
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              toggleGroupStudents(activeGroup)
+              closeActionMenu()
+            }}
+          >
+            <UsersRound size={14} strokeWidth={2.2} aria-hidden="true" />
+            View Students
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="is-danger"
+            onClick={() => {
+              requestDeleteGroup(activeGroup)
+              setActionMenuPosition(null)
+            }}
+          >
+            <Trash2 size={14} strokeWidth={2.2} aria-hidden="true" />
+            Delete
+          </button>
+        </div>
+      </div>,
+      document.body,
+    )
+  }
+
+  const handleDraftChange = useCallback((field, value) => {
+    setDraft((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === 'courseId' ? { facultyId: '', facultyName: '', weekType: '', mode: '', courseStartDate: '', courseEndDate: '' } : {}),
+      ...(['weekType', 'mode', 'courseStartDate', 'facultyId'].includes(field)
+        ? { courseEndDate: calculateBatchCourseEndDate(field === 'courseStartDate' ? value : current.courseStartDate, field === 'weekType' ? value : current.weekType, field === 'mode' ? value : current.mode, selectedCourse?.hours || selectedCourse?.duration, { weeklyOffDay: field === 'facultyId' ? availableFacultyOptions.find((faculty) => normalizeText(faculty.id) === normalizeText(value))?.weeklyOffDay : current.weeklyOffDay }) }
+        : {}),
+      ...(field === 'facultyId'
+        ? {
+            facultyName:
+              availableFacultyOptions.find((faculty) => normalizeText(faculty.id) === normalizeText(value))?.name ||
+              current.facultyName ||
+              '',
+            weeklyOffDay: availableFacultyOptions.find((faculty) => normalizeText(faculty.id) === normalizeText(value))?.weeklyOffDay || '',
+          }
+        : {}),
+    }))
+    if (field === 'courseId') {
+      setFieldErrors((current) => ({
+        ...current,
+        courseId: '',
+        facultyId: '',
+      }))
+    }
+    if (field === 'facultyId') {
+      setFieldErrors((current) => ({
+        ...current,
+        facultyId: '',
+      }))
+    }
+    if (field === 'weekType' || field === 'mode') {
+      setFieldErrors((current) => ({
+        ...current,
+        rows: current.rows.map((rowErrors, index) => ({
+          ...rowErrors,
+          timing: getBatchDurationError(draft.rows[index], field === 'weekType' ? value : draft.weekType, field === 'mode' ? value : draft.mode),
+        })),
+      }))
+    }
+  }, [availableFacultyOptions, draft.mode, draft.rows, draft.weekType, selectedCourse])
+
+  const handleCourseSearchChange = useCallback((value) => {
+    const nextValue = String(value || '')
+    setCourseSearch(nextValue)
+    setFacultySearch('')
+
+    if (!nextValue.trim() || draft.courseId) {
+      handleDraftChange('courseId', '')
+    }
+  }, [draft.courseId, handleDraftChange])
+
+  const selectCourseFromSearch = useCallback((course) => {
+    handleDraftChange('courseId', course.id)
+    const allowedModes = getAllowedBatchModes(course?.mode)
+    if (allowedModes.length === 1) setDraft((current) => ({ ...current, mode: allowedModes[0] }))
+    setCourseSearch(course.name)
+    setFacultySearch('')
+    setIsCourseSearchFocused(false)
+    setIsFacultySearchFocused(false)
+  }, [handleDraftChange])
+
+  const handleFacultySearchChange = useCallback((value) => {
+    const nextValue = String(value || '')
+    setFacultySearch(nextValue)
+
+    if (!nextValue.trim() || resolvedDraftFacultyId) {
+      handleDraftChange('facultyId', '')
+    }
+  }, [handleDraftChange, resolvedDraftFacultyId])
+
+  const selectFacultyFromSearch = useCallback((faculty) => {
+    handleDraftChange('facultyId', faculty.id)
+    setFacultySearch(faculty.name)
+    setIsFacultySearchFocused(false)
+  }, [handleDraftChange])
+
+  const handleRowChange = useCallback((index, field, value) => {
+    const currentRow = draft.rows[index] || {}
+    const nextRow = { ...currentRow, [field]: value }
+    setDraft((current) => ({
+      ...current,
+      rows: current.rows.map((row, rowIndex) => {
+        if (rowIndex !== index) return row
+
+        if (field === 'startTime' || field === 'endTime') {
+          return { ...row, [field]: String(value ?? '') }
+        }
+
+        return { ...row, [field]: value }
+      }),
+    }))
+    setFieldErrors((current) => ({
+      ...current,
+      rows: current.rows.map((rowErrors, rowIndex) => {
+        if (rowIndex !== index) return rowErrors
+        return {
+          ...rowErrors,
+          ...(field === 'batchName' ? { batchName: '' } : {}),
+          ...(field === 'startTime' || field === 'endTime' || field === 'startPeriod' || field === 'endPeriod'
+            ? { timing: getBatchDurationError(nextRow, draft.weekType, draft.mode) }
+            : {}),
+          ...(field === 'totalSeats' ? { totalSeats: '' } : {}),
+          ...(field === 'status' ? { status: '' } : {}),
+        }
+      }),
+    }))
+  }, [draft.mode, draft.rows, draft.weekType])
+
+  const closeDeleteConfirmModal = useCallback(() => {
+    setDeleteGroupTarget(null)
+  }, [])
+
+  const requestDeleteGroup = useCallback((group) => {
+    setDeleteGroupTarget(group)
+    setActionMenuOpenId('')
+    setActionMenuPosition(null)
+  }, [])
+
+  const confirmDeleteGroup = useCallback(() => {
+    if (!deleteGroupTarget) return
+
+    ;(async () => {
+      try {
+        setIsSaving(true)
+        await deleteBranchBatch(deleteGroupTarget.id || deleteGroupTarget.batchGroupId || deleteGroupTarget.batchId)
+        await refreshBatchGroups()
+
+        if (detailGroup && String(detailGroup.id || detailGroup.batchGroupId || detailGroup.batchId || '').trim() === String(deleteGroupTarget.id || deleteGroupTarget.batchGroupId || deleteGroupTarget.batchId || '').trim()) {
+          setDetailGroup(null)
+        }
+
+        if (editingGroup && String(editingGroup.id || editingGroup.batchGroupId || editingGroup.batchId || '').trim() === String(deleteGroupTarget.id || deleteGroupTarget.batchGroupId || deleteGroupTarget.batchId || '').trim()) {
+          closeCreateModal()
+        }
+        closeDeleteConfirmModal()
+      } catch (error) {
+        console.error('Failed to delete batch:', error)
+        setCreateError(error?.message || 'Unable to delete batch right now.')
+      } finally {
+        setIsSaving(false)
+      }
+    })()
+  }, [closeCreateModal, closeDeleteConfirmModal, deleteGroupTarget, detailGroup, editingGroup, refreshBatchGroups])
+
+  const handleSaveBatches = useCallback(
+    async (event) => {
+      event.preventDefault()
+      setCreateError('')
+
+      const nextErrors = {
+        courseId: draft.courseId ? '' : 'This field is required',
+        facultyId: draft.facultyId ? '' : 'This field is required',
+        weekType: draft.weekType ? '' : 'This field is required',
+        mode: draft.mode ? '' : 'This field is required',
+        courseStartDate: draft.courseStartDate ? '' : 'This field is required',
+        rows: draft.rows.map(() => ({
+          batchName: '',
+          timing: '',
+          totalSeats: '',
+          status: '',
+        })),
+      }
+
+      if (!draft.rows.length) {
+        setCreateError('Please add at least one batch row.')
+        setFieldErrors(nextErrors)
+        return
+      }
+
+      draft.rows.forEach((row, index) => {
+        if (!normalizeText(row.batchName)) nextErrors.rows[index].batchName = 'This field is required'
+        if (!normalizeText(row.startTime) || !normalizeText(row.endTime)) nextErrors.rows[index].timing = 'This field is required'
+        if (!nextErrors.rows[index].timing) {
+          nextErrors.rows[index].timing = getBatchDurationError(row, draft.weekType, draft.mode)
+        }
+        if (!toNumber(row.totalSeats)) nextErrors.rows[index].totalSeats = 'This field is required'
+        if (!normalizeText(row.status)) nextErrors.rows[index].status = 'This field is required'
+      })
+
+      const hasFieldErrors =
+        Boolean(nextErrors.courseId) ||
+        Boolean(nextErrors.facultyId) ||
+        Boolean(nextErrors.weekType || nextErrors.mode || nextErrors.courseStartDate) ||
+        nextErrors.rows.some((rowErrors) =>
+          Boolean(rowErrors.batchName || rowErrors.timing || rowErrors.totalSeats || rowErrors.status),
+        )
+
+      if (hasFieldErrors) {
+        setFieldErrors(nextErrors)
+        return
+      }
+
+      setFieldErrors(nextErrors)
+
+      const selectedCourseRecord = activeCourses.find((course) => course.id === draft.courseId) || null
+      const resolvedFacultyId = resolvedDraftFacultyId
+      const resolvedFacultyName = resolvedDraftFacultyName
+      const existingGroup = editingGroup
+        ? batchGroups.find((group) => String(group.id || group.batchGroupId || group.batchId || '').trim() === String(editingGroup.id || editingGroup.batchGroupId || editingGroup.batchId || '').trim()) || editingGroup
+        : null
+
+      try {
+        setIsSaving(true)
+        setFieldErrors(nextErrors)
+        const cleanedRows = draft.rows.map((row, index) => {
+          const batchName = normalizeText(row.batchName)
+          const startTime = normalizeText(row.startTime)
+          const endTime = normalizeText(row.endTime)
+          const startPeriod = normalizeText(row.startPeriod || 'AM').toUpperCase()
+          const endPeriod = normalizeText(row.endPeriod || 'AM').toUpperCase()
+          const totalSeats = toNumber(row.totalSeats)
+          const status = normalizeStatus(row.status || 'Active')
+
+          if (!batchName || !startTime || !endTime || !totalSeats) {
+            throw new Error(`Please complete batch row ${index + 1}.`)
+          }
+
+          return {
+            batchId: row.batchId,
+            batchName,
+            startTime: convertTimeTo24Hour(startTime, startPeriod),
+            startPeriod,
+            endTime: convertTimeTo24Hour(endTime, endPeriod),
+            endPeriod,
+            batchTiming: buildBatchTiming({
+              startTime: formatClockLabel(`${startTime} ${startPeriod}`),
+              endTime: formatClockLabel(`${endTime} ${endPeriod}`),
+            }),
+            totalSeats,
+            status,
+          }
+        })
+
+        const draftTimingRanges = cleanedRows.map((row) => ({
+          ...row,
+          startMinutes: parseTimeToMinutes(row.startTime, row.startPeriod),
+          endMinutes: parseTimeToMinutes(row.endTime, row.endPeriod),
+          label: formatRangeLabel(row.startTime, row.startPeriod, row.endTime, row.endPeriod),
+        }))
+
+        draftTimingRanges.forEach((rowTiming, index) => {
+          if (!Number.isFinite(rowTiming.startMinutes) || !Number.isFinite(rowTiming.endMinutes) || rowTiming.endMinutes <= rowTiming.startMinutes) {
+            nextErrors.rows[index].timing = 'Please choose a valid time range.'
+            return
+          }
+
+          const existingConflict = findTimingConflict(rowTiming.startMinutes, rowTiming.endMinutes, occupiedTimingRanges)
+          const draftConflict = findTimingConflict(rowTiming.startMinutes, rowTiming.endMinutes, draftTimingRanges.slice(0, index))
+          const conflict = existingConflict || draftConflict
+
+          if (conflict) {
+            nextErrors.rows[index].timing = getBatchTimingClashMessage()
+          }
+        })
+
+        const hasTimingOverlap = nextErrors.rows.some((rowErrors) => Boolean(rowErrors.timing))
+        if (hasTimingOverlap) {
+          setFieldErrors(nextErrors)
+          setCreateError(getBatchTimingClashMessage())
+          return
+        }
+
+        const payload = {
+          courseId: selectedCourseRecord?.id || '',
+          facultyId: selectedFacultyRecord?.id || existingGroup?.facultyId || resolvedFacultyId || '',
+          weekType: draft.weekType,
+          mode: draft.mode,
+          courseStartDate: draft.courseStartDate,
+          courseEndDate: draft.courseEndDate,
+          rows: cleanedRows.map((row) => ({
+            batchId: row.batchId,
+            batchName: row.batchName,
+            startTime: row.startTime,
+            startPeriod: row.startPeriod,
+            endTime: row.endTime,
+            endPeriod: row.endPeriod,
+            totalSeats: row.totalSeats,
+            status: row.status,
+          })),
+        }
+
+        const savedGroup = existingGroup
+          ? await updateBranchBatch(existingGroup.id || existingGroup.batchGroupId || existingGroup.batchId, payload)
+          : await createBranchBatch(payload)
+
+        if (existingGroup) {
+          const existingBatch = getPrimaryBatchForGroup(existingGroup)
+          const savedBatch = getPrimaryBatchForGroup(savedGroup || {})
+          const cycleSources = [[existingBatch, existingGroup], [savedBatch, savedGroup || {}]]
+          cycleSources.forEach(([cycleBatch, cycleGroup]) => {
+            const updateKey = cycleCourseDateUpdateKey(cycleBatch, cycleGroup)
+            if (updateKey && Number(cycleBatch?.currentCycleNumber || cycleGroup?.currentCycleNumber || 0) > 1) {
+              window.localStorage.setItem(updateKey, 'true')
+            }
+          })
+        }
+
+        const normalizedSavedGroup = {
+          ...existingGroup,
+          ...savedGroup,
+          id: String(savedGroup?.id || existingGroup?.id || cleanedRows[0]?.batchId || '').trim(),
+          batchId: String(savedGroup?.batchId || existingGroup?.batchId || cleanedRows[0]?.batchId || '').trim(),
+          branchId: String(savedGroup?.branchId || existingGroup?.branchId || branchId || '').trim(),
+          courseId: String(payload.courseId || existingGroup?.courseId || '').trim(),
+          courseName: String(selectedCourseRecord?.name || existingGroup?.courseName || '').trim(),
+          facultyId: String(payload.facultyId || existingGroup?.facultyId || '').trim(),
+          facultyName: String(selectedFacultyRecord?.name || existingGroup?.facultyName || resolvedFacultyName || '').trim(),
+          weeklyOffDay: String(savedGroup?.weeklyOffDay || selectedFacultyRecord?.weeklyOffDay || existingGroup?.weeklyOffDay || '').trim().toUpperCase(),
+          status: normalizeStatus(savedGroup?.status || cleanedRows[0]?.status || existingGroup?.status || 'Active'),
+          rows: cleanedRows,
+          batches: cleanedRows,
+        }
+
+        const localBranchGroups = loadBranchBatchGroups(branchId)
+        const nextLocalGroups = [
+          normalizedSavedGroup,
+          ...localBranchGroups.filter((group) => {
+            if (!isInactiveBatchGroup(group)) {
+              return false
+            }
+
+            const groupKey = String(group?.id || group?.batchGroupId || group?.batchId || '').trim()
+            const savedKey = String(normalizedSavedGroup.id || normalizedSavedGroup.batchGroupId || normalizedSavedGroup.batchId || '').trim()
+            return !groupKey || groupKey !== savedKey
+          }),
+        ]
+        saveBranchBatchGroups(nextLocalGroups)
+
+        const latestGroups = await refreshBatchGroups()
+        window.dispatchEvent(new Event('cispro:branch-batch-groups-changed'))
+        if (existingGroup) window.dispatchEvent(new Event('cispro:branch-students-changed'))
+        setIsCreateOpen(false)
+        setEditingGroup(null)
+        setFieldErrors({ courseId: '', facultyId: '', rows: [] })
+        const latestBranchGroups = latestGroups.filter((group) => !branchId || normalizeId(group.branchId) === normalizeId(branchId))
+        const latestGroupSequence = getNextBatchGroupSequenceNumber(latestBranchGroups.length ? latestBranchGroups : currentBranchBatchGroups)
+        setDraft(createInitialDraft(getNextBatchSequenceNumber(latestBranchGroups), latestGroupSequence, 1))
+        setSaveSuccessPopup({
+          title: existingGroup ? 'Batch Updated' : 'Batch Created',
+          message: existingGroup
+            ? 'The batch group has been updated successfully.'
+            : 'The batch group has been created successfully.',
+        })
+      } catch (error) {
+        console.error('Failed to save batches:', error)
+        setCreateError(error?.message || 'Unable to save batches right now.')
+      } finally {
+        setIsSaving(false)
+      }
+    },
+    [
+      activeCourses,
+      batchGroups,
+      branchId,
+      currentBranchBatchGroups,
+      draft.courseId,
+      draft.facultyId,
+      draft.weekType,
+      draft.mode,
+      draft.courseStartDate,
+      draft.courseEndDate,
+      draft.rows,
+      editingGroup,
+      occupiedTimingRanges,
+      refreshBatchGroups,
+      resolvedDraftFacultyId,
+      resolvedDraftFacultyName,
+      selectedFacultyRecord,
+    ],
+  )
+
+  const batchFilterOptions = useMemo(() => {
+    const courseOptions = new Map()
+    const facultyOptions = new Map()
+
+    currentBranchBatchGroups.forEach((group) => {
+      const courseId = normalizeText(group?.courseId || group?.branchCourseId || group?.courseName)
+      const courseName = normalizeText(group?.courseName || courseId)
+      const facultyId = normalizeText(group?.facultyId || group?.branchFacultyId || group?.facultyName)
+      const facultyName = normalizeText(group?.facultyName || facultyId)
+
+      if (courseId && courseName) courseOptions.set(courseId, courseName)
+      if (facultyId && facultyName) facultyOptions.set(facultyId, facultyName)
+    })
+
+    return {
+      courses: [...courseOptions.entries()].sort((left, right) => left[1].localeCompare(right[1])),
+      faculties: [...facultyOptions.entries()].sort((left, right) => left[1].localeCompare(right[1])),
+    }
+  }, [currentBranchBatchGroups])
+
+  const getComputedBatchStatus = (group = {}) => {
+    const primaryBatch = getPrimaryBatchForGroup(group)
+    if (String(primaryBatch?.completionStatus || '').toUpperCase() === 'COMPLETED' || String(primaryBatch?.currentCycleStatus || '').toUpperCase() === 'COMPLETED') return 'completed'
+    const students = getCurrentCycleStudents(getMatchingStudents(branchStudents, {
+      facultyId: group?.facultyId || group?.branchFacultyId || '',
+      facultyName: group?.facultyName || '',
+      courseId: group?.courseId || group?.branchCourseId || '',
+      courseName: group?.courseName || '',
+      batchGroupId: group?.batchGroupId || group?.id || '',
+      batchId: primaryBatch?.batchId || primaryBatch?.id || '',
+      batchName: primaryBatch?.batchName || '',
+      batchTiming: primaryBatch?.batchTiming || '',
+    }), { ...group, ...primaryBatch })
+    const total = getAcademicTestCountForBatch(academicTestRows, group, primaryBatch)
+    const scopeKey = getBatchSeatMapKey(primaryBatch, group)
+    const completed = students.length > 0 && students.every((student) => isStudentBatchCourseCompleted(
+      student,
+      { ...group, ...primaryBatch },
+      getStudentBatchCourseProgress(
+        student,
+        { ...group, ...primaryBatch },
+        branchCourses.find((course) => normalizeMatchKey(course?.id || course?.courseId) === normalizeMatchKey(group?.courseId || group?.branchCourseId)),
+        facultyTodayWorkEntries,
+      ),
+      studentAcademicTestProgress[`${scopeKey}:${normalizeMatchKey(student?.studentId || student?.id || student?._id || '')}`]
+        || { total, completed: 0, percentage: 0 },
+    ))
+    return completed ? 'completed' : isInactiveBatchGroup(group) ? 'inactive' : 'active'
+  }
+
+  const filteredGroups = currentBranchBatchGroups
+    .filter((group) => {
+      const search = normalizeText(appliedSearchTerm).toLowerCase()
+      if (!search) return true
+
+      const haystack = [
+        group.batchGroupId,
+        group.batchId,
+        group.courseName,
+        group.facultyName,
+        group.status,
+        ...(Array.isArray(group.batches) ? group.batches.flatMap((batch) => [batch.batchName, batch.batchTiming, batch.status]) : []),
+      ]
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(search)
+    })
+    .filter((group) => {
+      if (batchStatusFilter === 'all') return true
+      const status = getComputedBatchStatus(group)
+      return status === batchStatusFilter
+    })
+    .filter((group) => {
+      if (batchCourseFilter === 'all') return true
+      return normalizeId(group?.courseId || group?.branchCourseId || group?.courseName) === normalizeId(batchCourseFilter)
+    })
+    .filter((group) => {
+      if (batchFacultyFilter === 'all') return true
+      return normalizeId(group?.facultyId || group?.branchFacultyId || group?.facultyName) === normalizeId(batchFacultyFilter)
+    })
+    .sort((left, right) => {
+      const leftValue = batchSortBy === 'name'
+        ? (left?.batchName || left?.batchId || left?.batchGroupId || '')
+        : batchSortBy === 'course'
+          ? (left?.courseName || '')
+          : batchSortBy === 'faculty'
+            ? (left?.facultyName || '')
+            : batchSortBy === 'status'
+              ? (isInactiveBatchGroup(left) ? 'Inactive' : 'Active')
+              : (left?.createdAt || '')
+      const rightValue = batchSortBy === 'name'
+        ? (right?.batchName || right?.batchId || right?.batchGroupId || '')
+        : batchSortBy === 'course'
+          ? (right?.courseName || '')
+          : batchSortBy === 'faculty'
+            ? (right?.facultyName || '')
+            : batchSortBy === 'status'
+              ? (isInactiveBatchGroup(right) ? 'Inactive' : 'Active')
+              : (right?.createdAt || '')
+      const comparison = String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' })
+      return batchSortOrder === 'asc' ? comparison : -comparison
+    })
+
+  const displayGroups = []
+  const uniqueDisplayGroupKeys = new Set()
+
+  filteredGroups.forEach((group) => {
+    const displayGroup = buildSingleBatchDisplayGroup(group)
+    const key = getBatchDisplayKey(displayGroup)
+    if (!key || uniqueDisplayGroupKeys.has(key)) return
+    uniqueDisplayGroupKeys.add(key)
+    displayGroups.push(displayGroup)
+  })
+
+  useEffect(() => {
+    for (const group of displayGroups) {
+      const batch = getPrimaryBatchForGroup(group)
+      const nextCycleReady = Number(batch?.currentCycleNumber || group?.currentCycleNumber || 0) > 1
+        && String(batch?.currentCycleStatus || group?.currentCycleStatus || '').toUpperCase() === 'ACTIVE'
+        && !isCycleCourseDateUpdated(batch, group)
+      if (!nextCycleReady) continue
+      const noticeKey = `${getBatchDisplayKey(group)}|${batch?.currentCycleId || batch?.currentCycleNumber || 'completed'}`
+      if (completionNoticeShownRef.current.has(noticeKey)) continue
+      completionNoticeShownRef.current.add(noticeKey)
+      setSaveSuccessPopup({
+        title: 'New Batch Cycle Started',
+        message: `${batch?.batchName || group?.batchName || 'This batch'} is ready for the next cycle. Please update the Course Start Date before adding new students.`,
+        group,
+        actionLabel: 'Update Course Start Date',
+      })
+      break
+    }
+  }, [displayGroups])
+
+  const displayGroupAcademicKey = displayGroups.map((group) => getBatchDisplayKey(group)).join('|')
+
+  useEffect(() => {
+    if (!displayGroups.length || !branchStudents.length) return undefined
+    let active = true
+    const scopedStudents = new Map()
+    displayGroups.forEach((group) => {
+      const batch = getPrimaryBatchForGroup(group)
+      const students = getCurrentCycleStudents(getMatchingStudents(branchStudents, {
+        facultyId: group?.facultyId || group?.branchFacultyId || '',
+        facultyName: group?.facultyName || '',
+        courseId: group?.courseId || group?.branchCourseId || '',
+        courseName: group?.courseName || '',
+        batchGroupId: group?.batchGroupId || group?.id || '',
+        batchId: batch?.batchId || batch?.id || '',
+        batchName: batch?.batchName || '',
+        batchTiming: batch?.batchTiming || '',
+      }), { ...group, ...batch })
+      students.forEach((student) => {
+        const studentId = String(student?.studentId || student?.id || student?._id || '').trim()
+        if (studentId) scopedStudents.set(normalizeMatchKey(studentId), student)
+      })
+    })
+
+    Promise.all([...scopedStudents.entries()].map(async ([studentKey, student]) => {
+      try {
+        return [studentKey, await getBranchStudentAcademicReports(String(student?.studentId || student?.id || student?._id || '').trim(), branchId)]
+      } catch {
+        return [studentKey, null]
+      }
+    })).then((studentResponses) => {
+      if (!active) return
+      const nextProgress = {}
+      displayGroups.forEach((group) => {
+        const batch = getPrimaryBatchForGroup(group)
+        const total = getAcademicTestCountForBatch(academicTestRows, group, batch)
+        const scopeKey = getBatchSeatMapKey(batch, group)
+        const students = getCurrentCycleStudents(getMatchingStudents(branchStudents, {
+          facultyId: group?.facultyId || group?.branchFacultyId || '',
+          facultyName: group?.facultyName || '',
+          courseId: group?.courseId || group?.branchCourseId || '',
+          courseName: group?.courseName || '',
+          batchGroupId: group?.batchGroupId || group?.id || '',
+          batchId: batch?.batchId || batch?.id || '',
+          batchName: batch?.batchName || '',
+          batchTiming: batch?.batchTiming || '',
+        }), { ...group, ...batch })
+        students.forEach((student) => {
+          const studentId = String(student?.studentId || student?.id || student?._id || '').trim()
+          const response = studentResponses.find(([key]) => key === normalizeMatchKey(studentId))?.[1]
+          if (studentId) nextProgress[`${scopeKey}:${normalizeMatchKey(studentId)}`] = getStudentAcademicTestProgress(response || {}, total, group)
+        })
+      })
+      setStudentAcademicTestProgress((current) => ({ ...current, ...nextProgress }))
+    })
+
+    return () => { active = false }
+  // The signature prevents this background sync from firing on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [academicTestRows, branchId, branchStudents, displayGroupAcademicKey])
+
+  const batchRowsPerPage = 5
+  const totalBatchPages = Math.max(1, Math.ceil(displayGroups.length / batchRowsPerPage))
+  const safeBatchTablePage = Math.min(Math.max(1, batchTablePage), totalBatchPages)
+  const paginatedGroups = displayGroups.slice(
+    (safeBatchTablePage - 1) * batchRowsPerPage,
+    safeBatchTablePage * batchRowsPerPage,
+  )
+
+  const renderCreateModal = () => {
+    if (!isCreateOpen || typeof document === 'undefined') return null
+    const isEditingBatch = Boolean(editingGroup)
+
+    return createPortal(
+      <div className="branch-modal-backdrop batch-modal-backdrop" role="presentation">
+        <form
+          className="course-modal panel-card batch-management-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="batch-create-title"
+          noValidate
+          onClick={(event) => event.stopPropagation()}
+          onSubmit={handleSaveBatches}
+        >
+          <button type="button" className="course-modal-close" onClick={closeCreateModal} aria-label="Close batch form">
+            <X size={18} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+
+          <div className="course-modal-header batch-management-modal-header">
+            <div>
+              <p className="section-kicker">Batch Management</p>
+              <h3 id="batch-create-title">{isEditingBatch ? 'Edit Batch' : 'Create Batch'}</h3>
+            </div>
+          </div>
+
+          <div className="batch-management-form-shell">
+            <div className="batch-management-form-grid batch-management-identifiers-grid">
+              <label className="batch-management-field">
+                <span>Course Name *</span>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="search"
+                    value={courseSearch}
+                    onChange={(event) => handleCourseSearchChange(event.target.value)}
+                    onFocus={() => setIsCourseSearchFocused(true)}
+                    onBlur={() => window.setTimeout(() => setIsCourseSearchFocused(false), 120)}
+                    placeholder={activeCourses.length ? 'Search by course ID or name' : 'No courses available'}
+                    disabled={!activeCourses.length}
+                    autoComplete="off"
+                    aria-autocomplete="list"
+                    aria-expanded={isCourseSearchFocused && courseSearchResults.length > 0}
+                  />
+                  {isCourseSearchFocused && courseSearchResults.length ? (
+                    <div role="listbox" className="batch-search-results">
+                      {courseSearchResults.map((course) => (
+                        <button
+                          key={course.id}
+                          type="button"
+                          role="option"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => selectCourseFromSearch(course)}
+                        >
+                          <strong>{course.name}</strong>
+                          <small>{course.code || course.id}</small>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                {fieldErrors.courseId ? <small className="batch-management-field-error">{fieldErrors.courseId}</small> : null}
+              </label>
+              <label className="batch-management-field">
+                <span>Faculty Name *</span>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="search"
+                    value={facultySearch}
+                    onChange={(event) => handleFacultySearchChange(event.target.value)}
+                    onFocus={() => setIsFacultySearchFocused(true)}
+                    onBlur={() => window.setTimeout(() => setIsFacultySearchFocused(false), 120)}
+                    placeholder={draft.courseId ? 'Search by faculty ID or name' : 'Select course first'}
+                    disabled={!draft.courseId}
+                    autoComplete="off"
+                    aria-autocomplete="list"
+                    aria-expanded={isFacultySearchFocused && facultySearchResults.length > 0}
+                  />
+                  {isFacultySearchFocused && facultySearchResults.length ? (
+                    <div role="listbox" className="batch-search-results">
+                      {facultySearchResults.map((faculty) => (
+                        <button
+                          key={faculty.id}
+                          type="button"
+                          role="option"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => selectFacultyFromSearch(faculty)}
+                        >
+                          <strong>{faculty.name}</strong>
+                          <small>{faculty.facultyCode || faculty.id}</small>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                {fieldErrors.facultyId ? <small className="batch-management-field-error">{fieldErrors.facultyId}</small> : null}
+                
+              </label>
+              <label className="batch-management-field">
+                <span>Faculty Weekly Off Days</span>
+                <input type="text" value={draft.weeklyOffDay ? draft.weeklyOffDay.charAt(0) + draft.weeklyOffDay.slice(1).toLowerCase() : 'Select faculty first'} readOnly />
+              </label>
+              <label className="batch-management-field batch-management-id-top-field">
+                <span>Batch ID</span>
+                <div className="student-id-input-group">
+                  <span className="student-id-prefix" aria-hidden="true">{getBatchEntityPrefix(branchCode, 'BAT')}</span>
+                  <input type="text" value={String(draft.rows[0]?.batchId || '').match(/(\d+)$/)?.[1] || ''} readOnly aria-label="Batch ID" />
+                </div>
+              </label>
+            </div>
+
+            <div className="batch-management-form-grid">
+              <label className="batch-management-field"><span>Week Type *</span><select value={draft.weekType} onChange={(event) => handleDraftChange('weekType', event.target.value)}><option value="">Select week type</option><option value="WEEKDAY">Weekday</option><option value="WEEKEND">Weekend</option></select>{fieldErrors.weekType ? <small className="batch-management-field-error">{fieldErrors.weekType}</small> : null}</label>
+              <label className="batch-management-field"><span>Mode *</span>{allowedBatchModes.length === 1 ? <input className="batch-management-mode-display" type="text" value={allowedBatchModes[0] === 'ONLINE' ? 'Online' : 'Offline'} readOnly aria-readonly="true" /> : <select value={draft.mode} onChange={(event) => handleDraftChange('mode', event.target.value)}><option value="">Select mode</option>{(allowedBatchModes.length ? allowedBatchModes : ['ONLINE', 'OFFLINE']).map((mode) => <option key={mode} value={mode}>{mode === 'ONLINE' ? 'Online' : 'Offline'}</option>)}</select>}{fieldErrors.mode ? <small className="batch-management-field-error">{fieldErrors.mode}</small> : null}</label>
+              <label className="batch-management-field"><span>Course Start Date *</span><input type="date" value={draft.courseStartDate} onChange={(event) => handleDraftChange('courseStartDate', event.target.value)} />{fieldErrors.courseStartDate ? <small className="batch-management-field-error">{fieldErrors.courseStartDate}</small> : null}{weeklyOffStartMessage ? <small className="batch-management-field-warning">{weeklyOffStartMessage}</small> : null}</label>
+              <label className="batch-management-field"><span>Course End Date</span><input type="date" value={draft.courseEndDate} readOnly /></label>
+            </div>
+
+            <div className="batch-management-details">
+              <div className="batch-management-details-head">
+                <div>
+                  <h4>Batch Details</h4>
+                  <p>Create one batch with a single course and faculty.</p>
+                </div>
+              </div>
+
+              <div className="batch-management-details-grid">
+                <div className="batch-management-details-grid-head">
+                  <span>Batch Name</span>
+                  <span>Batch Timing</span>
+                  <span>Total Seats</span>
+                  <span>Status</span>
+                </div>
+
+                {draft.rows.map((row, index) => (
+                  <div key={row.batchId} className="batch-management-row">
+                    {(() => {
+                      const startParts = getTimePickerParts(row.startTime, row.startPeriod, '09')
+                      const endParts = getTimePickerParts(row.endTime, row.endPeriod, '11')
+
+                      return (
+                        <>
+                          <div className="batch-management-row-name">
+                            <input
+                              type="text"
+                              placeholder=" Batch Name"
+                              value={row.batchName}
+                              onChange={(event) => handleRowChange(index, 'batchName', event.target.value)}
+                            />
+                            {fieldErrors.rows[index]?.batchName ? (
+                              <small className="batch-management-field-error">{fieldErrors.rows[index].batchName}</small>
+                            ) : null}
+                          </div>
+
+                          <div className="batch-management-row-timing">
+                            <div className="batch-management-time-group">
+                              <div className="batch-management-time-title">Start</div>
+                              <div className="batch-management-time-controls">
+                                <label className="batch-management-time-select">
+                                  <span className="sr-only">Start hour</span>
+                                  <select
+                                    value={startParts.hour}
+                                    onChange={(event) => handleRowChange(index, 'startTime', `${event.target.value || '09'}:${startParts.minute || '00'}`)}
+                                    aria-label="Start hour"
+                                  >
+                                    <option value="" />
+                                    {TIME_HOUR_OPTIONS.map((hour) => (
+                                      <option
+                                        key={hour}
+                                        value={hour}
+                                        disabled={isStartTimeOptionDisabled(hour, startParts.minute || '00', startParts.period || row.startPeriod || 'AM', occupiedTimingRanges)}
+                                      >
+                                        {hour}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="batch-management-time-select">
+                                  <span className="sr-only">Start minute</span>
+                                  <select
+                                    value={startParts.minute}
+                                    onChange={(event) => handleRowChange(index, 'startTime', `${startParts.hour || '09'}:${event.target.value || '00'}`)}
+                                    aria-label="Start minute"
+                                  >
+                                    <option value="" />
+                                    {TIME_MINUTE_OPTIONS.map((minute) => (
+                                      <option
+                                        key={minute}
+                                        value={minute}
+                                        disabled={isStartTimeOptionDisabled(startParts.hour || '09', minute, startParts.period || row.startPeriod || 'AM', occupiedTimingRanges)}
+                                      >
+                                        {minute}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="batch-management-time-select">
+                                  <span className="sr-only">Start AM/PM</span>
+                                  <select value={row.startPeriod || ''} onChange={(event) => handleRowChange(index, 'startPeriod', event.target.value || 'AM')} aria-label="Start AM or PM">
+                                    <option value="" />
+                                    <option
+                                      value="AM"
+                                    >
+                                      AM
+                                    </option>
+                                    <option
+                                      value="PM"
+                                    >
+                                      PM
+                                    </option>
+                                  </select>
+                                </label>
+                              </div>
+                            </div>
+                            <span>-</span>
+                            <div className="batch-management-time-group">
+                              <div className="batch-management-time-title">End</div>
+                              <div className="batch-management-time-controls">
+                                <label className="batch-management-time-select">
+                                  <span className="sr-only">End hour</span>
+                                  <select
+                                    value={endParts.hour}
+                                    onChange={(event) => handleRowChange(index, 'endTime', `${event.target.value || '11'}:${endParts.minute || '00'}`)}
+                                    aria-label="End hour"
+                                  >
+                                    <option value="" />
+                                    {TIME_HOUR_OPTIONS.map((hour) => (
+                                      <option key={hour} value={hour}>{hour}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="batch-management-time-select">
+                                  <span className="sr-only">End minute</span>
+                                  <select
+                                    value={endParts.minute}
+                                    onChange={(event) => handleRowChange(index, 'endTime', `${endParts.hour || '11'}:${event.target.value || '00'}`)}
+                                    aria-label="End minute"
+                                  >
+                                    <option value="" />
+                                    {TIME_MINUTE_OPTIONS.map((minute) => (
+                                      <option key={minute} value={minute}>{minute}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="batch-management-time-select">
+                                  <span className="sr-only">End AM/PM</span>
+                                  <select value={row.endPeriod || ''} onChange={(event) => handleRowChange(index, 'endPeriod', event.target.value || 'AM')} aria-label="End AM or PM">
+                                    <option value="" />
+                                    <option value="AM">AM</option>
+                                    <option value="PM">PM</option>
+                                  </select>
+                                </label>
+                              </div>
+                            </div>
+                            {fieldErrors.rows[index]?.timing ? (
+                              <small className="batch-management-row-error">{fieldErrors.rows[index].timing}</small>
+                            ) : null}
+                          </div>
+
+                          <div className="batch-management-row-seats-wrap">
+                            <div className="batch-management-time-title">Seats</div>
+                            <input
+                              className="batch-management-row-seats"
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              placeholder="20"
+                              value={row.totalSeats}
+                              onChange={(event) => handleRowChange(index, 'totalSeats', event.target.value.replace(/\D/g, '').slice(0, 4))}
+                            />
+                            {fieldErrors.rows[index]?.totalSeats ? (
+                              <small className="batch-management-field-error">{fieldErrors.rows[index].totalSeats}</small>
+                            ) : null}
+                          </div>
+
+                          <div className="batch-management-row-status-wrap">
+                            <div className="batch-management-time-title">Status</div>
+                            <select
+                              className="batch-management-row-status"
+                              value={row.status}
+                              onChange={(event) => handleRowChange(index, 'status', event.target.value)}
+                            >
+                              <option value="Active">Active</option>
+                              <option value="Inactive">Inactive</option>
+                            </select>
+                            {fieldErrors.rows[index]?.status ? (
+                              <small className="batch-management-field-error">{fieldErrors.rows[index].status}</small>
+                            ) : null}
+                          </div>
+
+                        </>
+                      )
+                    })()}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {createError ? <div className="batch-management-error" role="alert">{createError}</div> : null}
+
+            <div className="batch-management-footer">
+              <button type="button" className="button button-ghost" onClick={closeCreateModal} disabled={isSaving}>
+                Cancel
+              </button>
+              <button type="submit" className="button button-solid" disabled={isSaving}>
+                {isSaving ? (isEditingBatch ? 'Updating...' : 'Creating...') : isEditingBatch ? 'Update Batch' : 'Create Batch'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>,
+      document.body,
+    )
+  }
+
+  const renderDeleteConfirmModal = () => {
+    if (typeof document === 'undefined') return null
+    const targetGroup = deleteGroupTarget
+    if (!targetGroup) return null
+
+    return createPortal(
+      <div className="branch-modal-backdrop batch-modal-backdrop" role="presentation">
+        <div
+          className="course-modal panel-card batch-delete-confirm-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="batch-delete-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="course-modal-close batch-delete-close"
+            onClick={closeDeleteConfirmModal}
+            aria-label="Close delete confirmation"
+            disabled={isSaving}
+          >
+            <X size={18} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+
+          <div className="batch-delete-confirm-head">
+            <p className="batch-delete-confirm-kicker">DELETE BATCH</p>
+            <h3 id="batch-delete-title">Are you sure you want to delete this batch?</h3>
+            <p className="batch-delete-confirm-subtitle">
+              <><strong>{targetGroup.courseName || targetGroup.batchId || 'This batch'}</strong> will be removed.</>
+            </p>
+          </div>
+
+          <div className="batch-delete-confirm-divider" />
+
+          <div className="batch-delete-confirm-actions">
+            <button
+              type="button"
+              className="button button-ghost"
+              onClick={closeDeleteConfirmModal}
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button button-solid is-danger"
+              onClick={confirmDeleteGroup}
+              disabled={isSaving}
+            >
+              {isSaving ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )
+  }
+
+  const renderDetailModal = () => {
+    if (!detailGroup || typeof document === 'undefined') return null
+    const detailBatch = getPrimaryBatchForGroup(detailGroup)
+    const detailBatchKey = getBatchSeatMapKey(detailBatch, detailGroup)
+    const detailStudents = getCurrentCycleStudents(getMatchingStudents(branchStudents, {
+      facultyId: detailGroup?.facultyId || detailGroup?.branchFacultyId || '',
+      facultyName: detailGroup?.facultyName || '',
+      courseId: detailGroup?.courseId || detailGroup?.branchCourseId || '',
+      courseName: detailGroup?.courseName || '',
+      batchGroupId: detailGroup?.batchGroupId || detailGroup?.id || '',
+      batchId: detailBatch?.batchId || detailBatch?.id || '',
+      batchName: detailBatch?.batchName || '',
+      batchTiming: detailBatch?.batchTiming || '',
+    }), { ...detailGroup, ...detailBatch })
+    const detailCourseProgress = getBatchCourseProgress(
+      { ...detailGroup, ...detailBatch },
+      detailStudents,
+      branchCourses.find((course) => normalizeMatchKey(course?.id || course?.courseId) === normalizeMatchKey(detailGroup?.courseId || detailGroup?.branchCourseId)),
+      facultyTodayWorkEntries,
+    )
+    const detailAcademicTestCount = getAcademicTestCountForBatch(academicTestRows, detailGroup, detailBatch)
+    const progressScopeKey = getBatchSeatMapKey(detailBatch, detailGroup)
+    const studentAcademicProgressValues = detailStudents.map((student) => {
+      const studentKey = normalizeMatchKey(student?.studentId || student?.id || student?._id || '')
+      return studentAcademicTestProgress[`${progressScopeKey}:${studentKey}`] || { total: detailAcademicTestCount, completed: 0, percentage: 0 }
+    })
+    const batchAcademicCompleted = studentAcademicProgressValues.length
+      ? Math.min(...studentAcademicProgressValues.map((progress) => Math.min(detailAcademicTestCount, Number(progress.completed) || 0)))
+      : 0
+    const academicTestProgress = {
+      total: detailAcademicTestCount,
+      completed: batchAcademicCompleted,
+      percentage: detailAcademicTestCount ? Math.round((batchAcademicCompleted / detailAcademicTestCount) * 100) : 0,
+    }
+    const detailStatus = normalizeStatus(detailGroup.status || 'Active')
+    const detailStatusClass = String(detailStatus).toLowerCase()
+
+    return createPortal(
+      <div className="branch-modal-backdrop batch-modal-backdrop" role="presentation">
+        <section
+          className="course-modal panel-card batch-detail-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="batch-detail-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="course-modal-close batch-detail-close"
+            onPointerDown={closeDetailModal}
+            onClick={closeDetailModal}
+            aria-label="Close batch details"
+          >
+            <X size={18} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+
+          <div className="batch-detail-hero">
+            <div className="batch-detail-hero-badge" aria-hidden="true">
+              <UsersRound size={24} strokeWidth={2.2} />
+            </div>
+
+            <div className="batch-detail-hero-copy">
+              <div className="batch-detail-hero-topline">
+                <h3 id="batch-detail-title">{detailGroup.batchId || detailGroup.batchGroupId}</h3>
+                <span className={`batch-detail-status-pill ${detailStatusClass}`}>{detailStatus}</span>
+                <button
+                  type="button"
+                  className="batch-detail-download-attendance"
+                  onClick={() => {
+                    const reportBatch = {
+                      ...detailGroup,
+                      ...detailBatch,
+                      batchId: detailBatch?.batchId || detailGroup?.batchId || detailGroup?.batchGroupId,
+                      batchName: detailBatch?.batchName || detailGroup?.batchName || '',
+                    }
+                    if (onDownloadAttendance) onDownloadAttendance(reportBatch)
+                    else setAttendanceReportBatch(reportBatch)
+                    closeDetailModal()
+                  }}
+                >
+                  <Download size={16} strokeWidth={2.2} aria-hidden="true" />
+                  Download Attendance
+                </button>
+              </div>
+
+              <div className="batch-detail-hero-meta">
+                <span>Course: <strong>{detailGroup.courseName || '-'}</strong></span>
+                <span>Faculty: <strong>{detailGroup.facultyName || '-'}</strong></span>
+                <span>Course Progress: <strong>{detailCourseProgress}%</strong></span>
+                <span>Academic Tests: <strong>{detailAcademicTestCount}</strong></span>
+              </div>
+              <div className="batch-detail-academic-progress" aria-label={`Academic test progress: ${academicTestProgress.completed} of ${academicTestProgress.total} completed`}>
+                <div className="batch-detail-academic-progress-label"><span>Academic Test Progress</span><strong>{academicTestProgress.completed}/{academicTestProgress.total} ({academicTestProgress.percentage}%)</strong></div>
+                <div className="batch-detail-academic-progress-track" aria-hidden="true"><span style={{ width: `${academicTestProgress.percentage}%` }} /></div>
+              </div>
+
+            </div>
+          </div>
+
+          <div className={`batch-detail-list batch-students-modal-list ${detailStudents.length === 1 ? 'has-single-student' : ''}`.trim()}>
+            <h4 className="batch-detail-list-title">Assigned Learners</h4>
+            <strong className="batch-students-modal-count">
+              {detailStudents.length} student{detailStudents.length === 1 ? '' : 's'} in this batch
+            </strong>
+            {detailStudents.length ? (
+              <div className="batch-detail-students-list">
+                {detailStudents.map((student, index) => {
+                  const attendanceKey = normalizeMatchKey(student?.studentId || student?.id || student?._id || '')
+                  const progressScopeKey = getBatchSeatMapKey(detailBatch, detailGroup)
+                  const attendanceStatus = detailAttendanceStatuses[attendanceKey] || 'UNMARKED'
+                  const selectedCourse = branchCourses.find((course) => normalizeMatchKey(course?.id || course?.courseId) === normalizeMatchKey(detailGroup?.courseId || detailGroup?.branchCourseId))
+                  const studentCourseProgress = getStudentBatchCourseProgress(student, { ...detailGroup, ...detailBatch }, selectedCourse, facultyTodayWorkEntries)
+                  const studentAcademicProgress = studentAcademicTestProgress[`${progressScopeKey}:${attendanceKey}`] || { total: detailAcademicTestCount, completed: 0, percentage: 0 }
+                  const isCourseCompleted = isStudentBatchCourseCompleted(
+                    student,
+                    { ...detailGroup, ...detailBatch },
+                    studentCourseProgress,
+                    studentAcademicProgress,
+                  )
+                  const isStudentDiscontinued = Boolean(
+                    student?.isDiscontinued
+                    || String(student?.discontinuationStatus || '').trim().toUpperCase() === 'APPROVED'
+                    || String(student?.status || student?.recordStatus || student?.studentStatus || '').trim().toUpperCase() === 'DISCONTINUED',
+                  )
+                  return (
+                    <div className="batch-detail-student-row" key={getStudentIdentityKey(student) || `${detailBatchKey}-${index}`}>
+                    <span className="batch-detail-student-number">{String(index + 1).padStart(2, '0')}</span>
+                    <div className="batch-detail-student-copy">
+                      <span>{student?.studentId || student?.id || 'Student ID unavailable'}</span>
+                      <strong>{student?.studentName || student?.name || 'Unnamed student'}</strong>
+                    </div>
+                    {isStudentDiscontinued ? (
+                      <span className="batch-detail-student-attendance discontinued">Discontinued</span>
+                    ) : isCourseCompleted ? (
+                      <span className="batch-detail-student-attendance completed">Completed</span>
+                    ) : null}
+                    {!isStudentDiscontinued && !isCourseCompleted ? (
+                      <span className={`batch-detail-student-attendance ${attendanceStatus.toLowerCase()}`}>
+                        {attendanceStatus === 'PRESENT' ? 'Present' : attendanceStatus === 'ABSENT' ? 'Absent' : 'Unmarked'}
+                      </span>
+                    ) : null}
+                    {!isStudentDiscontinued ? <div className="batch-detail-student-progress">
+                      <div className="batch-detail-student-progress-label">
+                        <span>Course Progress</span>
+                        <strong>{Math.round(studentCourseProgress)}%</strong>
+                      </div>
+                      <div className="batch-detail-student-progress-track" aria-hidden="true">
+                        <span style={{ width: `${studentCourseProgress}%` }} />
+                      </div>
+                      <div className="batch-detail-student-progress-label academic-test-progress-label">
+                        <span>Academic Tests</span>
+                        <strong>{studentAcademicProgress.completed}/{studentAcademicProgress.total}</strong>
+                      </div>
+                      <div className="batch-detail-student-progress-track" aria-hidden="true">
+                        <span style={{ width: `${studentAcademicProgress.percentage}%` }} />
+                      </div>
+                    </div> : null}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="batch-detail-students-empty">No students assigned to this batch yet.</div>
+            )}
+          </div>
+        </section>
+      </div>,
+      document.body,
+    )
+  }
+
+  const renderBatchRow = (group) => {
+    const primaryBatch = group.displayBatch || (Array.isArray(group.batches) ? group.batches[0] : null) || {}
+    const batchKey = getBatchSeatMapKey(primaryBatch, group)
+    const batchStatusClass = String(normalizeStatus(primaryBatch.status || group.status || 'Active')).toLowerCase()
+    const rawSeatSummary = batchSeatSummaryMap.get(batchKey) || getBatchSeatSummary({
+      ...primaryBatch,
+      batchGroupId: String(group?.batchGroupId || group?.id || '').trim(),
+      courseId: String(group?.courseId || group?.branchCourseId || '').trim(),
+      courseName: String(group?.courseName || '').trim(),
+      facultyId: String(group?.facultyId || group?.branchFacultyId || '').trim(),
+      facultyName: String(group?.facultyName || '').trim(),
+    }, branchStudents)
+    // Capacity belongs to this batch record; never inherit the total from a
+    // stale/colliding summary entry.
+    const batchTotalSeats = Math.max(Number(primaryBatch?.totalSeats || 0) || 0, 0)
+    const baseSeatSummary = {
+      ...rawSeatSummary,
+      totalSeats: batchTotalSeats,
+      remainingSeats: Math.max(batchTotalSeats - rawSeatSummary.usedSeats, 0),
+    }
+    const batchStudents = getCurrentCycleStudents(getMatchingStudents(branchStudents, {
+      facultyId: group?.facultyId || group?.branchFacultyId || '',
+      facultyName: group?.facultyName || '',
+      courseId: group?.courseId || group?.branchCourseId || '',
+      courseName: group?.courseName || '',
+      batchGroupId: group?.batchGroupId || group?.id || '',
+      batchId: primaryBatch?.batchId || primaryBatch?.id || '',
+      batchName: primaryBatch?.batchName || '',
+      batchTiming: primaryBatch?.batchTiming || '',
+    }), { ...group, ...primaryBatch })
+    const seatSummary = {
+      ...baseSeatSummary,
+      usedSeats: batchStudents.length,
+      remainingSeats: Math.max(batchTotalSeats - batchStudents.length, 0),
+    }
+    const batchAvailability = getBatchAvailability(primaryBatch.courseEndDate || group.courseEndDate)
+    const groupKey = String(group.id || group.batchGroupId || group.batchId || primaryBatch.batchId || '')
+    const batchCourseId = String(group?.courseId || group?.branchCourseId || '').trim().toLowerCase()
+    const academicTestTotal = getAcademicTestCountForBatch(academicTestRows, group, primaryBatch)
+    const progressScopeKey = getBatchSeatMapKey(primaryBatch, group)
+    const allBatchStudentsCompleted = batchStudents.length > 0 && batchStudents.every((student) => (
+      isStudentBatchCourseCompleted(
+        student,
+        { ...group, ...primaryBatch },
+        getStudentBatchCourseProgress(
+          student,
+          { ...group, ...primaryBatch },
+          branchCourses.find((course) => normalizeMatchKey(course?.id || course?.courseId) === batchCourseId),
+          facultyTodayWorkEntries,
+        ),
+        studentAcademicTestProgress[`${progressScopeKey}:${normalizeMatchKey(student?.studentId || student?.id || student?._id || '')}`]
+          || { total: academicTestTotal, completed: 0, percentage: 0 },
+      )
+    ))
+    const needsCourseStartDateUpdate = Number(primaryBatch?.currentCycleNumber || group?.currentCycleNumber || 0) > 1
+      && String(primaryBatch?.currentCycleStatus || group?.currentCycleStatus || '').toUpperCase() === 'ACTIVE'
+      && !isCycleCourseDateUpdated(primaryBatch, group)
+    const statusLabel = needsCourseStartDateUpdate
+      ? 'Not Updated'
+      : allBatchStudentsCompleted
+      ? 'Completed'
+      : isInactiveBatchGroup(group)
+        ? 'Inactive'
+        : 'Active'
+    const statusDotState = needsCourseStartDateUpdate
+      ? 'inactive'
+      : allBatchStudentsCompleted
+      ? 'completed'
+      : batchStatusClass === 'active' || batchStatusClass === 'open'
+        ? 'active'
+        : 'inactive'
+
+    return (
+      <Fragment key={groupKey}>
+        <tr
+          className="batch-management-table-row"
+          tabIndex={0}
+          role="button"
+          aria-label={`View students for ${primaryBatch.batchName || group.batchId || 'batch'}`}
+          onClick={() => toggleGroupStudents(group)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              toggleGroupStudents(group)
+            }
+          }}
+        >
+          <td className="batch-management-table-cell batch-management-table-batch">
+            <div className="batch-management-table-batch-copy">
+              <span
+                className={`batch-management-status-dot is-${statusDotState}`.trim()}
+                data-status={statusLabel}
+                aria-label={statusLabel}
+              />
+              <div>
+                <strong>{primaryBatch.batchId || group.batchId || '-'}</strong>
+                <span>{primaryBatch.batchName || primaryBatch.batchId || '-'}</span>
+              </div>
+            </div>
+          </td>
+          <td className="batch-management-table-cell batch-management-table-course">
+            <strong>{group.courseName || '-'}</strong>
+          </td>
+          <td className="batch-management-table-cell batch-management-table-faculty">
+            <strong>{group.facultyName || '-'}</strong>
+          </td>
+          <td className="batch-management-table-cell batch-management-table-schedule">
+            <strong>{formatClockLabel(primaryBatch.startTime)} - {formatClockLabel(primaryBatch.endTime)}</strong>
+            <span>Timing</span>
+          </td>
+          <td className="batch-management-table-cell batch-management-table-seats">
+            <strong>{seatSummary.usedSeats}/{seatSummary.totalSeats || 0}</strong>
+            <div className="batch-management-table-track" aria-hidden="true">
+              <span style={{ width: `${seatSummary.totalSeats ? Math.min((seatSummary.usedSeats / seatSummary.totalSeats) * 100, 100) : 0}%` }} />
+            </div>
+            <span>{seatSummary.remainingSeats} left</span>
+            <small>{primaryBatch.weekType === 'WEEKEND' ? 'Weekend' : 'Weekday'} · {primaryBatch.mode === 'ONLINE' ? 'Online' : 'Offline'}</small>
+          </td>
+          <td className="batch-management-table-cell batch-management-table-students">
+            <strong>{batchStudents.length}</strong>
+          </td>
+          <td className="batch-management-table-cell batch-management-table-availability">
+            <span className={`batch-management-availability-badge tone-${batchAvailability.tone}`}>{batchAvailability.label}</span>
+          </td>
+          <td className="batch-management-table-cell batch-management-table-status">
+            <span className={`batch-management-status-pill ${statusLabel.toLowerCase()}`}>{statusLabel}</span>
+          </td>
+          <td className="batch-management-table-cell batch-management-actions-cell">
+            <div className="batch-management-actions" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className="batch-management-actions-trigger"
+                aria-label={`Open actions for ${primaryBatch.batchName || group.batchId || 'batch'}`}
+                onClick={(event) => {
+                  const actionId = String(group.id || group.batchGroupId || group.batchId || '')
+                  if (actionMenuOpenId === actionId) closeActionMenu()
+                  else openActionMenu(group, event.currentTarget)
+                }}
+              >
+                <MoreVertical size={16} strokeWidth={2.3} aria-hidden="true" />
+              </button>
+            </div>
+          </td>
+        </tr>
+      </Fragment>
+    )
+  }
+
+  const renderSaveSuccessPopup = () => {
+    if (!saveSuccessPopup || typeof document === 'undefined') return null
+
+    return createPortal(
+      <div className="branch-modal-backdrop batch-modal-backdrop" role="presentation" onClick={() => { markCycleCourseDateUpdated(getPrimaryBatchForGroup(saveSuccessPopup.group), saveSuccessPopup.group); setSaveSuccessPopup(null) }}>
+        <div
+          className="batch-success-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="batch-success-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button type="button" className="batch-success-close" aria-label="Close success popup" onClick={() => { markCycleCourseDateUpdated(getPrimaryBatchForGroup(saveSuccessPopup.group), saveSuccessPopup.group); setSaveSuccessPopup(null) }}>
+            <X size={20} strokeWidth={2.2} />
+          </button>
+
+          <div className="batch-success-hero" aria-hidden="true">
+            <span className="batch-success-ring" />
+            <span className="batch-success-icon">
+              <CheckCircle2 size={30} strokeWidth={2.1} />
+            </span>
+          </div>
+
+          <div className="batch-success-copy">
+            <p className="batch-success-kicker">Success</p>
+            <h3 id="batch-success-title">{saveSuccessPopup.title}</h3>
+            <p>{saveSuccessPopup.message}</p>
+          </div>
+
+          <div className="batch-success-actions">
+            <button type="button" className="batch-success-secondary" onClick={() => { markCycleCourseDateUpdated(getPrimaryBatchForGroup(saveSuccessPopup.group), saveSuccessPopup.group); setSaveSuccessPopup(null) }}>
+              Close
+            </button>
+            <button
+              type="button"
+              className="batch-success-primary"
+              onClick={() => {
+                const completedGroup = saveSuccessPopup.group
+                setSaveSuccessPopup(null)
+                if (completedGroup) openEditModal(completedGroup)
+              }}
+            >
+              {saveSuccessPopup.actionLabel || 'OK'}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )
+  }
+
+  return (
+    <section className="branch-dashboard-section batch-management-section">
+      <div className="branch-dashboard-section-heading">
+        <div className="branch-dashboard-section-heading-copy">
+          <h2>Batch Management</h2>
+        </div>
+        <div className="branch-dashboard-section-heading-actions">
+          <div className="batch-management-count-card batch-management-count-card-inline" aria-label={`${displayGroups.length} total batches`}>
+            <span className="batch-management-count-card-icon" aria-hidden="true">
+              <Layers3 size={17} strokeWidth={2.2} />
+            </span>
+            <div className="batch-management-count-card-copy">
+              <span className="batch-management-count-label">Total batches</span>
+              <strong key={displayGroups.length}>{displayGroups.length}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <form
+        className="batch-management-toolbar"
+        onSubmit={(event) => {
+          event.preventDefault()
+          setAppliedSearchTerm(searchTerm)
+          setBatchTablePage(1)
+        }}
+      >
+        <div className="batch-management-search-bar">
+          <input
+            type="search"
+            className="batch-management-search"
+            placeholder="Search batch"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
+          <button
+            type="submit"
+            className="button button-solid batch-management-search-button"
+          >
+            Search
+          </button>
+        </div>
+        <div className="batch-management-filter-controls" aria-label="Batch filters">
+          <BranchBatchFilterSelect
+            value={batchStatusFilter}
+            width={145}
+            ariaLabel="Filter by status"
+            options={[
+              { value: 'all', label: 'All status' },
+              { value: 'active', label: 'Active' },
+              { value: 'inactive', label: 'Inactive' },
+              { value: 'completed', label: 'Completed' },
+            ]}
+            onChange={(value) => { setBatchStatusFilter(value); setBatchTablePage(1) }}
+          />
+          <BranchBatchFilterSelect
+            value={batchCourseFilter}
+            width={150}
+            ariaLabel="Filter by course"
+            options={[
+              { value: 'all', label: 'All courses' },
+              ...batchFilterOptions.courses.map(([value, label]) => ({ value, label })),
+            ]}
+            onChange={(value) => { setBatchCourseFilter(value); setBatchTablePage(1) }}
+          />
+          <BranchBatchFilterSelect
+            value={batchFacultyFilter}
+            width={150}
+            ariaLabel="Filter by faculty"
+            options={[
+              { value: 'all', label: 'All faculty' },
+              ...batchFilterOptions.faculties.map(([value, label]) => ({ value, label })),
+            ]}
+            onChange={(value) => { setBatchFacultyFilter(value); setBatchTablePage(1) }}
+          />
+        </div>
+        <button type="button" className="button button-solid batch-create-button" onClick={openCreateModal}>
+          <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
+          Create Batch
+        </button>
+      </form>
+
+      <div className="batch-management-table-shell">
+        <div className="batch-management-table-wrap">
+          <table className="batch-management-table" aria-label="Batch management table">
+            <thead>
+              <tr className="batch-management-table-head">
+                <th>Batch</th>
+                <th>Course</th>
+                <th>Faculty</th>
+                <th>Timing</th>
+                <th>Seats</th>
+                <th>Students</th>
+                <th>Batch Availability</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                Array.from({ length: 6 }, (_, rowIndex) => (
+                  <tr key={`batch-loading-${rowIndex}`} className="branch-batch-skeleton-row" aria-hidden="true">
+                    {Array.from({ length: 9 }, (_, cellIndex) => <td key={`batch-loading-${rowIndex}-${cellIndex}`}><span /></td>)}
+                  </tr>
+                ))
+              ) : paginatedGroups.length ? (
+                paginatedGroups.map(renderBatchRow)
+              ) : (
+                <tr>
+                  <td colSpan={9} className="batch-management-empty-cell">
+                    {appliedSearchTerm || batchStatusFilter !== 'all' || batchCourseFilter !== 'all' || batchFacultyFilter !== 'all'
+                      ? 'No batches match the selected search or filters.'
+                      : 'No batches created yet. Use Create Batch to add the first batch.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <PaginationBar
+        currentPage={safeBatchTablePage}
+        totalPages={totalBatchPages}
+        onPageChange={setBatchTablePage}
+        className="batch-management-pagination"
+        label="Batch table pagination"
+        previousLabel="Previous"
+        nextLabel="Next"
+        visiblePageCount={2}
+      />
+
+      {renderActionMenu()}
+      {renderCreateModal()}
+      {renderDeleteConfirmModal()}
+      {renderDetailModal()}
+      {renderSaveSuccessPopup()}
+      <BranchAttendanceReportModal
+        isOpen={Boolean(attendanceReportBatch)}
+        mode="batch"
+        record={attendanceReportBatch}
+        branchId={branchId}
+        onClose={() => setAttendanceReportBatch(null)}
+      />
+    </section>
+  )
+}

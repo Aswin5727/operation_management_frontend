@@ -1,0 +1,475 @@
+import { STORAGE_KEY } from '../data/authData'
+
+function isLocalhostLike(value) {
+  const text = String(value || '').trim().toLowerCase()
+  return (
+    text.includes('localhost') ||
+    text.includes('127.0.0.1') ||
+    text.includes('0.0.0.0')
+  )
+}
+
+function buildRuntimeApiBaseUrl() {
+  if (typeof window === 'undefined' || !window.location?.hostname) {
+    return ''
+  }
+
+  const { protocol, hostname } = window.location
+  return `${protocol}//${hostname}:4000/api/v1`
+}
+
+const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || '').trim()
+const runtimeApiBaseUrl = buildRuntimeApiBaseUrl()
+const isLocalRuntime = typeof window !== 'undefined' && isLocalhostLike(window.location?.hostname)
+const productionApiBaseUrl = 'https://cispro-operation-management-backend-m07q.onrender.com/api/v1'
+const REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 45000)
+
+export const API_BASE_URL =
+  configuredApiBaseUrl || (isLocalRuntime ? runtimeApiBaseUrl : productionApiBaseUrl)
+
+let accessToken = null
+let refreshToken = null
+let refreshInFlight = null
+let backendWarmupInFlight = null
+let sessionExpiredHandler = null
+let sessionExpiredNotified = false
+let lastRefreshFailureStatus = null
+export let impersonateBranchId = null
+
+export function setImpersonateBranchId(id) {
+  impersonateBranchId = id || null
+}
+
+function parseFileNameFromContentDisposition(headerValue = '') {
+  const value = String(headerValue || '').trim()
+  if (!value) return ''
+
+  const utfMatch = value.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1].trim().replace(/^"(.*)"$/, '$1'))
+    } catch {
+      return utfMatch[1].trim().replace(/^"(.*)"$/, '$1')
+    }
+  }
+
+  const basicMatch = value.match(/filename\s*=\s*("?)([^";]+)\1/i)
+  return basicMatch?.[2]?.trim() || ''
+}
+
+export function setAuthTokens(nextAccessToken, nextRefreshToken = null) {
+  accessToken = nextAccessToken || null
+  refreshToken = nextRefreshToken || null
+  lastRefreshFailureStatus = null
+  sessionExpiredNotified = false
+}
+
+export function clearAuthTokens() {
+  accessToken = null
+  refreshToken = null
+  refreshInFlight = null
+  lastRefreshFailureStatus = null
+  sessionExpiredNotified = false
+}
+
+export function setSessionExpiredHandler(handler) {
+  sessionExpiredHandler = handler
+}
+
+function hydrateAuthTokensFromSessionStorage() {
+  if (accessToken && refreshToken) {
+    return true
+  }
+
+  if (typeof window === 'undefined' || !window.sessionStorage) {
+    return false
+  }
+
+  try {
+    const session = JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) || 'null')
+    if (!session?.token) {
+      return false
+    }
+
+    accessToken = session.token || null
+    refreshToken = session.refreshToken || null
+    return Boolean(accessToken)
+  } catch {
+    return false
+  }
+}
+
+function notifySessionExpiredOnce() {
+  if (sessionExpiredNotified) return
+  sessionExpiredNotified = true
+  sessionExpiredHandler?.()
+}
+
+function isAccessTokenExpiringSoon(token, windowSeconds = 30) {
+  if (!token) return false
+
+  try {
+    const encodedPayload = token.split('.')[1]
+    if (!encodedPayload) return false
+    const payload = JSON.parse(atob(encodedPayload.replace(/-/g, '+').replace(/_/g, '/')))
+    return Number(payload.exp || 0) * 1000 <= Date.now() + windowSeconds * 1000
+  } catch {
+    return false
+  }
+}
+
+function persistRefreshedTokens(nextAccessToken, nextRefreshToken) {
+  if (typeof window === 'undefined' || !window.sessionStorage) return
+
+  try {
+    const session = JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) || 'null')
+    if (!session) return
+
+    window.sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...session,
+        token: nextAccessToken,
+        refreshToken: nextRefreshToken,
+      }),
+    )
+  } catch {
+    // Memory tokens are still usable when session storage is unavailable.
+  }
+}
+
+async function request(path, options = {}, retryCount = 0) {
+  const { skipAuth, headers: optionHeaders, body, impersonateBranchId: requestBranchId, timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options
+  const headers = new Headers(optionHeaders || {})
+  const controller = new AbortController()
+  let didTimeout = false
+  const timeoutId = window.setTimeout(() => {
+    didTimeout = true
+    controller.abort()
+  }, timeoutMs)
+
+  if (skipAuth !== true) {
+    hydrateAuthTokensFromSessionStorage()
+  }
+
+  if (
+    skipAuth !== true &&
+    refreshToken &&
+    isAccessTokenExpiringSoon(accessToken) &&
+    retryCount === 0
+  ) {
+    await refreshAccessToken()
+  }
+
+  if (skipAuth !== true && accessToken) {
+    headers.set('Authorization', `Bearer ${accessToken}`)
+  }
+
+  const branchIdForRequest = requestBranchId || impersonateBranchId
+  if (branchIdForRequest) {
+    headers.set('X-Impersonate-Branch-Id', branchIdForRequest)
+  }
+
+  if (body && !(typeof FormData !== 'undefined' && body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  if (!headers.has('Cache-Control')) {
+    headers.set('Cache-Control', 'no-cache')
+  }
+
+  if (!headers.has('Pragma')) {
+    headers.set('Pragma', 'no-cache')
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...fetchOptions,
+      credentials: fetchOptions.credentials || 'include',
+      cache: fetchOptions.cache || 'no-store',
+      body,
+      headers,
+      signal: fetchOptions.signal || controller.signal,
+    })
+
+    if (response.status === 401 && retryCount === 0 && refreshToken) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) {
+        return request(path, options, retryCount + 1)
+      }
+    }
+
+    if (response.status === 401 && (!refreshToken || lastRefreshFailureStatus === 401 || lastRefreshFailureStatus === 403)) {
+      notifySessionExpiredOnce()
+    }
+
+    if (response.status === 304) {
+      return null
+    }
+
+    if (!response.ok) {
+      const body = await safeParseJson(response)
+      const serverMessage =
+        typeof body === 'string'
+          ? body
+          : body?.message || body?.error || body?.errors?.[0]?.message || ''
+      const error = new Error(serverMessage ? `${serverMessage}` : `Request failed with status ${response.status}`)
+      error.status = response.status
+      error.body = body
+      throw error
+    }
+
+    return safeParseJson(response)
+  } catch (error) {
+    if (didTimeout || error?.name === 'AbortError') {
+      const timeoutError = new Error('Request timed out. Please try again.')
+      timeoutError.status = 408
+      throw timeoutError
+    }
+
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+async function safeParseJson(response) {
+  const text = await response.text()
+  if (!text) return null
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
+export async function login(payload) {
+  return request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getMe() {
+  return request('/auth/me', {
+    method: 'GET',
+  })
+}
+
+export async function refreshAccessToken() {
+  if (refreshInFlight) return refreshInFlight
+
+  refreshInFlight = refreshAccessTokenInternal()
+  try {
+    return await refreshInFlight
+  } finally {
+    refreshInFlight = null
+  }
+}
+
+async function refreshAccessTokenInternal() {
+  hydrateAuthTokensFromSessionStorage()
+  lastRefreshFailureStatus = null
+  const headers = {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
+  }
+  const controller = new AbortController()
+  let didTimeout = false
+  const timeoutId = window.setTimeout(() => {
+    didTimeout = true
+    controller.abort()
+  }, REQUEST_TIMEOUT_MS)
+
+  if (refreshToken) {
+    headers.Authorization = `Bearer ${refreshToken}`
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      headers,
+      body: refreshToken ? JSON.stringify({ refreshToken }) : undefined,
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      lastRefreshFailureStatus = response.status
+      // Do not clear the session from the background refresh timer. A refresh
+      // response can race with another tab/request, and the protected request
+      // will decide whether the session is truly unusable after its retry.
+      return null
+    }
+
+    const data = await safeParseJson(response)
+    if (data?.accessToken) {
+      const nextRefreshToken = data.refreshToken || refreshToken
+      setAuthTokens(data.accessToken, nextRefreshToken)
+      persistRefreshedTokens(data.accessToken, nextRefreshToken)
+    }
+
+    return data
+  } catch (error) {
+    if (didTimeout || error?.name === 'AbortError') {
+      const timeoutError = new Error('Request timed out. Please try again.')
+      timeoutError.status = 408
+      throw timeoutError
+    }
+
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+export async function refreshSession() {
+  return refreshAccessToken()
+}
+
+export async function logoutSession() {
+  try {
+    hydrateAuthTokensFromSessionStorage()
+    await request('/auth/logout', {
+      method: 'POST',
+      skipAuth: true,
+      credentials: 'include',
+      body: refreshToken ? JSON.stringify({ refreshToken }) : undefined,
+    })
+  } finally {
+    clearAuthTokens()
+  }
+}
+
+export async function requestPasswordReset(identifier) {
+  return request('/auth/forgot-password', {
+    method: 'POST',
+    skipAuth: true,
+    body: JSON.stringify({ email: identifier }),
+  })
+}
+
+export async function resetPassword({ token, password }) {
+  return request('/auth/reset-password', {
+    method: 'POST',
+    skipAuth: true,
+    body: JSON.stringify({ token, password }),
+  })
+}
+
+export async function changePassword(password) {
+  return request('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  })
+}
+
+export async function warmBackendConnection() {
+  if (backendWarmupInFlight) return backendWarmupInFlight
+
+  backendWarmupInFlight = (async () => {
+    try {
+      await fetch(`${API_BASE_URL}/health`, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+      })
+    } catch {
+      return null
+    }
+    return true
+  })()
+
+  try {
+    return await backendWarmupInFlight
+  } finally {
+    backendWarmupInFlight = null
+  }
+}
+
+export async function requestBlob(path, options = {}, retryCount = 0) {
+  const { skipAuth, headers: optionHeaders, body, timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options
+  const headers = new Headers(optionHeaders || {})
+  const controller = new AbortController()
+  let didTimeout = false
+  const timeoutId = window.setTimeout(() => {
+    didTimeout = true
+    controller.abort()
+  }, timeoutMs)
+
+  if (skipAuth !== true) {
+    hydrateAuthTokensFromSessionStorage()
+  }
+
+  if (skipAuth !== true && accessToken) {
+    headers.set('Authorization', `Bearer ${accessToken}`)
+  }
+
+  if (body && !(typeof FormData !== 'undefined' && body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  if (!headers.has('Cache-Control')) {
+    headers.set('Cache-Control', 'no-cache')
+  }
+
+  if (!headers.has('Pragma')) {
+    headers.set('Pragma', 'no-cache')
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...fetchOptions,
+      credentials: fetchOptions.credentials || 'include',
+      cache: fetchOptions.cache || 'no-store',
+      body,
+      headers,
+      signal: fetchOptions.signal || controller.signal,
+    })
+
+    if (response.status === 401 && retryCount === 0 && refreshToken) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) {
+        return requestBlob(path, options, retryCount + 1)
+      }
+    }
+
+    if (response.status === 401 && (!refreshToken || lastRefreshFailureStatus === 401 || lastRefreshFailureStatus === 403)) {
+      notifySessionExpiredOnce()
+    }
+
+    if (response.status === 304) {
+      return null
+    }
+
+    if (!response.ok) {
+      const error = new Error(`Request failed with status ${response.status}`)
+      error.status = response.status
+      error.body = await safeParseJson(response)
+      throw error
+    }
+
+    const blob = await response.blob()
+
+    return {
+      blob,
+      contentType: response.headers.get('content-type') || blob.type || '',
+      fileName: parseFileNameFromContentDisposition(response.headers.get('content-disposition')),
+    }
+  } catch (error) {
+    if (didTimeout || error?.name === 'AbortError') {
+      const timeoutError = new Error('Request timed out. Please try again.')
+      timeoutError.status = 408
+      throw timeoutError
+    }
+
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+export { request }

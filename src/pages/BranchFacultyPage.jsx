@@ -1,0 +1,2273 @@
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  Plus,
+  MoreVertical,
+  X,
+  CheckCircle2,
+  Phone,
+  Trash2,
+  Edit,
+  Eye,
+  RefreshCw,
+} from 'lucide-react'
+import { getCitiesOfState, getCountries, getStatesOfCountry } from '@countrystatecity/countries-browser'
+import '../styles/BranchFacultyPage.css'
+import {
+  listBranchFaculty,
+  checkBranchFacultyPhone,
+  createBranchFaculty,
+  updateBranchFaculty,
+  deleteBranchFaculty,
+} from '../services/branchFacultyService'
+import { getBranchFacultyAttendanceHistory, getBranchFacultyAttendanceStatus } from '../services/attendanceService'
+import { getMatchingStudents } from '../lib/facultyFlow'
+import { getPageNumberWindow } from '../components/PaginationBar'
+import { FacultyAttendanceReportModal } from '../components/FacultyAttendanceReportModal'
+
+// Prefix constant for Faculty ID
+const FACULTY_ID_PREFIX = 'FC-'
+
+function normalizeFacultyStatus(status, fallback = 'Active') {
+  return String(status || '').trim().toUpperCase() === 'ACTIVE' ? 'Active'
+    : String(status || '').trim().toUpperCase() === 'INACTIVE' ? 'Inactive'
+      : fallback
+}
+
+function getBranchEntityPrefix(branchCode, entityPrefix) {
+  const compact = String(branchCode || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const withoutNumber = compact.replace(/\d{3}$/, '')
+  const branchPrefix = withoutNumber.startsWith('CIS') ? withoutNumber : `CIS${withoutNumber}`
+  return `${branchPrefix}${entityPrefix}`
+}
+
+function formatAttendanceTime(value) {
+  if (!value) return 'N/A'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }).format(date)
+}
+
+function hasResumedAttendanceSession(attendance = {}) {
+  const first = new Date(attendance.firstLoginAt || '').getTime()
+  const latest = new Date(attendance.currentSession?.loginAt || '').getTime()
+  return Number.isFinite(first) && Number.isFinite(latest) && latest > first + 1000
+}
+
+function formatAttendanceDuration(seconds) {
+  const total = Math.max(0, Number(seconds) || 0)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  return `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m`
+}
+
+function formatAttendanceRemaining(seconds) {
+  const total = Math.max(0, Math.ceil(Number(seconds) || 0))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const remainingSeconds = total % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+}
+
+function getAttendanceDateRange() {
+  const now = new Date()
+  const toDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+  return { fromDate: `${toDate.slice(0, 8)}01`, toDate }
+}
+
+function formatAttendanceDate(value) {
+  if (!value) return 'N/A'
+  const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return String(value)
+  return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(parsed)
+}
+
+function attendanceStatusLabel(status) {
+  return {
+    LOGGED_IN: 'LOGGED IN',
+    LOGGED_OUT: 'LOGGED OUT',
+    ON_PERMISSION: 'ON PERMISSION',
+    HALF_DAY: 'HALF DAY',
+    LOGIN_REQUIRED: 'LOGIN REQUIRED',
+    NOT_LOGGED_IN: 'NOT LOGGED IN',
+  }[status] || 'NOT LOGGED IN'
+}
+
+function displayAttendanceStatus(attendance) {
+  if (attendance?.status === 'ON_PERMISSION' && attendance?.interruptionType === 'HALF_DAY') return 'HALF_DAY'
+  return attendance?.status || 'NOT_LOGGED_IN'
+}
+
+function normalizeMatchValue(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function facultyOwnsBatch(faculty = {}, group = {}) {
+  const facultyIds = [faculty.id, faculty.dbId, faculty.facultyId].map(normalizeMatchValue).filter(Boolean)
+  const groupIds = [group.facultyId, group.branchFacultyId, group.facultyUserId].map(normalizeMatchValue).filter(Boolean)
+  const facultyNames = [faculty.name].map(normalizeMatchValue).filter(Boolean)
+  const groupNames = [group.facultyName, group.branchFacultyName].map(normalizeMatchValue).filter(Boolean)
+
+  return Boolean(
+    facultyIds.some((id) => groupIds.includes(id))
+      || facultyNames.some((name) => groupNames.includes(name)),
+  )
+}
+
+function formatBatchTiming(batch = {}) {
+  if (batch.batchTiming) return batch.batchTiming
+  const start = [batch.startTime, batch.startPeriod].filter(Boolean).join(' ')
+  const end = [batch.endTime, batch.endPeriod].filter(Boolean).join(' ')
+  return [start, end].filter(Boolean).join(' - ') || '-'
+}
+
+export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchGroups = [], branchStudents = [] }) {
+  const facultyIdPrefix = getBranchEntityPrefix(branchCode, 'FC')
+  const [facultyList, setFacultyList] = useState([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState('')
+  const [isFacultyLoading, setIsFacultyLoading] = useState(true)
+  
+  const [currentPage, setCurrentPage] = useState(1)
+  const rowsPerPage = 5
+
+  // Modal states
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [modalForm, setModalForm] = useState({
+    idDigits: '', // Holds 3 numbers after FC-
+    name: '',
+    email: '',
+    phone: '',
+    country: '',
+    countryCode: '',
+    state: '',
+    stateCode: '',
+    city: '',
+    address: '',
+    courseId: '',
+    weeklyOffDay: '',
+    status: 'Active',
+  })
+  const [editingId, setEditingId] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  // Options for dropdown selectors
+  const [countryOptions, setCountryOptions] = useState([])
+  const [stateOptions, setStateOptions] = useState([])
+  const [cityOptions, setCityOptions] = useState([])
+
+  // Validation errors & touched states
+  const [errors, setErrors] = useState({})
+  const [touched, setTouched] = useState({})
+
+  // Custom dialog/alert states
+  const [successAlert, setSuccessAlert] = useState(null) // { title, message }
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState(null) // faculty object
+  const [viewFaculty, setViewFaculty] = useState(null) // faculty object for details drawer
+  const [attendanceReportOpen, setAttendanceReportOpen] = useState(false)
+  const [viewFacultyTab, setViewFacultyTab] = useState('details')
+  const [viewAttendance, setViewAttendance] = useState(null)
+  const [viewAttendanceLoading, setViewAttendanceLoading] = useState(false)
+  const [viewAttendanceError, setViewAttendanceError] = useState('')
+  const [viewAttendanceHistory, setViewAttendanceHistory] = useState(null)
+  const [viewAttendanceHistoryLoading, setViewAttendanceHistoryLoading] = useState(false)
+  const [viewAttendanceHistoryError, setViewAttendanceHistoryError] = useState('')
+  const [attendanceHistoryRange, setAttendanceHistoryRange] = useState(() => getAttendanceDateRange())
+  const [attendanceHistoryDraft, setAttendanceHistoryDraft] = useState(() => getAttendanceDateRange())
+  const [attendanceHistoryRefreshToken, setAttendanceHistoryRefreshToken] = useState(0)
+
+  // Actions dropdown
+  const [openActionId, setOpenActionId] = useState('')
+  const [actionMenuPosition, setActionMenuPosition] = useState(null)
+  const actionCloseTimer = useRef(null)
+
+  const openActionMenu = (faculty, button) => {
+    if (actionCloseTimer.current) {
+      clearTimeout(actionCloseTimer.current)
+    }
+
+    const rect = button.getBoundingClientRect()
+
+    const menuWidth = 125
+    const menuHeight = 115
+    const gap = 8
+
+    let left = rect.right - menuWidth
+    let top = rect.bottom + gap
+
+    if (left < 8) {
+      left = 8
+    }
+
+    if (left + menuWidth > window.innerWidth - 8) {
+      left = window.innerWidth - menuWidth - 8
+    }
+
+    // கீழே space இல்லையென்றால் மேலே open ஆகும்
+    if (top + menuHeight > window.innerHeight - 8) {
+      top = rect.top - menuHeight - gap
+    }
+
+    if (top < 8) {
+      top = 8
+    }
+
+    setActionMenuPosition({
+      top,
+      left,
+    })
+
+    setOpenActionId(faculty.id)
+  }
+
+  // Load countries on mount
+  useEffect(() => {
+    let cancelled = false
+    getCountries()
+      .then((items) => {
+        if (cancelled) return
+        const sorted = Array.isArray(items)
+          ? [...items].sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || '')))
+          : []
+        setCountryOptions(sorted)
+      })
+      .catch(() => {
+        if (!cancelled) setCountryOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Load faculty list from backend
+  const fetchFaculty = async () => {
+    setIsFacultyLoading(true)
+    try {
+      // Load the branch list in one request; the table owns the visible-page slicing.
+      const res = await listBranchFaculty({
+        page: 1,
+        limit: 100,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        // Embedded Super Admin views must scope the request immediately,
+        // before the shared impersonation context has been initialized.
+        impersonateBranchId: branchId,
+      })
+      if (res?.data) {
+        // Map backend representation to UI expectation
+        const mapped = res.data.map((f) => ({
+          dbId: f.id,
+          id: f.facultyId || f.facultyCode || f.id,
+          name: f.name || f.facultyName || f.fullName || f.user?.name || '',
+          email: f.email || f.user?.email || '',
+          phone: f.phone || f.mobile || f.mobileNumber || '',
+          country: f.country,
+          countryCode: f.countryCode,
+          state: f.state,
+          stateCode: f.stateCode,
+          city: f.city,
+          address: f.address,
+          courseId: f.courseId,
+          weeklyOffDay: f.weeklyOffDay || '',
+          courses: Array.isArray(f.courses) ? f.courses : [],
+          courseName: (Array.isArray(f.courses) && f.courses.length ? f.courses.map((course) => course.name || course.courseName).filter(Boolean).join(', ') : '') || f.branchCourse?.name || f.course?.name || f.courseName || '-',
+          status: normalizeFacultyStatus(f.status),
+          batchCount: Number(f._count?.branchBatches || 0),
+        }))
+        setFacultyList(mapped)
+      } else {
+        setFacultyList([])
+      }
+    } catch (error) {
+      console.error('Failed to fetch branch faculty:', error)
+      setFacultyList([])
+    } finally {
+      setIsFacultyLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchFaculty()
+  }, [branchId])
+
+  useEffect(() => {
+    if (!viewFaculty) {
+      setViewAttendance(null)
+      setViewAttendanceError('')
+      setViewAttendanceHistory(null)
+      setViewAttendanceHistoryError('')
+      return undefined
+    }
+
+    let cancelled = false
+    const reference = viewFaculty.id || viewFaculty.dbId
+    const refreshAttendance = async () => {
+      setViewAttendanceLoading(true)
+      try {
+        const data = await getBranchFacultyAttendanceStatus(reference)
+        if (!cancelled) {
+          setViewAttendance(data)
+          setViewAttendanceError('')
+        }
+      } catch (error) {
+        if (!cancelled) setViewAttendanceError(error?.message || 'Unable to load attendance status')
+      } finally {
+        if (!cancelled) setViewAttendanceLoading(false)
+      }
+    }
+
+    refreshAttendance()
+    return () => {
+      cancelled = true
+    }
+  }, [viewFaculty?.id, viewFaculty?.dbId])
+
+  useEffect(() => {
+    if (!viewFaculty) return undefined
+    let cancelled = false
+    const reference = viewFaculty.id || viewFaculty.dbId
+    const loadHistory = async () => {
+      setViewAttendanceHistoryLoading(true)
+      try {
+        const data = await getBranchFacultyAttendanceHistory(reference, {
+          from: attendanceHistoryRange.fromDate,
+          to: attendanceHistoryRange.toDate,
+        })
+        if (!cancelled) {
+          setViewAttendanceHistory(data)
+          setViewAttendanceHistoryError('')
+        }
+      } catch (error) {
+        if (!cancelled) setViewAttendanceHistoryError(error?.message || 'Unable to load attendance history')
+      } finally {
+        if (!cancelled) setViewAttendanceHistoryLoading(false)
+      }
+    }
+    loadHistory()
+    return () => { cancelled = true }
+  }, [viewFaculty?.id, viewFaculty?.dbId, attendanceHistoryRange.fromDate, attendanceHistoryRange.toDate, attendanceHistoryRefreshToken])
+
+  // Load states on country code change
+  useEffect(() => {
+    if (!modalForm.countryCode) {
+      setStateOptions([])
+      setCityOptions([])
+      return undefined
+    }
+    let cancelled = false
+    getStatesOfCountry(modalForm.countryCode)
+      .then((items) => {
+        if (cancelled) return
+        const sorted = Array.isArray(items)
+          ? [...items].sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || '')))
+          : []
+        setStateOptions(sorted)
+      })
+      .catch(() => {
+        if (!cancelled) setStateOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [modalForm.countryCode])
+
+  // Load cities on country + state code change
+  useEffect(() => {
+    if (!modalForm.countryCode || !modalForm.stateCode) {
+      setCityOptions([])
+      return undefined
+    }
+    let cancelled = false
+    getCitiesOfState(modalForm.countryCode, modalForm.stateCode)
+      .then((items) => {
+        if (cancelled) return
+        const sorted = Array.isArray(items)
+          ? [...items].sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || '')))
+          : []
+        setCityOptions(sorted)
+      })
+      .catch(() => {
+        if (!cancelled) setCityOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [modalForm.countryCode, modalForm.stateCode])
+
+  // Map state name to code in Edit mode dynamically
+  useEffect(() => {
+    if (editingId && modalForm.state && !modalForm.stateCode && stateOptions.length > 0) {
+      const stateObj = stateOptions.find((s) => s.name === modalForm.state)
+      if (stateObj) {
+        setModalForm((prev) => ({
+          ...prev,
+          stateCode: stateObj.iso2,
+        }))
+      }
+    }
+  }, [editingId, modalForm.state, modalForm.stateCode, stateOptions])
+
+  // Helper to generate the next auto-incremented digit suffix (e.g. "004")
+  const getNextAvailableIdDigits = (list) => {
+    let maxNum = 0
+    list.forEach((f) => {
+      const parts = (f.id || '').split('-')
+      const match = String(f.id || '').match(/(\d{3})$/)
+      if (match) {
+        const num = parseInt(match[1], 10)
+        if (!isNaN(num) && num > maxNum) maxNum = num
+      }
+    })
+    const nextNum = maxNum + 1
+    return String(nextNum).padStart(3, '0')
+  }
+
+  // Filtered list
+  const filteredFaculty = useMemo(() => {
+    const query = appliedSearchQuery.trim().toLowerCase()
+
+    return facultyList.filter((faculty) => {
+      return (
+        !query ||
+        [
+          faculty.id || '',
+          faculty.name || '',
+          faculty.email || '',
+          faculty.phone || '',
+          faculty.country || '',
+          faculty.state || '',
+          faculty.city || '',
+          faculty.address || '',
+          faculty.courseName || '',
+          faculty.status || '',
+          faculty.facultyName || '',
+          faculty.fullName || '',
+          ...(Array.isArray(faculty.courses) ? faculty.courses.map((course) => course?.name || '') : []),
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(query)
+      )
+    })
+  }, [appliedSearchQuery, facultyList])
+
+  const totalPages = Math.max(1, Math.ceil(filteredFaculty.length / rowsPerPage))
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+
+  useEffect(() => {
+    setCurrentPage((prevPage) => Math.min(prevPage, totalPages))
+  }, [totalPages])
+
+  const paginatedFaculty = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * rowsPerPage
+    return filteredFaculty.slice(startIndex, startIndex + rowsPerPage)
+  }, [filteredFaculty, safeCurrentPage])
+
+  const facultyBatchDetails = useMemo(() => {
+    if (!viewFaculty) return []
+
+    return (Array.isArray(branchBatchGroups) ? branchBatchGroups : [])
+      .filter((group) => facultyOwnsBatch(viewFaculty, group))
+      .flatMap((group) => {
+        const groupBatches = Array.isArray(group.batches) && group.batches.length
+          ? group.batches
+          : [group]
+
+        return groupBatches.map((batch) => {
+          const batchId = batch.batchId || batch.id || group.batchId || group.id || ''
+          const batchName = batch.batchName || group.batchName || batchId || 'Unnamed batch'
+          const students = getMatchingStudents(branchStudents, {
+            facultyId: group.facultyId || group.branchFacultyId || viewFaculty.id,
+            facultyName: group.facultyName || viewFaculty.name,
+            courseId: group.courseId || group.branchCourseId || '',
+            courseName: group.courseName || '',
+            batchGroupId: group.id || group.batchGroupId || '',
+            batchId,
+            batchName,
+            batchTiming: formatBatchTiming(batch),
+          })
+
+          return {
+            key: `${group.id || group.batchGroupId || batchId}-${batchId}`,
+            batchId,
+            batchName,
+            courseName: group.courseName || batch.courseName || '-',
+            timing: formatBatchTiming(batch),
+            mode: batch.mode || group.mode || '-',
+            weekType: batch.weekType || group.weekType || '-',
+            startDate: batch.courseStartDate || batch.startDate || group.courseStartDate || group.startDate || '-',
+            endDate: batch.courseEndDate || batch.endDate || group.courseEndDate || group.endDate || '-',
+            totalSeats: Number(batch.totalSeats || group.totalSeats || 0),
+            status: batch.status || group.status || 'Active',
+            students,
+          }
+        })
+      })
+  }, [branchBatchGroups, branchStudents, viewFaculty])
+
+  // Individual Field Validators
+  // =========================================
+  // Field Validators
+  // =========================================
+
+  const validateIdDigits = (digits, currentId, allFaculty) => {
+    if (!digits.trim()) return 'This field is required.'
+
+    if (!/^\d{3}$/.test(digits)) {
+      return 'Faculty ID must be exactly 3 numbers.'
+    }
+
+    const fullId = `${facultyIdPrefix}${digits}`
+
+    const isDuplicate = allFaculty.some(
+      (f) => f.id === fullId && f.id !== currentId
+    )
+
+    if (isDuplicate) {
+      return 'Faculty ID already exists.'
+    }
+
+    return ''
+  }
+
+
+  const validateName = (name) => {
+    if (!name.trim()) return 'This field is required.'
+
+    if (!/^[A-Za-z\s]+$/.test(name)) {
+      return 'Faculty Name must contain letters and spaces only.'
+    }
+
+    return ''
+  }
+
+  const validateEmail = (email, currentId, allFaculty) => {
+    const trimmedEmail = email.trim()
+
+    if (!trimmedEmail) {
+      return 'This field is required.'
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      return 'Invalid email format.'
+    }
+
+    const isDuplicate = allFaculty.some(
+      (f) =>
+        f.email?.trim().toLowerCase() === trimmedEmail.toLowerCase() &&
+        f.id !== currentId
+    )
+
+    if (isDuplicate) {
+      return 'Email already exists.'
+    }
+
+    return ''
+  }
+
+  const validatePhone = (phone, currentId, allFaculty) => {
+    if (!phone.trim()) return 'This field is required.'
+
+    if (!/^\d{10}$/.test(phone.trim())) {
+      return 'Phone number must be exactly 10 digits.'
+    }
+
+    const isDuplicate = allFaculty.some(
+      (f) =>
+        f.phone.trim() === phone.trim() &&
+        f.id !== currentId
+    )
+
+    if (isDuplicate) {
+      return 'Please check this number. It is already registered.'
+    }
+
+    return ''
+  }
+
+
+  const validateCountry = (country) => {
+    if (!country) return 'This field is required.'
+    return ''
+  }
+
+
+  const validateState = (state) => {
+    if (!state) return 'This field is required.'
+    return ''
+  }
+
+
+  const validateCity = (city) => {
+    if (!city) return 'This field is required.'
+    return ''
+  }
+
+
+  const validateAddress = (address) => {
+    if (!address.trim()) return 'This field is required.'
+    return ''
+  }
+
+  const validateWeeklyOffDay = (weeklyOffDay) => {
+    if (!weeklyOffDay) return 'This field is required.'
+    return ''
+  }
+
+  // Live validation triggers on input changes
+  const handleIdDigitsChange = (val) => {
+    const cleanDigits = val.replace(/\D/g, '').substring(0, 3)
+    setModalForm((prev) => ({ ...prev, idDigits: cleanDigits }))
+    const err = validateIdDigits(cleanDigits, editingId, facultyList)
+    setErrors((prev) => ({ ...prev, idDigits: err }))
+  }
+
+  const handleNameChange = (val) => {
+    setModalForm((prev) => ({ ...prev, name: val }))
+    const err = validateName(val)
+    setErrors((prev) => ({ ...prev, name: err }))
+  }
+
+ const handleEmailChange = (val) => {
+  setModalForm((prev) => ({
+    ...prev,
+    email: val,
+  }))
+
+  // While typing, don't show any validation error
+  setErrors((prev) => ({
+    ...prev,
+    email: '',
+  }))
+
+  // Keep the field untouched while typing
+  setTouched((prev) => ({
+    ...prev,
+    email: false,
+  }))
+}
+
+ const handlePhoneChange = (val) => {
+  const cleanPhone = val
+    .replace(/\D/g, '')
+    .substring(0, 10)
+
+  setModalForm((prev) => ({
+    ...prev,
+    phone: cleanPhone,
+  }))
+
+  // 10 digits complete ஆகும் வரை error காட்ட வேண்டாம்
+  if (cleanPhone.length === 10) {
+    const isDuplicate = facultyList.some(
+      (f) =>
+        f.phone?.trim() === cleanPhone &&
+        f.id !== editingId
+    )
+
+    setErrors((prev) => ({
+      ...prev,
+      phone: isDuplicate ? 'Please check this number. It is already registered.' : '',
+    }))
+  } else {
+    setErrors((prev) => ({
+      ...prev,
+      phone: '',
+    }))
+  }
+
+  setTouched((prev) => ({
+    ...prev,
+    phone: false,
+  }))
+}
+
+  const handleCountryChange = (countryName) => {
+    const selected = countryOptions.find((c) => c.name === countryName)
+    const code = selected ? selected.iso2 : ''
+    setModalForm((prev) => ({
+      ...prev,
+      country: countryName,
+      countryCode: code,
+      state: '',
+      stateCode: '',
+      city: '',
+    }))
+    const err = validateCountry(countryName)
+    setErrors((prev) => ({
+      ...prev,
+      country: err,
+      state: '',
+      city: '',
+    }))
+  }
+
+  const handleStateChange = (stateName) => {
+    const selected = stateOptions.find((s) => s.name === stateName)
+    const code = selected ? selected.iso2 : ''
+    setModalForm((prev) => ({
+      ...prev,
+      state: stateName,
+      stateCode: code,
+      city: '',
+    }))
+    const err = validateState(stateName)
+    setErrors((prev) => ({
+      ...prev,
+      state: err,
+      city: '',
+    }))
+  }
+
+  const handleCityChange = (cityName) => {
+    setModalForm((prev) => ({
+      ...prev,
+      city: cityName,
+    }))
+    const err = validateCity(cityName)
+    setErrors((prev) => ({
+      ...prev,
+      city: err,
+    }))
+  }
+
+  const handleAddressChange = (addressVal) => {
+    setModalForm((prev) => ({
+      ...prev,
+      address: addressVal,
+    }))
+    const err = validateAddress(addressVal)
+    setErrors((prev) => ({
+      ...prev,
+      address: err,
+    }))
+  }
+
+  const handleInputChange = (field, val) => {
+    setModalForm((prev) => ({ ...prev, [field]: val }))
+  }
+
+  // Close actions menu when clicking outside
+  useEffect(() => {
+    if (!openActionId) return
+
+    const handleClose = () => {
+      setOpenActionId('')
+      setActionMenuPosition(null)
+    }
+
+    window.addEventListener('click', handleClose)
+
+    return () => {
+      window.removeEventListener('click', handleClose)
+    }
+  }, [openActionId])
+
+  // Open modal for Adding a new Faculty
+  const openAddModal = () => {
+    const nextDigits = getNextAvailableIdDigits(facultyList)
+    setEditingId(null)
+    setModalForm({
+      idDigits: nextDigits,
+      name: '',
+      email: '',
+      phone: '',
+      country: 'India',
+      countryCode: 'IN',
+      state: 'Tamil Nadu',
+      stateCode: 'TN',
+      city: '',
+      address: '',
+      courseId: '',
+      weeklyOffDay: '',
+      status: 'Active',
+    })
+    setErrors({})
+    setTouched({})
+    setIsModalOpen(true)
+  }
+
+  // Open modal for Editing an existing Faculty
+  const openEditModal = (faculty, e) => {
+    if (e) e.stopPropagation()
+    const digitsMatch = String(faculty.id || '').match(/(\d{3})$/)
+    const digits = digitsMatch ? digitsMatch[1] : ''
+
+    const countryObj = countryOptions.find((c) => c.name === faculty.country)
+    const cCode = countryObj ? countryObj.iso2 : ''
+
+    setEditingId(faculty.id)
+    setModalForm({
+      idDigits: digits,
+      name: faculty.name,
+      email: faculty.email,
+      phone: faculty.phone,
+      country: faculty.country || '',
+      countryCode: cCode,
+      state: faculty.state || '',
+      stateCode: '',
+      city: faculty.city || '',
+      address: faculty.address || '',
+      courseId: faculty.courseId || '',
+      weeklyOffDay: faculty.weeklyOffDay || '',
+      status: normalizeFacultyStatus(faculty.status),
+    })
+    setErrors({})
+    setTouched({})
+    setIsModalOpen(true)
+    setOpenActionId('')
+  }
+
+  // Submit Handler for Add / Edit
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault()
+
+    const idDigitsErr = validateIdDigits(
+      modalForm.idDigits,
+      editingId,
+      facultyList
+    )
+    const nameErr = validateName(modalForm.name)
+    const emailErr = validateEmail(
+      modalForm.email,
+      editingId,
+      facultyList
+    )
+    const phoneErr = validatePhone(
+      modalForm.phone,
+      editingId,
+      facultyList
+    )
+    const countryErr = validateCountry(modalForm.country)
+    const stateErr = validateState(modalForm.state)
+    const cityErr = validateCity(modalForm.city)
+    const addressErr = validateAddress(modalForm.address)
+    const weeklyOffDayErr = validateWeeklyOffDay(modalForm.weeklyOffDay)
+
+    const nextErrors = {
+      idDigits: idDigitsErr,
+      name: nameErr,
+      email: emailErr,
+      phone: phoneErr,
+      country: countryErr,
+      state: stateErr,
+      city: cityErr,
+      address: addressErr,
+      weeklyOffDay: weeklyOffDayErr,
+    }
+
+    setErrors(nextErrors)
+
+    setTouched({
+      idDigits: true,
+      name: true,
+      email: true,
+      phone: true,
+      country: true,
+      state: true,
+      city: true,
+      address: true,
+      weeklyOffDay: true,
+    })
+
+    const hasErrors = Object.values(nextErrors).some(Boolean)
+
+    if (hasErrors) return
+
+    const fullId = `${facultyIdPrefix}${modalForm.idDigits}`
+
+    const payload = {
+      facultyId: fullId,
+      name: modalForm.name,
+      email: modalForm.email,
+      phone: modalForm.phone,
+      country: modalForm.country,
+      countryCode: modalForm.countryCode,
+      state: modalForm.state,
+      stateCode: modalForm.stateCode,
+      city: modalForm.city,
+      address: modalForm.address,
+      courseId: modalForm.courseId,
+      weeklyOffDay: modalForm.weeklyOffDay || null,
+      status: normalizeFacultyStatus(modalForm.status),
+    }
+
+    try {
+      setIsSubmitting(true)
+
+      if (editingId) {
+        const targetFaculty = facultyList.find(
+          (f) => f.id === editingId
+        )
+
+        if (targetFaculty?.dbId) {
+          await updateBranchFaculty(
+            targetFaculty.dbId,
+            payload
+          )
+        }
+
+        await fetchFaculty()
+
+        setIsModalOpen(false)
+
+        setSuccessAlert({
+          title: '✓ Faculty Updated Successfully',
+          message: 'Faculty details have been updated successfully.',
+        })
+      } else {
+        await createBranchFaculty(payload)
+
+        await fetchFaculty()
+
+        setIsModalOpen(false)
+
+        setSuccessAlert({
+          title: '✓ Faculty Added Successfully',
+          message: 'New faculty has been onboarded successfully.',
+        })
+      }
+    } catch (err) {
+      console.error(err)
+
+      const message = err?.body?.message || err?.message || 'Error saving faculty. Please try again.'
+      setErrors((prev) => ({
+        ...prev,
+        idDigits: message.toLowerCase().includes('faculty id') ? message : prev.idDigits,
+        email: message.toLowerCase().includes('email') ? message : prev.email,
+        phone: message.toLowerCase().includes('phone')
+          ? 'Please check this number. It is already registered.'
+          : prev.phone,
+      }))
+      if (message.toLowerCase().includes('phone')) {
+        setTouched((prev) => ({ ...prev, phone: true }))
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+  // Delete Action Trigger
+  const triggerDelete = (faculty, e) => {
+    if (e) e.stopPropagation()
+    setDeleteConfirmTarget(faculty)
+    setOpenActionId('')
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmTarget) return
+
+    try {
+      setIsDeleting(true)
+
+      if (deleteConfirmTarget.dbId) {
+        await deleteBranchFaculty(deleteConfirmTarget.dbId)
+      }
+
+      await fetchFaculty()
+
+      setDeleteConfirmTarget(null)
+
+      setSuccessAlert({
+        title: '✓ Faculty Deleted Successfully',
+        message: 'Faculty has been deleted successfully.',
+      })
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  return (<div className="branch-dashboard-section">
+
+    <div className="branch-dashboard-section-heading">
+      <div className="branch-dashboard-section-heading-copy">
+        <h2>Faculty Management</h2>
+        <p>Onboard, manage, and view instructors assigned to your branch courses.</p>
+      </div>
+      <div className="branch-dashboard-section-heading-actions">
+        <button
+          type="button"
+          className="button button-solid"
+          onClick={openAddModal}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+        >
+          <Plus size={16} /> Add Faculty
+        </button>
+
+        <div className="branch-dashboard-section-summary">
+          <span>Total Faculty:</span>
+          <strong>{facultyList.length}</strong>
+        </div>
+      </div>
+    </div>
+
+    {/* Search + Filter Bar */}
+    <div className="faculty-search-filter-bar">
+
+    <div className="faculty-search-filter-bar">
+  <div className="faculty-search-wrapper">
+      <input
+        type="text"
+        placeholder="Search faculty"
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            setAppliedSearchQuery(searchQuery.trim())
+            setCurrentPage(1)
+          }
+        }}
+        onChangeCapture={(e) => {
+          if (!e.target.value.trim() && appliedSearchQuery) {
+            setAppliedSearchQuery('')
+            setCurrentPage(1)
+          }
+        }}
+        aria-label="Search faculty by ID, name, email, phone, course, or status"
+        className="faculty-search-input"
+      />
+
+    <button
+      type="button"
+      className="faculty-search-button"
+      onClick={() => {
+        setAppliedSearchQuery(searchQuery.trim())
+        setCurrentPage(1)
+      }}
+    >
+      Search
+    </button>
+  </div>
+</div>
+
+    </div>
+
+    {/* Table */}
+    <div className="faculty-table-shell">
+      <div className="faculty-table-scroll">
+<table className="branch-dashboard-table" style={{ tableLayout: 'fixed' }}>
+  <colgroup>
+    <col style={{ width: '5%' }} />
+    <col style={{ width: '14%' }} />
+    <col style={{ width: '15%' }} />
+    <col style={{ width: '17%' }} />
+    <col style={{ width: '20%' }} />
+    <col style={{ width: '18%' }} />
+    <col style={{ width: '11%' }} />
+  </colgroup>
+
+  <thead>
+            <tr>
+              <th>S.No</th>
+              <th>Faculty ID</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th style={{ minWidth: '150px' }}>Assigned Course</th>
+              <th style={{ minWidth: '100px', textAlign: 'center' }}>Batches</th>
+              <th style={{ width: '60px', textAlign: 'center' }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isFacultyLoading ? (
+              Array.from({ length: 6 }, (_, rowIndex) => (
+                <tr key={`faculty-loading-${rowIndex}`} className="branch-faculty-skeleton-row" aria-hidden="true">
+                  {Array.from({ length: 7 }, (_, cellIndex) => <td key={`faculty-loading-${rowIndex}-${cellIndex}`}><span /></td>)}
+                </tr>
+              ))
+            ) : paginatedFaculty.length > 0 ? (
+              paginatedFaculty.map((faculty, index) => {
+                const normStatus = String(faculty.status || 'Active').toLowerCase()
+                const statusTone = normStatus === 'active' ? 'is-active' : 'is-inactive'
+                const rowNumber = (safeCurrentPage - 1) * rowsPerPage + index + 1
+                return (
+                  <tr key={faculty.id} style={{ cursor: 'pointer' }} onClick={() => { setViewFaculty(faculty); setViewFacultyTab('details') }}>
+                    <td>{rowNumber}</td>
+                   <td>
+                      <div className="branch-course-code-cell">
+                        <span
+                          className={`branch-course-status-badge ${statusTone}`.trim()}
+                          aria-label={`Faculty status ${faculty.status || 'Active'}`}
+                          role="img"
+                          tabIndex="0"
+                        >
+                          <span className="branch-course-status-dot" aria-hidden="true" />
+                          <span className={`branch-course-status-tooltip ${statusTone}`.trim()} role="tooltip">
+                            {faculty.status || 'Active'}
+                          </span>
+                        </span>
+                        <strong className="branch-course-name">
+                          {faculty.facultyId || faculty.id}
+                        </strong>
+                      </div>
+</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <strong className="branch-course-name" style={{ maxWidth: '130px' }}>{faculty.name}</strong>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="faculty-info-link">
+                        <Phone size={14} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                        {faculty.phone || '—'}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ color: '#475569', fontWeight: '500' }}>{faculty.courseName || '—'}</span>
+                    </td>
+
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                      <strong className="faculty-batch-count">
+                        {Number(faculty.batchCount || 0)}
+                      </strong>
+                    </td>
+                    <td style={{ textAlign: 'center', position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="branch-course-actions-button"
+                        onMouseEnter={(e) => {
+                          e.stopPropagation()
+                          if (actionCloseTimer.current) {
+                            clearTimeout(actionCloseTimer.current)
+                          }
+                          openActionMenu(faculty, e.currentTarget)
+                        }}
+                        onMouseLeave={() => {
+                          actionCloseTimer.current = setTimeout(() => {
+                            setOpenActionId('')
+                            setActionMenuPosition(null)
+                          }, 200)
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (openActionId === faculty.id) {
+                            setOpenActionId('')
+                            setActionMenuPosition(null)
+                          } else {
+                            openActionMenu(faculty, e.currentTarget)
+                          }
+                        }}
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                    </td>
+                    {openActionId &&
+                      actionMenuPosition &&
+                      typeof document !== 'undefined' &&
+                      createPortal(
+                        <div
+                          className="branch-course-actions-menu"
+                          role="menu"
+                          style={{
+                            position: 'fixed',
+                            top: `${actionMenuPosition.top}px`,
+                            left: `${actionMenuPosition.left}px`,
+                            zIndex: 999999,
+                          }}
+                          onMouseEnter={() => {
+                            if (actionCloseTimer.current) {
+                              clearTimeout(actionCloseTimer.current)
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            actionCloseTimer.current = setTimeout(() => {
+                              setOpenActionId('')
+                              setActionMenuPosition(null)
+                            }, 200)
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {(() => {
+                            const selectedFaculty = filteredFaculty.find(
+                              (item) => item.id === openActionId
+                            )
+
+                            if (!selectedFaculty) return null
+
+                            return (
+                              <>
+                                <button
+                                  type="button"
+                                  className="branch-course-actions-menu-item"
+                                  onClick={() => {
+                                    setViewFaculty(selectedFaculty)
+                                    setViewFacultyTab('details')
+                                    setOpenActionId('')
+                                    setActionMenuPosition(null)
+                                  }}
+                                >
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                    <Eye size={14} />
+                                    View
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="branch-course-actions-menu-item"
+                                  onClick={(e) => {
+                                    openEditModal(selectedFaculty, e)
+                                    setActionMenuPosition(null)
+                                  }}
+                                >
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                    <Edit size={14} />
+                                    Edit
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="branch-course-actions-menu-item is-danger"
+                                  onClick={(e) => {
+                                    triggerDelete(selectedFaculty, e)
+                                    setActionMenuPosition(null)
+                                  }}
+                                >
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                    <Trash2 size={14} />
+                                    Delete
+                                  </span>
+                                </button>
+                              </>
+                            )
+                          })()}
+                        </div>,
+                        document.body
+                      )}
+                  </tr>
+                )
+              })
+            ) : (
+              <tr>
+                <td colSpan="7" className="branch-course-empty-state" role="status" aria-live="polite">
+                  {appliedSearchQuery
+                    ? <>No faculty found for <strong>“{appliedSearchQuery}”</strong>. Try another keyword.</>
+                    : 'No faculty records available for this branch.'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {filteredFaculty.length > rowsPerPage ? (
+      <div className="branch-course-pagination" role="navigation" aria-label="Faculty pagination">
+        <button
+          type="button"
+          className="branch-course-pagination-button"
+          onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+          disabled={safeCurrentPage === 1}
+        >
+          Prev
+        </button>
+
+        <div className="branch-course-pagination-pages">
+          {getPageNumberWindow(totalPages, safeCurrentPage, 2).map((page) => (
+            <button
+              key={page}
+              type="button"
+              className={`branch-course-pagination-page ${page === safeCurrentPage ? 'is-active' : ''}`}
+              onClick={() => setCurrentPage(page)}
+              aria-current={page === safeCurrentPage ? 'page' : undefined}
+            >
+              {page}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className="branch-course-pagination-button"
+          onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+          disabled={safeCurrentPage === totalPages}
+        >
+          Next
+        </button>
+      </div>
+    ) : null}
+
+    {/* Add / Edit modal using 2-column layout matching design specs screenshot */}
+    {
+      isModalOpen && typeof document !== 'undefined'
+        ? createPortal(
+          <div role="presentation" className="faculty-portal-backdrop">
+            <form
+              role="dialog"
+              aria-modal="true"
+              onClick={(e) => e.stopPropagation()}
+              onSubmit={handleFormSubmit}
+              className="faculty-modal-card"
+              noValidate
+            >
+              {/* Header */}
+              <div className="faculty-modal-header">
+                <h2 className="faculty-modal-title">
+                  {editingId ? 'Edit Faculty' : 'Create Faculty'}
+                </h2>
+               <button
+  type="button"
+  onClick={() => setIsModalOpen(false)}
+  aria-label="Close form"
+  className="faculty-modal-close-btn"
+>
+  <X size={22} strokeWidth={2} />
+</button>
+              </div>
+
+              {/* 2-Column Grid Layout */}
+              <div className="faculty-modal-grid">
+                {/* Faculty ID (Fixed Prefix) */}
+                <div className="faculty-field-group">
+                  <span className="faculty-field-label">
+                    Faculty ID <b>*</b>
+                  </span>
+                  <div className="faculty-id-input-container">
+                    <span className="faculty-id-prefix-badge">
+                      {facultyIdPrefix}
+                    </span>
+                    <input
+                      type="text"
+                      maxLength={3}
+                      placeholder="001"
+                      value={modalForm.idDigits}
+                      onChange={(e) => handleIdDigitsChange(e.target.value)}
+                      onBlur={() => setTouched((prev) => ({ ...prev, idDigits: true }))}
+                      className="faculty-id-input"
+                      readOnly
+                      aria-readonly="true"
+
+                    />
+                  </div>
+                  {((touched.idDigits || modalForm.idDigits) && errors.idDigits) ? (
+                    <small className="faculty-error-message">
+                      {errors.idDigits}
+                    </small>
+                  ) : null}
+                </div>
+
+                {/* Faculty Name */}
+                <div className="faculty-field-group">
+                  <span className="faculty-field-label">
+                    Faculty Name <b>*</b>
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Enter faculty name"
+                    value={modalForm.name}
+                    onChange={(e) => handleNameChange(e.target.value)}
+                    onBlur={() => setTouched((prev) => ({ ...prev, name: true }))}
+                    className="faculty-text-input"
+
+                  />
+                  {((touched.name || modalForm.name) && errors.name) ? (
+                    <small className="faculty-error-message">
+                      {errors.name}
+                    </small>
+                  ) : null}
+                </div>
+
+              {/* Faculty Email */}
+<div className="faculty-field-group">
+  <span className="faculty-field-label">
+    Faculty Email <b>*</b>
+  </span>
+
+  <input
+    type="email"
+    placeholder="Enter email address"
+    value={modalForm.email}
+    onChange={(e) => handleEmailChange(e.target.value)}
+    onBlur={() => {
+      const trimmedEmail = modalForm.email.trim()
+
+      // Mark field as touched
+      setTouched((prev) => ({
+        ...prev,
+        email: true,
+      }))
+
+      // Required validation
+      if (!trimmedEmail) {
+        setErrors((prev) => ({
+          ...prev,
+          email: 'This field is required.',
+        }))
+        return
+      }
+
+      // Email format validation
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        setErrors((prev) => ({
+          ...prev,
+          email: 'Invalid email format.',
+        }))
+        return
+      }
+
+      // Duplicate email validation
+      const isDuplicate = facultyList.some(
+        (f) =>
+          f.email?.trim().toLowerCase() ===
+            trimmedEmail.toLowerCase() &&
+          f.id !== editingId
+      )
+
+      setErrors((prev) => ({
+        ...prev,
+        email: isDuplicate
+          ? 'Email already exists.'
+          : '',
+      }))
+    }}
+    className="faculty-text-input"
+  />
+
+  {touched.email && errors.email ? (
+    <small className="faculty-error-message">
+      {errors.email}
+    </small>
+  ) : null}
+</div>
+{/* Faculty Phone Number */}
+<div className="faculty-field-group">
+  <span className="faculty-field-label">
+    Faculty Phone Number <b>*</b>
+  </span>
+
+  <input
+    type="text"
+    placeholder="Enter 10 digit number"
+    value={modalForm.phone}
+    maxLength={10}
+    onChange={(e) => handlePhoneChange(e.target.value)}
+    onBlur={async () => {
+      const phone = modalForm.phone.trim()
+
+      // Mark field as touched
+      setTouched((prev) => ({
+        ...prev,
+        phone: true,
+      }))
+
+      // Required validation
+      if (!phone) {
+        setErrors((prev) => ({
+          ...prev,
+          phone: 'This field is required.',
+        }))
+        return
+      }
+
+      // 10 digit validation
+      if (!/^\d{10}$/.test(phone)) {
+        setErrors((prev) => ({
+          ...prev,
+          phone: 'Phone number must be exactly 10 digits.',
+        }))
+        return
+      }
+
+      // Duplicate phone validation
+      const isDuplicate = facultyList.some(
+        (f) =>
+          f.phone?.trim() === phone &&
+          f.id !== editingId
+      )
+
+      setErrors((prev) => ({
+        ...prev,
+        phone: isDuplicate
+          ? 'Please check this number. It is already registered.'
+          : '',
+      }))
+
+      if (!isDuplicate && !editingId) {
+        try {
+          const response = await checkBranchFacultyPhone(phone)
+          if (response?.data?.exists) {
+            setErrors((prev) => ({
+              ...prev,
+              phone: 'Please check this number. It is already registered.',
+            }))
+          }
+        } catch (error) {
+          // The submit request remains the final source of truth if this check fails.
+          console.warn('Unable to check faculty phone availability:', error)
+        }
+      }
+    }}
+    className="faculty-text-input"
+  />
+
+  {touched.phone && errors.phone ? (
+    <small className="faculty-error-message">
+      {errors.phone}
+    </small>
+  ) : null}
+</div>
+                {/* Country */}
+                <div className="faculty-field-group">
+                  <span className="faculty-field-label">
+                    Country <b>*</b>
+                  </span>
+                  <select
+                    value={modalForm.country}
+                    onChange={(e) => handleCountryChange(e.target.value)}
+                    onBlur={() => setTouched((prev) => ({ ...prev, country: true }))}
+                    className="faculty-select-input"
+
+                  >
+                    <option value="">Select Country</option>
+                    {countryOptions.map((c) => (
+                      <option key={c.iso2} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  {((touched.country || modalForm.country) && errors.country) ? (
+                    <small className="faculty-error-message">
+                      {errors.country}
+                    </small>
+                  ) : null}
+                </div>
+
+                {/* State */}
+                <div className="faculty-field-group">
+                  <span className="faculty-field-label">
+                    State <b>*</b>
+                  </span>
+                  <select
+                    value={modalForm.state}
+                    onChange={(e) => handleStateChange(e.target.value)}
+                    onBlur={() => setTouched((prev) => ({ ...prev, state: true }))}
+                    className="faculty-select-input"
+                    disabled={!modalForm.countryCode}
+
+                  >
+                    <option value="">Select State</option>
+                    {stateOptions.map((s) => (
+                      <option key={s.iso2} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  {((touched.state || modalForm.state) && errors.state) ? (
+                    <small className="faculty-error-message">
+                      {errors.state}
+                    </small>
+                  ) : null}
+                </div>
+
+                {/* City */}
+                <div className="faculty-field-group">
+                  <span className="faculty-field-label">
+                    City <b>*</b>
+                  </span>
+                  <select
+                    value={modalForm.city}
+                    onChange={(e) => handleCityChange(e.target.value)}
+                    onBlur={() => setTouched((prev) => ({ ...prev, city: true }))}
+                    className="faculty-select-input"
+                    disabled={!modalForm.stateCode}
+
+                  >
+                    <option value="">Select City</option>
+                    {cityOptions.map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  {((touched.city || modalForm.city) && errors.city) ? (
+                    <small className="faculty-error-message">
+                      {errors.city}
+                    </small>
+                  ) : null}
+                </div>
+
+                {/* Status */}
+                <div className="faculty-field-group">
+                  <span className="faculty-field-label">
+                    Status <b>*</b>
+                  </span>
+                  <select
+                    value={modalForm.status}
+                    onChange={(e) => handleInputChange('status', e.target.value)}
+                    className="faculty-select-input"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                </div>
+
+                {/* Weekly off is configured once on the faculty and snapshotted by batches. */}
+                <div className="faculty-field-group">
+                  <span className="faculty-field-label">
+                    Faculty Weekly Off Days <b>*</b>
+                  </span>
+                  <select
+                    value={modalForm.weeklyOffDay}
+                    onChange={(e) => handleInputChange('weeklyOffDay', e.target.value)}
+                    onBlur={() => {
+                      setTouched((prev) => ({ ...prev, weeklyOffDay: true }))
+                      setErrors((prev) => ({ ...prev, weeklyOffDay: validateWeeklyOffDay(modalForm.weeklyOffDay) }))
+                    }}
+                    className="faculty-select-input"
+                  >
+                    <option value="">Select weekly off day</option>
+                    <option value="MONDAY">Monday</option>
+                    <option value="TUESDAY">Tuesday</option>
+                    <option value="WEDNESDAY">Wednesday</option>
+                    <option value="THURSDAY">Thursday</option>
+                    <option value="FRIDAY">Friday</option>
+                  </select>
+                  {((touched.weeklyOffDay || modalForm.weeklyOffDay) && errors.weeklyOffDay) ? (
+                    <small className="faculty-error-message">
+                      {errors.weeklyOffDay}
+                    </small>
+                  ) : null}
+                </div>
+
+                {/* Address */}
+                <div className="faculty-field-group" style={{ gridColumn: '1 / span 2' }}>
+                  <span className="faculty-field-label">
+                    Address <b>*</b>
+                  </span>
+                  <textarea
+                    placeholder="Enter street address"
+                    value={modalForm.address}
+                    onChange={(e) => handleAddressChange(e.target.value)}
+                    onBlur={() => setTouched((prev) => ({ ...prev, address: true }))}
+                    className="faculty-textarea-input"
+
+                  />
+                  {((touched.address || modalForm.address) && errors.address) ? (
+                    <small className="faculty-error-message">
+                      {errors.address}
+                    </small>
+                  ) : null}
+                </div>
+              </div>
+
+             
+
+              {/* Divider above buttons */}
+              <div className="faculty-modal-divider" />
+
+              {/* Action Buttons */}
+              <div className="faculty-modal-actions">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="faculty-btn-cancel"
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="faculty-btn-submit"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting
+                    ? (editingId ? 'Saving...' : 'Submitting...')
+                    : (editingId ? 'Save Changes' : 'Submit')}
+                </button>
+              </div>
+            </form>
+          </div>,
+          document.body
+        )
+        : null
+    }
+
+
+    {/* Right Drawer Slide-out for Viewing Faculty Details */}
+    {
+      viewFaculty && typeof document !== 'undefined'
+        ? createPortal(
+          <div
+            className="branch-course-drawer-backdrop"
+            role="presentation"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              background: 'rgba(15, 23, 42, 0.45)',
+              backdropFilter: 'blur(5px)',
+              WebkitBackdropFilter: 'blur(5px)',
+              zIndex: 1400,
+              cursor: 'default',
+            }}
+          >
+            <aside
+              className="branch-course-view-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="branch-faculty-view-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="branch-course-view-drawer-header">
+                <div className="branch-course-header-content">
+                  <p className="section-kicker">FACULTY DETAILS</p>
+                  <h2 id="branch-faculty-view-title">{viewFaculty.name}</h2>
+                  <span className="branch-course-view-code">{viewFaculty.id}</span>
+                </div>
+
+                <div className="branch-course-view-header-actions">
+                  <div className="branch-course-view-header-actions-row">
+                    <strong className={`branch-course-status-pill ${String(viewFaculty.status).toLowerCase()}`}>
+                      {viewFaculty.status}
+                    </strong>
+
+                    <button
+  type="button"
+  className="branch-course-view-close"
+  onClick={() => setViewFaculty(null)}
+  aria-label="Close faculty details"
+>
+  <X size={22} strokeWidth={2} />
+</button>
+                  </div>
+
+                  <div className="branch-course-view-header-buttons">
+                    <button
+                      type="button"
+                      className="branch-course-view-attendance-button"
+                      onClick={() => setAttendanceReportOpen(true)}
+                    >
+                      Attendance
+                    </button>
+
+                    <button
+                      type="button"
+                      className="branch-course-view-edit"
+                      onClick={() => {
+                        const facultyToEdit = viewFaculty
+                        setViewFaculty(null)
+                        openEditModal(facultyToEdit)
+                      }}
+                    >
+                      Edit Faculty
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <section className="branch-faculty-attendance-status" aria-labelledby="branch-faculty-attendance-title">
+                <div className="branch-faculty-attendance-status-heading">
+                  <div>
+                    <p className="section-kicker">TODAY'S WORK LOG</p>
+                  </div>
+                  {viewAttendance && (
+                    <div className={`branch-faculty-attendance-badge branch-faculty-attendance-heading-badge ${String(displayAttendanceStatus(viewAttendance)).toLowerCase().replaceAll('_', '-')}`}>
+                      <span aria-hidden="true" />
+                      {attendanceStatusLabel(displayAttendanceStatus(viewAttendance))}
+                    </div>
+                  )}
+                  {viewAttendanceLoading && !viewAttendance && <span className="branch-faculty-attendance-refresh">Loading…</span>}
+                </div>
+
+                {viewAttendanceError ? (
+                  <p className="branch-faculty-attendance-error">{viewAttendanceError}</p>
+                ) : viewAttendance ? (
+                  <>
+                    <div className={`branch-faculty-attendance-metrics${hasResumedAttendanceSession(viewAttendance) ? ' has-resume-login' : ''}`}>
+                      <div><span>Login Time</span><strong>{formatAttendanceTime(viewAttendance.firstLoginAt)}</strong></div>
+                      {hasResumedAttendanceSession(viewAttendance) && <div><span>Re-Login Time</span><strong>{formatAttendanceTime(viewAttendance.currentSession.loginAt)}</strong></div>}
+                      <div><span>Logout Time</span><strong>{formatAttendanceTime(viewAttendance.finalLogoutAt)}</strong></div>
+                      <div><span>{viewAttendance.status === 'LOGGED_OUT' ? 'Total Working Time' : 'Current Working Time'}</span><strong>{formatAttendanceDuration(viewAttendance.workingSeconds)}</strong></div>
+                    </div>
+
+                    {['ON_PERMISSION', 'HALF_DAY', 'LOGIN_REQUIRED'].includes(viewAttendance.status) && viewAttendance.interruptionStartTime && (
+                      <div className="branch-faculty-attendance-interruption">
+                        <strong>{viewAttendance.status === 'LOGIN_REQUIRED' ? 'Permission Completed' : attendanceStatusLabel(displayAttendanceStatus(viewAttendance))}</strong>
+                        <span>{viewAttendance.interruptionStartTime} – {viewAttendance.interruptionEndTime}</span>
+                        {viewAttendance.interruptionReason && <span>Reason: {viewAttendance.interruptionReason}</span>}
+                        {viewAttendance.status === 'ON_PERMISSION' && <span>Remaining: {formatAttendanceRemaining(viewAttendance.remainingSeconds)}</span>}
+                        {viewAttendance.status === 'LOGIN_REQUIRED' && <span>Re-login required.</span>}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="branch-faculty-attendance-refresh">Loading attendance status…</p>
+                )}
+              </section>
+
+              <div className="faculty-drawer-tabs" role="tablist" aria-label="Faculty details sections">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={viewFacultyTab === 'details'}
+                  className={viewFacultyTab === 'details' ? 'is-active' : ''}
+                  onClick={() => setViewFacultyTab('details')}
+                >
+                  DETAILS
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={viewFacultyTab === 'batches'}
+                  className={viewFacultyTab === 'batches' ? 'is-active' : ''}
+                  onClick={() => setViewFacultyTab('batches')}
+                >
+                  BATCHES &amp; STUDENTS
+                  <span>{facultyBatchDetails.length}</span>
+                </button>
+              </div>
+
+              {/* Details Table */}
+              <div className="branch-course-view-body">
+                <div className="branch-course-view-scroll" hidden={viewFacultyTab !== 'details'}>
+                  <div className="branch-course-view-table" role="table" aria-label="Faculty information details">
+                    <div className="branch-course-view-table-header" role="row">
+                      <div className="branch-course-view-table-head" role="columnheader">DETAILS</div>
+                      <div className="branch-course-view-table-head" role="columnheader">INFORMATION</div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div className="branch-course-view-cell branch-course-view-cell-label" role="cell">
+                        <span>Faculty ID</span>
+                      </div>
+                      <div className="branch-course-view-cell branch-course-view-cell-value" role="cell">
+                        <strong>{viewFaculty.id}</strong>
+                      </div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div className="branch-course-view-cell branch-course-view-cell-label" role="cell">
+                        <span>Faculty Name</span>
+                      </div>
+                      <div className="branch-course-view-cell branch-course-view-cell-value" role="cell">
+                        <strong>{viewFaculty.name}</strong>
+                      </div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div className="branch-course-view-cell branch-course-view-cell-label" role="cell">
+                        <span>Email Address</span>
+                      </div>
+                      <div className="branch-course-view-cell branch-course-view-cell-value" role="cell">
+                        <strong>{viewFaculty.email}</strong>
+                      </div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div className="branch-course-view-cell branch-course-view-cell-label" role="cell">
+                        <span>Phone Number</span>
+                      </div>
+                      <div className="branch-course-view-cell branch-course-view-cell-value" role="cell">
+                        <strong>{viewFaculty.phone}</strong>
+                      </div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div className="branch-course-view-cell branch-course-view-cell-label" role="cell">
+                        <span>Country</span>
+                      </div>
+                      <div className="branch-course-view-cell branch-course-view-cell-value" role="cell">
+                        <strong>{viewFaculty.country}</strong>
+                      </div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div className="branch-course-view-cell branch-course-view-cell-label" role="cell">
+                        <span>State</span>
+                      </div>
+                      <div className="branch-course-view-cell branch-course-view-cell-value" role="cell">
+                        <strong>{viewFaculty.state}</strong>
+                      </div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div className="branch-course-view-cell branch-course-view-cell-label" role="cell">
+                        <span>City</span>
+                      </div>
+                      <div className="branch-course-view-cell branch-course-view-cell-value" role="cell">
+                        <strong>{viewFaculty.city}</strong>
+                      </div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div className="branch-course-view-cell branch-course-view-cell-label" role="cell">
+                        <span>Faculty Weekly Off Days</span>
+                      </div>
+                      <div className="branch-course-view-cell branch-course-view-cell-value" role="cell">
+                        <strong>
+                          {viewFaculty.weeklyOffDay
+                            ? `${String(viewFaculty.weeklyOffDay).charAt(0).toUpperCase()}${String(viewFaculty.weeklyOffDay).slice(1).toLowerCase()}`
+                            : '-'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="branch-course-view-row" role="row">
+                      <div
+                        className="branch-course-view-cell branch-course-view-cell-label"
+                        role="cell"
+                      >
+                        <span>Address</span>
+                      </div>
+
+                      <div
+                        className="branch-course-view-cell branch-course-view-cell-value"
+                        role="cell"
+                      >
+                        <strong>
+                          {viewFaculty.address
+                            ?.split(',')
+                            .map((part, index, arr) => (
+                              <span key={index}>
+                                {part.trim()}
+                                {index < arr.length - 1 ? ', ' : ''}
+                              </span>
+                            ))}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <section className="faculty-assigned-batches" aria-labelledby="faculty-assigned-batches-title" hidden={viewFacultyTab !== 'batches'}>
+                  <div className="faculty-assigned-batches-heading">
+                    <div>
+                      <p className="section-kicker">BATCHES &amp; STUDENTS</p>
+                      <h3 id="faculty-assigned-batches-title">Assigned batches</h3>
+                    </div>
+                    <strong>{facultyBatchDetails.length} batch{facultyBatchDetails.length === 1 ? '' : 'es'}</strong>
+                  </div>
+
+                  {facultyBatchDetails.length ? (
+                    <div className="faculty-batches-table-wrap">
+                      <table className="faculty-batches-table">
+                        <thead>
+                          <tr>
+                            <th>Course Name</th>
+                            <th>Batch Name</th>
+                            <th>Timing</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {facultyBatchDetails.map((batch) => (
+                            <tr key={batch.key}>
+                              <td>{batch.courseName}</td>
+                              <td><strong>{batch.batchName}</strong><small>{batch.batchId}</small></td>
+                              <td>{batch.timing}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="faculty-assigned-empty">No batches assigned to this faculty.</p>
+                  )}
+
+                  {false && facultyBatchDetails.map((batch) => (
+                    <article className="faculty-assigned-batch-card" key={batch.key}>
+                      <div className="faculty-assigned-batch-header">
+                        <div>
+                          <strong>{batch.batchName}</strong>
+                          <span>{batch.batchId}</span>
+                        </div>
+                        <span className={`faculty-assigned-batch-status ${String(batch.status).toLowerCase()}`}>{batch.status}</span>
+                      </div>
+                      <div className="faculty-assigned-batch-meta">
+                        <span><b>Course:</b> {batch.courseName}</span>
+                        <span><b>Timing:</b> {batch.timing}</span>
+                        <span><b>Mode:</b> {batch.mode}</span>
+                        <span><b>Week:</b> {batch.weekType}</span>
+                        <span><b>Start:</b> {batch.startDate}</span>
+                        <span><b>End:</b> {batch.endDate}</span>
+                        <span><b>Seats:</b> {batch.students.length}{batch.totalSeats ? ` / ${batch.totalSeats}` : ''}</span>
+                      </div>
+                      {batch.students.length ? (
+                        <div className="faculty-assigned-student-list">
+                          {batch.students.map((student, index) => (
+                            <div className="faculty-assigned-student-row" key={`${batch.key}-${student.studentId || student.id || index}`}>
+                              <span>{String(index + 1).padStart(2, '0')}</span>
+                              <div>
+                                <strong>{student.studentName || student.name || 'Unnamed student'}</strong>
+                                <small>{student.studentId || student.id || 'Student ID unavailable'}</small>
+                              </div>
+                              <em>{[student.phone || student.mobileNumber, student.email, student.courseName || student.courseInterested].filter(Boolean).join(' · ') || '-'}</em>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="faculty-assigned-empty">No students assigned to this batch yet.</p>
+                      )}
+                    </article>
+                  ))}
+                </section>
+
+                <section className="faculty-attendance-history" aria-labelledby="faculty-attendance-history-title" hidden={viewFacultyTab !== 'attendance'}>
+                  <div className="faculty-attendance-history-heading">
+                    <div>
+                      <p className="section-kicker">ATTENDANCE HISTORY</p>
+                      <h3 id="faculty-attendance-history-title">Work log by day</h3>
+                      <p>Review this faculty member's branch-scoped attendance sessions and batch work.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="faculty-attendance-refresh-button"
+                      onClick={() => {
+                        setAttendanceHistoryRange({ ...attendanceHistoryDraft })
+                        setAttendanceHistoryRefreshToken((value) => value + 1)
+                      }}
+                      disabled={viewAttendanceHistoryLoading}
+                      aria-label="Refresh attendance history"
+                    >
+                      <RefreshCw size={15} className={viewAttendanceHistoryLoading ? 'is-spinning' : ''} />
+                      Refresh
+                    </button>
+                  </div>
+
+                  <div className="faculty-attendance-history-filters">
+                    <label>
+                      From date
+                      <input
+                        type="date"
+                        value={attendanceHistoryDraft.fromDate}
+                        max={attendanceHistoryDraft.toDate}
+                        onChange={(event) => setAttendanceHistoryDraft((current) => ({ ...current, fromDate: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      To date
+                      <input
+                        type="date"
+                        value={attendanceHistoryDraft.toDate}
+                        min={attendanceHistoryDraft.fromDate}
+                        onChange={(event) => setAttendanceHistoryDraft((current) => ({ ...current, toDate: event.target.value }))}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="faculty-attendance-apply-button"
+                      onClick={() => {
+                        setAttendanceHistoryRange({ ...attendanceHistoryDraft })
+                        setAttendanceHistoryRefreshToken((value) => value + 1)
+                      }}
+                      disabled={!attendanceHistoryDraft.fromDate || !attendanceHistoryDraft.toDate || viewAttendanceHistoryLoading}
+                    >
+                      Apply range
+                    </button>
+                  </div>
+
+                  {viewAttendanceHistoryError ? (
+                    <div className="faculty-attendance-history-state is-error">
+                      <strong>Attendance history unavailable</strong>
+                      <span>{viewAttendanceHistoryError}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttendanceHistoryRange({ ...attendanceHistoryDraft })
+                          setAttendanceHistoryRefreshToken((value) => value + 1)
+                        }}
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  ) : viewAttendanceHistoryLoading && !viewAttendanceHistory ? (
+                    <div className="faculty-attendance-history-state">Loading attendance history...</div>
+                  ) : (
+                    <>
+                      <div className="faculty-attendance-summary-grid">
+                        <div><span>Present days</span><strong>{viewAttendanceHistory?.summary?.presentDays ?? 0}</strong></div>
+                        <div><span>Sessions</span><strong>{viewAttendanceHistory?.summary?.totalSessions ?? 0}</strong></div>
+                        <div><span>Total working time</span><strong>{formatAttendanceDuration(viewAttendanceHistory?.summary?.totalWorkingSeconds)}</strong></div>
+                        <div><span>Permission days</span><strong>{viewAttendanceHistory?.summary?.permissionDays ?? 0}</strong></div>
+                      </div>
+
+                      <div className="faculty-attendance-history-range">
+                        {formatAttendanceDate(viewAttendanceHistory?.range?.fromDate || attendanceHistoryRange.fromDate)}
+                        <span>to</span>
+                        {formatAttendanceDate(viewAttendanceHistory?.range?.toDate || attendanceHistoryRange.toDate)}
+                      </div>
+
+                      {Array.isArray(viewAttendanceHistory?.days) && viewAttendanceHistory.days.length ? (
+                        <div className="faculty-attendance-history-table-wrap">
+                          <table className="faculty-attendance-history-table">
+                            <thead>
+                              <tr>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>First login</th>
+                                <th>Final logout</th>
+                                <th>Working time</th>
+                                <th>Session timeline</th>
+                                <th>Batch work</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {viewAttendanceHistory.days.map((day) => (
+                                <tr key={day.attendanceDate}>
+                                  <td><strong>{formatAttendanceDate(day.attendanceDate)}</strong></td>
+                                  <td><span className={`faculty-attendance-history-status ${String(day.status || '').toLowerCase().replaceAll('_', '-')}`}>{attendanceStatusLabel(day.status)}</span></td>
+                                  <td>{formatAttendanceTime(day.firstLoginAt)}</td>
+                                  <td>{formatAttendanceTime(day.finalLogoutAt)}</td>
+                                  <td><strong>{formatAttendanceDuration(day.totalWorkingSeconds)}</strong></td>
+                                  <td>
+                                    <div className="faculty-attendance-session-list">
+                                      {day.sessions?.length ? day.sessions.map((session) => (
+                                        <span key={session.id}>
+                                          {formatAttendanceTime(session.loginAt)} - {formatAttendanceTime(session.logoutAt)}
+                                        </span>
+                                      )) : <span>-</span>}
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <div className="faculty-attendance-batch-work-list">
+                                      {day.batchWork?.length ? day.batchWork.map((work) => (
+                                        <span key={work.id} title={work.workSummary || work.batchName}>
+                                          {work.batchName || work.batchId}
+                                        </span>
+                                      )) : <span>-</span>}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="faculty-attendance-history-state">No attendance records found for the selected date range.</div>
+                      )}
+                    </>
+                  )}
+                </section>
+
+              </div>
+            </aside>
+          </div>,
+          document.body
+        )
+        : null
+    }
+
+    <FacultyAttendanceReportModal
+      isOpen={attendanceReportOpen && Boolean(viewFaculty)}
+      mode="single"
+      faculty={viewFaculty ? { ...viewFaculty, id: viewFaculty.dbId || viewFaculty.id, facultyId: viewFaculty.id, facultyName: viewFaculty.name } : null}
+      onClose={() => setAttendanceReportOpen(false)}
+    />
+
+    {/* Delete Confirmation Modal */}
+    {
+      deleteConfirmTarget && typeof document !== 'undefined'
+        ? createPortal(
+          <div role="presentation" className="faculty-portal-backdrop">
+            <div className="faculty-delete-modal-card" role="dialog" aria-modal="true" aria-labelledby="faculty-delete-title" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="branch-modal-close"
+                aria-label="Close delete confirmation"
+                onClick={() => setDeleteConfirmTarget(null)}
+              >
+                <X size={22} strokeWidth={2} />
+              </button>
+
+
+
+              <h2 id="faculty-delete-title" className="faculty-delete-title">Delete Faculty?</h2>
+
+              <p className="faculty-delete-copy">
+                Are you sure you want to delete <strong>"{deleteConfirmTarget.name}"</strong>?
+              </p>
+              <p className="faculty-delete-subcopy">
+                This action cannot be undone.
+              </p>
+
+              <div className="faculty-delete-actions">
+                <button
+                  type="button"
+                  className="branch-modal-cancel"
+                  onClick={() => setDeleteConfirmTarget(null)}
+                  style={{ flex: 1, padding: '10px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="faculty-btn-delete-confirm"
+                  onClick={confirmDelete}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+        : null
+    }
+
+    {/* Success alert popups with exact text specified by user */}
+    {
+      successAlert && typeof document !== 'undefined'
+        ? createPortal(
+          <div className="faculty-success-backdrop">
+            <div
+              className="faculty-success-modal-card"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="faculty-success-title"
+            >
+              {/* Close Button */}
+  <button
+    type="button"
+    className="faculty-success-close-btn"
+    aria-label="Close success message"
+    onClick={() => setSuccessAlert(null)}
+  >
+    <X size={22} strokeWidth={2} />
+  </button>
+              {/* Success Icon */}
+              <div className="faculty-success-icon-wrapper">
+                <div className="faculty-success-icon">
+                  <CheckCircle2 size={34} strokeWidth={2.5} />
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="faculty-success-content">
+                <span className="faculty-success-label">
+                  Success
+                </span>
+
+                <h2 id="faculty-success-title">
+                  {successAlert.title.replace('✓ ', '')}
+                </h2>
+
+                <p>
+                  {successAlert.message}
+                </p>
+              </div>
+
+              {/* Button */}
+              <button
+                type="button"
+                className="faculty-success-ok-btn"
+                onClick={() => setSuccessAlert(null)}
+              >
+                OK
+              </button>
+            </div>
+          </div>,
+          document.body
+        )
+        : null
+    }
+
+  </div >
+  )
+}

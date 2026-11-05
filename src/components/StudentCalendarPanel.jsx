@@ -1,0 +1,431 @@
+import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { ChevronLeft, ChevronRight, CalendarDays, CheckCircle2, Clock3, Flag, Sparkles, Timer, CalendarOff, X } from 'lucide-react'
+
+import { buildStudentCourseCalendar, formatCalendarDate, formatCalendarLongDate } from '../lib/studentCalendar'
+
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const EMPTY_COURSE_LIST = Object.freeze([])
+
+function getStatusTone(status) {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (normalized === 'course day') return 'tone-course-day'
+  if (normalized === 'class' || normalized === 'scheduled' || normalized === 'reassigned' || normalized === 'replaced' || normalized === 'replacement' || normalized === 'combined' || normalized === 'kickoff' || normalized === 'kick-off') return 'tone-course-day'
+  if (normalized === 'completed') return 'tone-present'
+  if (normalized === 'institute leave' || normalized === 'institute_leave' || normalized.startsWith('institute leave')) return 'tone-holiday'
+  if (normalized === 'holiday' || normalized === 'general holiday' || normalized === 'government holiday') return 'tone-holiday'
+  if (normalized === 'leave') return 'tone-holiday'
+  if (normalized === 'faculty weekly off') return 'tone-holiday'
+  if (normalized === 'present') return 'tone-present'
+  if (normalized === 'absent') return 'tone-absent'
+  return 'tone-no-class'
+}
+
+function getCalendarStatusClass(day = {}) {
+  const normalized = String(day.status || '').trim().toLowerCase()
+  if (normalized === 'general holiday' || normalized === 'government holiday' || normalized === 'holiday') return 'status-general-holiday'
+  if (normalized === 'institute leave' || normalized === 'institute_leave' || normalized.startsWith('institute leave') || normalized === 'leave') return 'status-institute-leave'
+  if (normalized === 'faculty weekly off') return 'status-institute-leave'
+  if (day.isStartDate) return 'status-course-start'
+  if (day.isEndDate) return 'status-course-end'
+  return ''
+}
+
+function getInitialMonthIndex(calendar) {
+  if (!calendar?.months?.length) return 0
+
+  const today = new Date()
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  const foundIndex = calendar.months.findIndex((month) => month.key === todayKey)
+  if (foundIndex >= 0) return foundIndex
+
+  const firstMonthDate = calendar.months[0]?.date
+  const lastMonthDate = calendar.months.at(-1)?.date
+
+  if (firstMonthDate && today < firstMonthDate) return 0
+  if (lastMonthDate && today > lastMonthDate) return calendar.months.length - 1
+
+  return 0
+}
+
+function CalendarSummaryCard({ icon: Icon, label, value, note, tone = 'tone-no-class' }) {
+  return (
+    <article className={`student-calendar-summary-card ${tone}`.trim()}>
+      <span className="student-calendar-summary-icon" aria-hidden="true">
+        <Icon size={18} strokeWidth={2.2} />
+      </span>
+      <div className="student-calendar-summary-copy">
+        <span>{label}</span>
+        <strong>{value ?? '-'}</strong>
+        {note ? <small>{note}</small> : null}
+      </div>
+    </article>
+  )
+}
+
+function CalendarDayCell({ day, externalUi = false, onSelect }) {
+  if (day.isPlaceholder) {
+    return <div className="student-calendar-day is-placeholder" aria-hidden="true" />
+  }
+
+  const detailLines = [
+    day.dateKey ? `Date: ${day.dateKey}` : '',
+    day.attendanceStatus ? `Attendance: ${day.attendanceStatus}` : '',
+    day.details?.classTime ? `Class Time: ${day.details.classTime}` : '',
+    day.details?.extendedTime ? `Extended: ${day.details.extendedTime}` : '',
+    day.details?.actualEndTime ? `Actual End Time: ${day.details.actualEndTime}` : '',
+    day.details?.totalClassDuration ? `Duration: ${day.details.totalClassDuration}` : '',
+    day.details?.replacementHours ? `Replacement Hours: ${day.details.replacementHours}` : '',
+    day.details?.replacementDate ? `Replacement Date: ${day.details.replacementDate}` : '',
+    day.details?.replacementTime ? `Replacement Time: ${day.details.replacementTime}` : '',
+    day.details?.submodule ? `Submodule: ${day.details.submodule}` : '',
+    day.details?.originalFaculty ? `Original Faculty: ${day.details.originalFaculty}` : '',
+    day.details?.assignmentType ? `Assignment: ${day.details.assignmentType}` : '',
+    day.details?.originalDate ? `Original Date: ${day.details.originalDate}` : '',
+    day.details?.originalTime ? `Original Time: ${day.details.originalTime}` : '',
+    day.details?.rescheduledDate ? `Rescheduled Date: ${day.details.rescheduledDate}` : '',
+    day.details?.rescheduledTime ? `Rescheduled Time: ${day.details.rescheduledTime}` : '',
+    ...(day.courseStatuses || []).map((item) => `${item.courseName}: ${item.status}${item.details?.classTime ? ` (${item.details.classTime})` : ''}`),
+    day.holidayName ? `Reason: ${day.holidayName}` : '',
+  ].filter(Boolean).join(' | ')
+
+  const normalizedStatus = String(day.status || '').trim().toLowerCase()
+  const displayStatus = day.status === 'Course Day'
+    ? 'Scheduled'
+    : (normalizedStatus === 'institute_leave' || normalizedStatus.startsWith('institute leave'))
+      ? 'Class Cancel'
+      : normalizedStatus === 'completed'
+        ? 'Present'
+      : day.status
+  const showAttendanceNote = day.attendanceStatus && String(day.attendanceStatus).trim().toLowerCase() !== String(displayStatus || '').trim().toLowerCase()
+  const fallbackNote = showAttendanceNote
+    ? day.attendanceStatus
+    : ['present', 'absent', 'leave', 'unmarked', 'completed'].includes(normalizedStatus)
+      ? ''
+      : normalizedStatus === 'disabled / not applicable'
+        ? 'No schedule'
+        : day.isCourseDay
+          ? 'Scheduled class day'
+          : 'No class scheduled'
+  return (
+    <article title={externalUi ? undefined : detailLines || day.status} className={`student-calendar-day ${externalUi ? 'student-calendar-day--external' : ''} ${getStatusTone(day.status)} ${getCalendarStatusClass(day)} ${day.isStartDate ? 'is-start-date' : ''} ${day.isEndDate ? 'is-end-date' : ''}`.trim()}>
+      <div className="student-calendar-day-head">
+        <span className="student-calendar-day-number">{day.dayNumber}</span>
+        <span className="student-calendar-day-weekday">{day.weekday}</span>
+      </div>
+
+      <div className="student-calendar-day-status">
+        {day.courseStatuses?.length > 1 ? day.courseStatuses.map((item) => <span key={item.courseId || item.courseName} className={`student-calendar-course-day-status ${getStatusTone(item.status)}`}><strong>{item.courseName}</strong><small>{item.status === 'Course Day' ? 'Scheduled' : item.status}</small></span>) : <span className="student-calendar-day-pill">{displayStatus}</span>}
+      </div>
+
+      <div className="student-calendar-day-foot">
+        {day.holidayName ? <span className="student-calendar-day-note">{day.holidayName}</span> : null}
+        {day.markers?.length ? (
+          <div className="student-calendar-day-markers">
+            {day.markers.map((marker) => (
+              <span key={marker} className="student-calendar-day-marker">{marker}</span>
+            ))}
+          </div>
+        ) : null}
+        {!day.holidayName && !day.markers?.length ? (
+          fallbackNote ? <span className="student-calendar-day-note">{fallbackNote}</span> : null
+        ) : null}
+      </div>
+
+      {onSelect ? <button type="button" className="student-calendar-view-details" onClick={() => onSelect(day)}>View Details</button> : null}
+
+    </article>
+  )
+}
+
+function getHoursPerDayLabel(calendar, student = {}) {
+  const explicitHours = Number(calendar?.hoursPerDay || student?.hoursPerDay || student?.course?.hoursPerDay)
+  if (Number.isFinite(explicitHours) && explicitHours > 0) return Math.abs(explicitHours - Math.round(explicitHours)) < 0.05 ? String(Math.round(explicitHours)) : explicitHours.toFixed(1)
+
+  const totalHours = Number(calendar?.totalHours || student?.totalHours || student?.course?.totalHours || student?.course?.hours)
+  const teachingDays = Number(calendar?.requiredTeachingDays || calendar?.actualTeachingDays || calendar?.summary?.courseDays)
+  if (Number.isFinite(totalHours) && totalHours > 0 && Number.isFinite(teachingDays) && teachingDays > 0) {
+    const calculatedHours = totalHours / teachingDays
+    return Math.abs(calculatedHours - Math.round(calculatedHours)) < 0.05 ? String(Math.round(calculatedHours)) : calculatedHours.toFixed(1)
+  }
+
+  return '-'
+}
+
+function getCalendarHoursSummary(calendar, student = {}) {
+  const sourceSummary = student?.scheduleSummary || {}
+  const totalHours = Number(calendar?.totalHours || student?.totalHours || student?.course?.totalHours || student?.course?.hours)
+  const explicitHoursPerDay = Number(calendar?.hoursPerDay || student?.hoursPerDay || student?.course?.hoursPerDay)
+  const teachingDays = Number(calendar?.requiredTeachingDays || calendar?.actualTeachingDays || calendar?.summary?.courseDays)
+  const hoursPerDay = Number.isFinite(explicitHoursPerDay) && explicitHoursPerDay > 0
+    ? explicitHoursPerDay
+    : Number.isFinite(totalHours) && totalHours > 0 && Number.isFinite(teachingDays) && teachingDays > 0
+      ? totalHours / teachingDays
+      : 0
+  const explicitCompleted = Number(calendar?.completedHours ?? sourceSummary.completedHours ?? student?.completedHours)
+  const completedHours = Number.isFinite(explicitCompleted) && explicitCompleted >= 0
+    ? explicitCompleted
+    : Math.max(0, Number(calendar?.summary?.presentDays || 0) * hoursPerDay)
+  const explicitPending = Number(calendar?.pendingHours ?? sourceSummary.pendingHours ?? student?.pendingHours)
+  const pendingHours = Number.isFinite(explicitPending) && explicitPending >= 0
+    ? explicitPending
+    : Number.isFinite(totalHours) && totalHours >= 0
+      ? Math.max(0, totalHours - completedHours)
+      : 0
+
+  const formatHours = (value) => {
+    const rounded = Math.abs(value - Math.round(value)) < 0.05 ? Math.round(value) : Number(value.toFixed(1))
+    return `${rounded} hours`
+  }
+
+  return {
+    completed: formatHours(completedHours),
+    pending: formatHours(pendingHours),
+  }
+}
+
+export function StudentCalendarPanel({ student, facultyCalendar = null, externalUi = false }) {
+  const calendar = useMemo(() => buildStudentCourseCalendar(student || {}, facultyCalendar), [facultyCalendar, student])
+  const [selectedSummaryCourseKey, setSelectedSummaryCourseKey] = useState('')
+  const summaryCourses = calendar.isMultiCourse ? calendar.courses || EMPTY_COURSE_LIST : EMPTY_COURSE_LIST
+  const selectedSummaryCourse = summaryCourses.find((course, index) => String(course.courseId || course.course?.id || index) === selectedSummaryCourseKey) || summaryCourses[0] || null
+  const summaryCalendar = selectedSummaryCourse?.summaryCalendar || calendar
+  const summaryStudent = useMemo(() => selectedSummaryCourse ? {
+    ...student,
+    courseName: selectedSummaryCourse.courseName,
+    course: selectedSummaryCourse.course || { name: selectedSummaryCourse.courseName, hours: selectedSummaryCourse.totalHours },
+    totalHours: selectedSummaryCourse.totalHours,
+    scheduleSummary: { ...selectedSummaryCourse, ...summaryCalendar },
+  } : student, [selectedSummaryCourse, summaryCalendar, student])
+  const hoursSummary = useMemo(() => getCalendarHoursSummary(summaryCalendar, summaryStudent), [summaryCalendar, summaryStudent])
+  const sourceSummary = summaryStudent?.scheduleSummary || {}
+  const attendanceSummary = sourceSummary.attendanceSummary || sourceSummary.attendance || sourceSummary.summary || {}
+  const calendarDurationDays = summaryCalendar.calendarDurationDays || sourceSummary.calendarDurationDays || 0
+  const calendarHolidayCount = summaryCalendar.summary?.holidays || summaryCalendar.holidays?.length || sourceSummary.summary?.holidays || 0
+  const replacementHours = summaryCalendar.replacementHours ?? sourceSummary.replacementHours ?? '-'
+  const replacementSessionCount = summaryCalendar.replacementSessionCount ?? sourceSummary.replacementSessionCount ?? sourceSummary.replacementSessionsCount
+  const presentCount = summaryCalendar.summary?.presentDays || sourceSummary.presentDays || sourceSummary.present || attendanceSummary.presentDays || attendanceSummary.present || 0
+  const absentCount = summaryCalendar.summary?.absentDays || sourceSummary.absentDays || sourceSummary.absent || attendanceSummary.absentDays || attendanceSummary.absent || 0
+  const [chosenMonthIndex, setSelectedMonthIndex] = useState(null)
+  const [selectedDay, setSelectedDay] = useState(null)
+  const selectedMonthIndex = chosenMonthIndex === null ? getInitialMonthIndex(calendar) : Math.min(chosenMonthIndex, calendar.months.length - 1)
+
+  const selectedMonth = calendar.months[selectedMonthIndex] || calendar.months[0] || null
+  const selectedMonthScheduledDays = selectedMonth?.days?.filter((day) => day.isCourseDay).length || 0
+  const canGoBack = selectedMonthIndex > 0
+  const canGoNext = selectedMonthIndex < calendar.months.length - 1
+
+  if (!calendar.isReady) {
+    return (
+      <section className="student-new-calendar-page student-new-calendar-loading" aria-busy="true" aria-live="polite">
+        <div className="student-new-calendar-empty">
+          <span className="student-calendar-loading-spinner" aria-hidden="true" />
+          <h2>Loading student calendar</h2>
+          <p>Please wait while the student record is fetched.</p>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className={`student-new-calendar-page ${externalUi ? 'student-calendar-external-page' : ''}`.trim()}>
+      <h1 className="student-new-calendar-page-title">Course Calendar</h1>
+
+      {summaryCourses.length > 1 ? <div className="student-calendar-summary-course-tabs" role="tablist" aria-label="Summary by course">
+        {summaryCourses.map((course, index) => {
+          const key = String(course.courseId || course.course?.id || index)
+          const isSelected = course === selectedSummaryCourse
+          return <button key={key} type="button" role="tab" aria-selected={isSelected} className={isSelected ? 'is-active' : ''} onClick={() => setSelectedSummaryCourseKey(key)}>
+            <small>COURSE {index + 1}</small>
+            <strong>{course.courseName || course.course?.name || 'Course'}</strong>
+          </button>
+        })}
+      </div> : null}
+
+      <div className="student-new-calendar-summary-grid">
+        <CalendarSummaryCard
+          icon={CalendarDays}
+          label="Course Name"
+          value={selectedSummaryCourse?.courseName || calendar.courseName || 'Not assigned'}
+          note={selectedSummaryCourse ? [selectedSummaryCourse.facultyName, selectedSummaryCourse.batch?.name, selectedSummaryCourse.batch?.timing].filter(Boolean).join(' · ') : 'Saved student course'}
+          tone="tone-course-day"
+        />
+        <CalendarSummaryCard
+          icon={Flag}
+          label="Course Start Date"
+          value={formatCalendarDate(summaryCalendar.startDate)}
+          note={formatCalendarLongDate(summaryCalendar.startDate)}
+          tone="tone-start"
+        />
+        <CalendarSummaryCard
+          icon={CheckCircle2}
+          label="Course End Date"
+          value={formatCalendarDate(summaryCalendar.endDate)}
+          note={formatCalendarLongDate(summaryCalendar.endDate)}
+          tone="tone-end"
+        />
+        <CalendarSummaryCard
+          icon={Sparkles}
+          label="Total Hours"
+          value={summaryCalendar.totalHours
+            ? `${summaryCalendar.totalHours} hour${Number(summaryCalendar.totalHours) === 1 ? '' : 's'}`
+            : 'Not available'}
+          note={`${summaryCalendar.courseMode || selectedSummaryCourse?.courseMode || 'Online'} · ${summaryCalendar.schedule || selectedSummaryCourse?.schedule || ''} · ${getHoursPerDayLabel(summaryCalendar, summaryStudent)} hr/day`}
+          tone="tone-course-day"
+        />
+        {summaryStudent?.scheduleSummary || externalUi ? <>
+          <CalendarSummaryCard icon={CheckCircle2} label="Completed Hours" value={hoursSummary.completed} note="Recorded present class hours" tone="tone-present" />
+          <CalendarSummaryCard icon={Clock3} label="Pending Hours" value={hoursSummary.pending} note="Required hours still to complete" />
+          {summaryStudent?.scheduleSummary || externalUi ? <CalendarSummaryCard icon={Timer} label="Replacement Hours" value={replacementHours} note={replacementSessionCount !== undefined && replacementSessionCount !== null && replacementSessionCount !== '' ? `${replacementSessionCount} replacement session${Number(replacementSessionCount) === 1 ? '' : 's'}` : `${sourceSummary.cancelledHours ?? 0} hours affected by Class Cancel`} tone="tone-holiday" /> : null}
+        </> : null}
+        <CalendarSummaryCard
+          icon={Clock3}
+          label="Calendar Duration"
+          value={calendarDurationDays
+            ? `${calendarDurationDays} day${Number(calendarDurationDays) === 1 ? '' : 's'}`
+            : 'Not available'}
+          note={`${calendarHolidayCount} holidays / leaves`}
+          tone="tone-holiday"
+        />
+        <CalendarSummaryCard
+          icon={CalendarOff}
+          label="Faculty Weekly Off Days"
+          value={summaryCalendar.summary?.facultyWeeklyOffDays || 0}
+          note={summaryCalendar.weeklyOffDay ? `${summaryCalendar.weeklyOffDay.charAt(0) + summaryCalendar.weeklyOffDay.slice(1).toLowerCase()} is not a class day` : 'No weekly off configured'}
+          tone="tone-holiday"
+        />
+      </div>
+
+      <div className="student-new-calendar-panel">
+        <div className="student-new-calendar-panel-head">
+          <div>
+            <p className="student-new-calendar-panel-kicker">COURSE CALENDAR</p>
+            <h2>{selectedMonth ? selectedMonth.label : '-'}</h2>
+            <p className="student-calendar-panel-help">
+              {selectedMonth
+                ? `Showing ${selectedMonth.label}. Use the arrows to move month by month across the full course duration.`
+                : 'Use the arrows to browse the course calendar.'}
+            </p>
+          </div>
+
+          <div className="student-new-calendar-navigation">
+            <button
+              type="button"
+              className="student-new-calendar-nav-button"
+              onClick={() => setSelectedMonthIndex(Math.max(0, selectedMonthIndex - 1))}
+              disabled={!canGoBack}
+              aria-label="Previous month"
+            >
+              <ChevronLeft size={18} strokeWidth={2.4} aria-hidden="true" focusable="false" />
+            </button>
+
+            <div className="student-new-calendar-month-label">
+              <strong>{selectedMonth ? selectedMonth.label : '-'}</strong>
+              <span>
+                {selectedMonthIndex + 1} / {calendar.months.length}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              className="student-new-calendar-nav-button"
+              onClick={() => setSelectedMonthIndex(Math.min(calendar.months.length - 1, selectedMonthIndex + 1))}
+              disabled={!canGoNext}
+              aria-label="Next month"
+            >
+              <ChevronRight size={18} strokeWidth={2.4} aria-hidden="true" focusable="false" />
+            </button>
+          </div>
+        </div>
+
+        <div className="student-new-calendar-month-strip" role="tablist" aria-label="Course months">
+          {calendar.months.map((month, index) => (
+            <button
+              key={month.key}
+              type="button"
+              role="tab"
+              aria-selected={index === selectedMonthIndex}
+              className={`student-new-calendar-month-chip ${index === selectedMonthIndex ? 'is-active' : ''}`.trim()}
+              onClick={() => setSelectedMonthIndex(index)}
+            >
+              {month.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="student-new-calendar-legend" aria-label="Calendar legend">
+          <span className="student-new-calendar-legend-item tone-course-day">{externalUi ? 'Scheduled' : 'Course Day'}</span>
+          <span className="student-new-calendar-legend-item tone-no-class">No Class</span>
+          <span className="student-new-calendar-legend-item tone-present">Present</span>
+          <span className="student-new-calendar-legend-item tone-absent">Absent</span>
+          <span className="student-new-calendar-legend-item tone-holiday tone-general-holiday">General Holiday</span>
+          <span className="student-new-calendar-legend-item tone-holiday tone-institute-leave">Class Cancel</span>
+          <span className="student-new-calendar-legend-item tone-start">Course Start Date</span>
+          <span className="student-new-calendar-legend-item tone-end">Course End Date</span>
+        </div>
+
+        <div className="student-new-calendar-grid">
+          {WEEKDAY_LABELS.map((label) => (
+            <div key={label} className="student-new-calendar-weekday">
+              {label}
+            </div>
+          ))}
+
+          {selectedMonth?.days?.map((day) => (
+            <CalendarDayCell key={day.key} day={day} externalUi={externalUi} onSelect={day.details || day.markers?.length ? setSelectedDay : undefined} />
+          )) || null}
+        </div>
+
+        <div className="student-new-calendar-footer">
+          <div className="student-new-calendar-footer-stat">
+            <strong>{calendar.summary.courseDays}</strong>
+            <span>{calendar.isMultiCourse ? 'Scheduled course-days (combined)' : 'Total scheduled class days'}</span>
+          </div>
+          <div className="student-new-calendar-footer-stat">
+            <strong>{selectedMonthScheduledDays}</strong>
+            <span>{calendar.isMultiCourse ? 'Scheduled course-days this month' : 'This month scheduled class days'}</span>
+          </div>
+          <div className="student-new-calendar-footer-stat">
+            <strong>{presentCount}</strong>
+            <span>Present</span>
+          </div>
+          <div className="student-new-calendar-footer-stat">
+            <strong>{absentCount}</strong>
+            <span>Absent</span>
+          </div>
+        </div>
+      </div>
+
+      {selectedDay && typeof document !== 'undefined' ? createPortal(
+        <div className="student-calendar-details-backdrop" role="presentation">
+          <section className="student-calendar-details-modal" role="dialog" aria-modal="true" aria-labelledby="student-calendar-details-title" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="student-calendar-details-close" onClick={() => setSelectedDay(null)} aria-label="Close details"><X size={20} /></button>
+            <p className="student-new-calendar-panel-kicker">VIEW DETAILS</p>
+            <h2 id="student-calendar-details-title">{formatCalendarLongDate(selectedDay.dateKey || selectedDay.date)}</h2>
+            <span className={`student-calendar-details-status ${getStatusTone(selectedDay.status)}`}>{selectedDay.status}</span>
+            {selectedDay.courseDetails?.length > 1 ? <div className="student-calendar-course-details-list">{selectedDay.courseDetails.map((item) => <section key={item.courseId || item.courseName}><h3>{item.courseName} · {item.status === 'Course Day' ? 'Scheduled' : item.status}</h3><dl><dt>Batch</dt><dd>{item.batchName || '-'}</dd><dt>Faculty</dt><dd>{item.facultyName || '-'}</dd><dt>Mode / Schedule</dt><dd>{[item.courseMode, item.schedule].filter(Boolean).join(' · ') || '-'}</dd>{item.weeklyOffDay ? <><dt>Faculty Weekly Off</dt><dd>{item.weeklyOffDay}</dd></> : null}{item.details?.classTime ? <><dt>Class Time</dt><dd>{item.details.classTime}</dd></> : null}{item.classHours ? <><dt>Class Hours</dt><dd>{item.classHours}</dd></> : null}{item.details?.attendance || item.attendanceStatus ? <><dt>Attendance</dt><dd>{item.details?.attendance || item.attendanceStatus}</dd></> : null}{item.details?.originalFaculty ? <><dt>Original Faculty</dt><dd>{item.details.originalFaculty}</dd></> : null}{item.details?.assignmentType ? <><dt>Leave / Permission Action</dt><dd>{item.details.assignmentType}</dd></> : null}{item.details?.replacementDate ? <><dt>Replacement Date</dt><dd>{item.details.replacementDate}</dd></> : null}{item.details?.replacementTime ? <><dt>Replacement Time</dt><dd>{item.details.replacementTime}</dd></> : null}{item.holidayName ? <><dt>Reason</dt><dd>{item.holidayName}</dd></> : null}</dl></section>)}</div> : <dl className="student-calendar-details-list">
+              {selectedDay.details?.course ? <><dt>Course</dt><dd>{selectedDay.details.course}</dd></> : null}
+              {selectedDay.details?.batch ? <><dt>Batch</dt><dd>{selectedDay.details.batch}</dd></> : null}
+              {selectedDay.details?.classTime ? <><dt>Time</dt><dd>{selectedDay.details.classTime}</dd></> : null}
+              {selectedDay.details?.replacementHours ? <><dt>Replacement Hours</dt><dd>{selectedDay.details.replacementHours}</dd></> : null}
+              {selectedDay.details?.replacementDate ? <><dt>Replacement Date</dt><dd>{selectedDay.details.replacementDate}</dd></> : null}
+              {selectedDay.details?.replacementTime ? <><dt>Replacement Time</dt><dd>{selectedDay.details.replacementTime}</dd></> : null}
+              {selectedDay.details?.originalDate ? <><dt>Original Date</dt><dd>{selectedDay.details.originalDate}</dd></> : null}
+              {selectedDay.details?.originalTime ? <><dt>Original Time</dt><dd>{selectedDay.details.originalTime}</dd></> : null}
+              {selectedDay.details?.rescheduledDate ? <><dt>New Date</dt><dd>{selectedDay.details.rescheduledDate}</dd></> : null}
+              {selectedDay.details?.rescheduledTime ? <><dt>New Time</dt><dd>{selectedDay.details.rescheduledTime}</dd></> : null}
+              {selectedDay.details?.originalFaculty ? <><dt>Original Faculty</dt><dd>{selectedDay.details.originalFaculty}</dd></> : null}
+              {selectedDay.details?.faculty ? <><dt>Class Faculty</dt><dd>{selectedDay.details.faculty}</dd></> : null}
+              {selectedDay.details?.assignmentType ? <><dt>Assignment</dt><dd>{selectedDay.details.assignmentType}</dd></> : null}
+              {selectedDay.attendanceStatus ? <><dt>Attendance</dt><dd>{selectedDay.attendanceStatus}</dd></> : null}
+              {selectedDay.holidayName ? <><dt>Reason</dt><dd>{selectedDay.holidayName}</dd></> : null}
+            </dl>}
+          </section>
+        </div>,
+        document.body,
+      ) : null}
+    </section>
+  )
+}
+
+export default StudentCalendarPanel

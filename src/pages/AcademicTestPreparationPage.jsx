@@ -1,0 +1,428 @@
+import { createPortal } from 'react-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, Ban, CalendarClock, Download, Eye, MoreVertical, Plus, Save, Trash2, X } from 'lucide-react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { cancelFacultyScheduledAcademicTest, downloadQuestionPaperPdf, evaluateFacultyAssessment, getAcademicTestPreparation, getFacultyAcademicTestResults, getFacultyAssessment, getFacultyProjectFile, getFacultyProjectPreview, gradeFacultyProject, listFacultyScheduledAcademicTests, saveAcademicTestProject, saveQuestionPaper, scheduleFacultyAcademicTestRetest, startAcademicTestCycle, updateAcademicTestProject, updateFacultyScheduledAcademicTest, updateQuestionPaper } from '../services/academicTestService'
+import { getFacultyMyBatchesSummary } from '../services/dashboardService'
+import '../styles/AcademicTestPreparationPage.css'
+import '../styles/AcademicTestSchedule.css'
+import AcademicTimePicker from '../components/AcademicTimePicker'
+import AcademicTestPage from './AcademicTestPage'
+
+const emptyQuestion = () => ({ questionType: 'MCQ', questionText: '', optionA: '', optionB: '', optionC: '', optionD: '', correctAnswer: '', marks: 1 })
+const includes = (type, part) => part === 'paper' ? type === 'TEST' || type === 'TEST_AND_PROJECT' : type === 'PROJECT' || type === 'TEST_AND_PROJECT'
+const normalizeEditorQuestions = (items = [], defaultMarks = 1) => items.map((question) => ({ questionType: question.questionType || 'MCQ', marks: question.marks || defaultMarks, ...question }))
+
+function StatusBadge({ value }) { const label = String(value || 'NOT_PREPARED').replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase()); return <span className={`academic-preparation-status is-${String(value || 'NOT_PREPARED').toLowerCase().replaceAll('_', '-')}`}>{label}</span> }
+const scheduleDateLabel = (value) => value ? new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00`)) : '-'
+const scheduleTimeLabel = (value) => { const [hours, minutes] = String(value || '').split(':').map(Number); if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value || '-'; const period = hours >= 12 ? 'PM' : 'AM'; return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${period}` }
+const scheduleIsStarted = (schedule) => { const startTime = schedule?.rawStartTime || schedule?.startTime; return schedule && startTime ? new Date(`${schedule.testDate}T${startTime}:00+05:30`).getTime() <= Date.now() : false }
+const scheduleIsEnded = (schedule) => { const endTime = schedule?.rawEndTime || schedule?.endTime; return schedule && endTime ? new Date(`${schedule.testDate}T${endTime}:00+05:30`).getTime() < Date.now() : false }
+const studentStatusLabel = (entry) => entry.status === 'EVALUATED' ? 'Evaluated' : entry.status === 'SUBMITTED' ? 'Submitted' : scheduleIsEnded(entry.schedule) ? 'Not Attended' : scheduleIsStarted(entry.schedule) ? 'In Progress' : 'Not Started'
+const academicRetestError = (error, fallback = 'Unable to complete the retest action.') => /originalScheduleId|retestStudentId|Unknown argument|Prisma/i.test(String(error?.message || '')) ? 'Retest is not ready on the server yet. Please refresh the page and try again after the latest backend update is deployed.' : (error?.message || fallback)
+const validateQuestionPaper = (questions, marksPerQuestion, passMark, status) => {
+  const totalMarks = questions.reduce((sum, question) => sum + Number(question.marks || marksPerQuestion || 0), 0)
+  if (status === 'PREPARED' && (!Number.isInteger(Number(passMark)) || Number(passMark) < 1 || Number(passMark) > totalMarks)) return `Pass Mark must be between 1 and ${totalMarks}.`
+  if (status === 'PREPARED' && !questions.length) return 'Add at least one question before preparing the paper.'
+  if (status === 'PREPARED') {
+    const missingCorrectAnswerIndex = questions.findIndex((question) => question.questionType !== 'ASSESSMENT' && !['A', 'B', 'C', 'D'].includes(question.correctAnswer))
+    if (missingCorrectAnswerIndex >= 0) return `Correct Answer is required for question ${missingCorrectAnswerIndex + 1}.`
+    const incompleteIndex = questions.findIndex((question) => { const marks = Number(question.marks || marksPerQuestion || 0); return !question.questionText?.trim() || !Number.isFinite(marks) || marks < 1 || (question.questionType !== 'ASSESSMENT' && (!question.optionA?.trim() || !question.optionB?.trim() || !question.optionC?.trim() || !question.optionD?.trim())) })
+    if (incompleteIndex >= 0) return `Complete all fields for question ${incompleteIndex + 1}.`
+  }
+  return ''
+}
+
+function RetestActionMenu({ retest, retestStarted, onEditRetestSchedule, onEditRetestQuestions, onCancelRetest }) {
+  const triggerRef = useRef(null)
+  const popoverRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+
+  useEffect(() => {
+    if (!open) return undefined
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const menuHeight = 132
+      const openAbove = rect.bottom + menuHeight > window.innerHeight - 8
+      setPosition({
+        top: Math.max(8, openAbove ? rect.top - menuHeight - 6 : rect.bottom + 6),
+        left: Math.min(Math.max(8, rect.right - 190), window.innerWidth - 198),
+      })
+    }
+    const closeOnOutsideClick = (event) => {
+      if (!triggerRef.current?.contains(event.target) && !popoverRef.current?.contains(event.target)) setOpen(false)
+    }
+    updatePosition()
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick)
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [open])
+
+  const popover = open ? createPortal(
+    <div ref={popoverRef} className="academic-preparation-retest-popover" style={{ top: position.top, left: position.left }}>
+      <button type="button" disabled={retestStarted} title={retestStarted ? 'Retest has already started' : 'Edit retest schedule'} onClick={() => { setOpen(false); onEditRetestSchedule(retest.schedule) }}>Edit Retest Schedule</button>
+      <button type="button" onClick={() => { setOpen(false); onEditRetestQuestions(retest.schedule) }}>Edit Retest Questions</button>
+      <button type="button" className="is-danger" disabled={retestStarted} title={retestStarted ? 'Retest has already started' : 'Cancel retest'} onClick={() => { setOpen(false); onCancelRetest(retest.schedule) }}>Cancel Retest</button>
+    </div>,
+    document.body,
+  ) : null
+
+  return <>
+    <button ref={triggerRef} type="button" className="academic-preparation-retest-menu-trigger" aria-label="Retest actions" aria-expanded={open} onClick={() => setOpen((current) => !current)}><MoreVertical size={16} /></button>
+    {popover}
+  </>
+}
+
+function ScheduleEditorModal({ schedule, form, saving, onChange, onClose, onSave }) {
+  return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal" role="dialog" aria-modal="true" aria-labelledby="academic-schedule-title"><div className="academic-preparation-modal-heading"><div><p className="academic-test-kicker">TEST SCHEDULE</p><h2 id="academic-schedule-title">Edit Test Schedule</h2><span>{schedule.batch?.batchName || 'Selected batch'}</span></div><button type="button" onClick={onClose} disabled={saving} aria-label="Close"><X size={19} /></button></div><div className="academic-preparation-schedule-grid"><label>Test date<input type="date" min={new Date().toISOString().slice(0, 10)} value={form.testDate} onChange={(event) => onChange({ ...form, testDate: event.target.value })} /></label><AcademicTimePicker label="Start time" value={form.startTime} onChange={(value) => onChange({ ...form, startTime: value })} /><AcademicTimePicker label="End time" value={form.endTime} onChange={(value) => onChange({ ...form, endTime: value })} /></div><p className="academic-preparation-modal-note">Date and time can be changed only before the test starts. Students will receive the updated schedule when they refresh their test list.</p><div className="academic-preparation-modal-actions"><button type="button" onClick={onClose} disabled={saving}>Keep Schedule</button><button type="button" className="academic-test-primary" onClick={onSave} disabled={saving}>{saving ? 'Saving...' : 'Save Schedule'}</button></div></div></div>
+}
+
+function LegacyScheduleResultModal({ result, loading, onClose, onScheduleRetest }) {
+  if (loading) return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-result-modal"><p className="academic-test-kicker">TEST RESULTS</p><h2>Loading student results...</h2></div></div>
+  if (!result) return null
+  const schedule = result.test
+  const scheduleMeta = result.scheduleMeta || {}
+  return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-result-modal" role="dialog" aria-modal="true" aria-labelledby="academic-result-title"><div className="academic-preparation-modal-heading"><div><p className="academic-test-kicker">TEST RESULTS</p><h2 id="academic-result-title">{schedule.testName || 'Academic Test'}</h2><span>{scheduleMeta.batch?.batchName || '-'} · {schedule.course?.name || '-'} · {scheduleDateLabel(schedule.testDate)} · {schedule.startTime} - {schedule.endTime}</span></div><button type="button" onClick={onClose} aria-label="Close"><X size={19} /></button></div><div className="academic-preparation-result-summary"><div><span>Total Questions</span><strong>{schedule.totalQuestions || 0}</strong></div><div><span>Total Marks</span><strong>{schedule.totalMarks || 0}</strong></div><div><span>Students</span><strong>{result.students.length}</strong></div><div><span>Submitted</span><strong>{result.students.filter((entry) => entry.status === 'SUBMITTED').length}</strong></div></div><div className="academic-preparation-result-table-wrap"><table className="academic-preparation-result-table"><thead><tr><th>Student</th><th>Student ID</th><th>Status</th><th>Attempted</th><th>Correct</th><th>Wrong</th><th>Unanswered</th><th>Marks</th><th>Percentage</th></tr></thead><tbody>{result.students.length ? result.students.map((entry) => <tr key={entry.student.id}><td><strong>{entry.student.studentName || '-'}</strong><small>{entry.student.emailAddress || '-'}</small></td><td>{entry.student.studentId || '-'}</td><td><span className={`academic-preparation-result-status is-${studentStatusLabel({ ...entry, schedule }).toLowerCase().replaceAll(' ', '-')}`}>{studentStatusLabel({ ...entry, schedule })}</span></td><td>{entry.attemptedCount ?? 0}</td><td>{entry.correctCount ?? 0}</td><td>{entry.wrongCount ?? 0}</td><td>{entry.unmarkedCount ?? schedule.totalQuestions}</td><td>{entry.obtainedMarks == null ? '-' : `${entry.obtainedMarks} / ${entry.totalMarks || schedule.totalMarks}`}</td><td>{entry.percentage == null ? '-' : `${Number(entry.percentage).toFixed(2)}%`}</td></tr>) : <tr><td colSpan="9" className="academic-test-empty">No active students found for this batch.</td></tr>}</tbody></table></div></div></div>
+}
+
+function CurrentLegacyScheduleResultModal({ result, loading, onClose, onScheduleRetest }) {
+  if (loading) return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-result-modal"><p className="academic-test-kicker">TEST RESULTS</p><h2>Loading student results...</h2></div></div>
+  if (!result) return null
+  const schedule = result.test
+  const scheduleMeta = result.scheduleMeta || {}
+  return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-result-modal" role="dialog" aria-modal="true" aria-labelledby="academic-result-title"><div className="academic-preparation-modal-heading"><div><p className="academic-test-kicker">TEST RESULTS</p><h2 id="academic-result-title">{schedule.testName || 'Academic Test'}</h2><span>{scheduleMeta.batch?.batchName || '-'} · {schedule.course?.name || '-'} · {scheduleDateLabel(schedule.testDate)} · {schedule.startTime} - {schedule.endTime}</span></div><button type="button" onClick={onClose} aria-label="Close"><X size={19} /></button></div><div className="academic-preparation-result-summary"><div><span>Total Questions</span><strong>{schedule.totalQuestions || 0}</strong></div><div><span>Total Marks</span><strong>{schedule.totalMarks || 0}</strong></div><div><span>Students</span><strong>{result.students.length}</strong></div><div><span>Submitted</span><strong>{result.students.filter((entry) => entry.status === 'SUBMITTED').length}</strong></div></div><div className="academic-preparation-result-table-wrap"><table className="academic-preparation-result-table"><thead><tr><th>Student</th><th>Student ID</th><th>Status</th><th>Attempted</th><th>Correct</th><th>Wrong</th><th>Unanswered</th><th>Marks</th><th>Percentage</th><th>Actions</th></tr></thead><tbody>{result.students.length ? result.students.map((entry) => { const status = studentStatusLabel({ ...entry, schedule }); const canRetest = status === 'Not Attended' && !entry.retest; return <tr key={entry.student.id}><td><strong>{entry.student.studentName || '-'}</strong><small>{entry.student.emailAddress || '-'}</small></td><td>{entry.student.studentId || '-'}</td><td><span className={`academic-preparation-result-status is-${status.toLowerCase().replaceAll(' ', '-')}`}>{entry.retest ? 'Retest Scheduled' : status}</span></td><td>{entry.attemptedCount ?? 0}</td><td>{entry.correctCount ?? 0}</td><td>{entry.wrongCount ?? 0}</td><td>{entry.unmarkedCount ?? schedule.totalQuestions}</td><td>{entry.obtainedMarks == null ? '-' : `${entry.obtainedMarks} / ${entry.totalMarks || schedule.totalMarks}`}</td><td>{entry.percentage == null ? '-' : `${Number(entry.percentage).toFixed(2)}%`}</td><td>{canRetest ? <button type="button" className="academic-preparation-retest-button" onClick={() => onScheduleRetest(entry)}>Assign Retest</button> : entry.retest ? <small>{entry.retest.schedule?.testDate} · {entry.retest.schedule?.startTime} - {entry.retest.schedule?.endTime}</small> : '-'}</td></tr> }) : <tr><td colSpan="10" className="academic-test-empty">No active students found for this batch.</td></tr>}</tbody></table></div></div></div>
+}
+
+const retestScheduleLabel = (schedule) => schedule ? `${scheduleDateLabel(schedule.testDate)} | ${scheduleTimeLabel(schedule.startTime)} - ${scheduleTimeLabel(schedule.endTime)}` : 'Schedule unavailable'
+
+function AssessmentEvaluationModal({ context, marks, saving, onChange, onSave, onClose }) {
+  if (!context) return null
+  const obtained = context.questions.reduce((sum, question) => sum + Number(marks[question.id] || 0), 0)
+  const total = Number(context.paper.totalMarks || 0)
+  const evaluated = context.submission?.status === 'EVALUATED'
+  const readyForPreview = evaluated || context.questions.every((question) => marks[question.id] !== '' && marks[question.id] !== null && marks[question.id] !== undefined)
+  const result = obtained >= Number(context.paper.passMark || 0) ? 'PASS' : 'FAIL'
+  return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal assessment-evaluation-modal" role="dialog" aria-modal="true"><div className="academic-preparation-modal-heading"><div><p className="academic-test-kicker">ASSESSMENT EVALUATION</p><h2>{context.student.studentName || 'Student'}</h2><span>{context.student.studentId || '-'} · Enter marks for each submitted answer</span></div><button type="button" onClick={onClose} aria-label="Close"><X size={19} /></button></div><div className="academic-preparation-result-summary"><div><span>Total Marks</span><strong>{obtained} / {total}</strong></div><div><span>Percentage</span><strong>{readyForPreview ? `${total ? ((obtained / total) * 100).toFixed(2) : '0.00'}%` : 'Pending'}</strong></div><div><span>Result</span><strong>{readyForPreview ? result : 'Pending'}</strong></div></div><div className="assessment-evaluation-questions">{context.questions.map((question, index) => <article key={question.id}><h3>Question {index + 1}</h3><p>{question.questionText}</p><small>Maximum Marks: {question.marks}</small><pre>{question.answer?.answerText || 'No answer submitted.'}</pre><label>Marks Obtained<input type="number" min="0" max={question.marks} value={marks[question.id] ?? ''} onChange={(event) => { const value = event.target.value; onChange(question.id, value === '' ? '' : Math.min(Number(value), Number(question.marks))) }} /></label></article>)}</div><div className="academic-preparation-modal-actions"><button type="button" onClick={onClose} disabled={saving}>Close</button><button type="button" className="academic-test-primary" onClick={onSave} disabled={saving}>{saving ? 'Saving...' : 'Save Evaluation'}</button></div></div></div>
+}
+
+function ScheduleResultModal({ result, loading, onClose, onScheduleRetest, onEditRetestSchedule, onEditRetestQuestions, onCancelRetest, onViewProject, onDownloadProject, onGradeProject, onViewAssessment }) {
+  const [resultTab, setResultTab] = useState(() => result?.test?.testType === 'PROJECT' ? 'project' : 'test')
+  useEffect(() => { setResultTab(result?.test?.testType === 'PROJECT' ? 'project' : 'test') }, [result?.test?.testType])
+  const [projectGrades, setProjectGrades] = useState({})
+  const [projectGradeErrors, setProjectGradeErrors] = useState({})
+  const [savingProjectId, setSavingProjectId] = useState('')
+  const [projectPreview, setProjectPreview] = useState(null)
+  const [projectPreviewLoading, setProjectPreviewLoading] = useState(false)
+  useEffect(() => { const closeRetestMenus = (event) => { document.querySelectorAll('.academic-preparation-retest-menu[open]').forEach((menu) => { if (!menu.contains(event.target)) menu.removeAttribute('open') }) }; document.addEventListener('click', closeRetestMenus); return () => document.removeEventListener('click', closeRetestMenus) }, [])
+  useEffect(() => { const closeProjectPreview = () => setProjectPreview(null); window.addEventListener('academic-project-graded', closeProjectPreview); return () => window.removeEventListener('academic-project-graded', closeProjectPreview) }, [])
+  if (loading) return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-result-modal"><p className="academic-test-kicker">TEST RESULTS</p><h2>Loading student results...</h2></div></div>
+  if (!result) return null
+
+  const rawSchedule = result.test
+  const scheduleMeta = result.scheduleMeta || {}
+  const projectTotalMarks = Number(rawSchedule.project?.projectMarks ?? rawSchedule.projectTotalMarks ?? rawSchedule.projectMarks ?? 0)
+  const schedule = { ...rawSchedule, projectMarks: projectTotalMarks }
+  const submittedCount = result.students.filter((entry) => ['SUBMITTED', 'EVALUATED'].includes(entry.status) || ['SUBMITTED', 'EVALUATED'].includes(entry.retest?.submission?.status)).length
+  const projectSubmittedCount = result.students.filter((entry) => ['SUBMITTED', 'GRADED'].includes(entry.projectSubmission?.status)).length
+  const hasTest = schedule.testType === 'TEST' || schedule.testType === 'TEST_AND_PROJECT'
+  const hasProject = schedule.testType === 'PROJECT' || schedule.testType === 'TEST_AND_PROJECT'
+  const openProjectPreview = async (entry) => { setProjectPreviewLoading(true); const previewEntry = { ...entry, projectSubmission: entry.projectSubmission ? { ...entry.projectSubmission, status: entry.projectSubmission.status === 'GRADED' ? 'SUBMITTED' : entry.projectSubmission.status } : entry.projectSubmission }; setProjectGrades((current) => ({ ...current, [entry.student.id]: entry.projectSubmission?.marksAwarded ?? '' })); try { const file = await onViewProject(schedule.id, entry.student.id); const url = file.previewHtml ? '' : URL.createObjectURL(file.blob); setProjectPreview({ entry: previewEntry, file, url }) } finally { setProjectPreviewLoading(false) } }
+
+  return <div className="academic-preparation-modal-backdrop">
+    <div className="academic-preparation-modal academic-preparation-result-modal" role="dialog" aria-modal="true" aria-labelledby="academic-result-title">
+      <div className="academic-preparation-modal-heading">
+        <div>
+          <p className="academic-test-kicker">TEST RESULTS</p>
+          <h2 id="academic-result-title">{schedule.testName || 'Academic Test'}</h2>
+          <span>{scheduleMeta.batch?.batchName || '-'} | {schedule.course?.name || '-'} | {hasProject && resultTab === 'project' ? 'Project' : `${scheduleDateLabel(schedule.testDate)} | ${scheduleTimeLabel(schedule.startTime)} - ${scheduleTimeLabel(schedule.endTime)}`}</span>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close"><X size={19} /></button>
+      </div>
+      {hasProject && <div className="academic-preparation-result-tabs" role="tablist" aria-label="Academic Test sections">
+        {hasTest && <button type="button" className={resultTab === 'test' ? 'is-active' : ''} onClick={() => setResultTab('test')} role="tab" aria-selected={resultTab === 'test'}>Test</button>}
+        <button type="button" className={resultTab === 'project' ? 'is-active' : ''} onClick={() => setResultTab('project')} role="tab" aria-selected={resultTab === 'project'}>Project</button>
+      </div>}
+      <div className="academic-preparation-result-summary">
+        {resultTab === 'project' ? <div><span>Project Total Marks</span><strong>{projectTotalMarks}</strong></div> : <><div><span>Total Questions</span><strong>{schedule.totalQuestions || 0}</strong></div><div><span>Total Marks</span><strong>{schedule.totalMarks || 0}</strong></div><div><span>Pass Mark</span><strong>{schedule.passMark || '-'}</strong></div></>}
+        <div><span>Students</span><strong>{result.students.length}</strong></div>
+        <div><span>Submitted</span><strong>{resultTab === 'project' ? projectSubmittedCount : submittedCount}</strong></div>
+      </div>
+      <div className="academic-preparation-result-table-wrap">
+        <table className="academic-preparation-result-table">
+          <thead><tr><th>Student</th><th>Student ID</th>{resultTab === 'project' ? <><th>Status</th><th>Marks</th><th>Percentage</th><th>Actions</th><th>Download Document</th></> : <><th>Status</th><th>Attempted</th>{!schedule.hasAssessment && <><th>Correct</th><th>Wrong</th></>}<th>Unanswered</th><th>Marks</th><th>Result</th><th>Percentage</th></>}</tr></thead>
+          <tbody>
+            {result.students.length ? result.students.map((entry) => {
+              const status = studentStatusLabel({ ...entry, schedule })
+              const retest = entry.retest
+              const retestCompleted = ['SUBMITTED', 'EVALUATED'].includes(retest?.submission?.status)
+              const retestStatus = retest ? retestCompleted ? 'Retest Completed' : scheduleIsEnded(retest.schedule) ? 'Not Attended' : scheduleIsStarted(retest.schedule) ? 'Retest In Progress' : 'Retest Assigned' : null
+              const retestStarted = Boolean(retest && scheduleIsStarted({ ...retest.schedule, rawStartTime: retest.schedule?.startTime }))
+              const display = retestCompleted ? retest.submission : { ...entry, obtainedMarks: status === 'Not Attended' || retestStatus === 'Not Attended' ? null : entry.obtainedMarks, percentage: status === 'Not Attended' || retestStatus === 'Not Attended' ? null : entry.percentage }
+              const displayResult = retestCompleted ? retest.submission?.resultStatus : entry.resultStatus
+              const assessmentPending = schedule.hasAssessment && ((entry.status === 'SUBMITTED' && !entry.resultStatus) || (retestCompleted && retest.submission?.status === 'SUBMITTED' && !retest.submission?.resultStatus))
+              const canRetest = (status === 'Not Attended' || displayResult === 'FAIL') && (!retest || retestStatus === 'Not Attended' || (retestCompleted && displayResult === 'FAIL'))
+              const displayStatus = retestStatus || status
+              const statusClass = displayStatus.toLowerCase().replaceAll(' ', '-')
+              return <tr key={entry.student.id}>
+                <td><strong>{entry.student.studentName || '-'}</strong><small>{entry.student.emailAddress || '-'}</small></td>
+                <td>{entry.student.studentId || '-'}</td>
+                {resultTab === 'project' ? <><td><span className={`academic-preparation-result-status is-${(entry.projectSubmission?.status || 'NOT_SUBMITTED').toLowerCase().replaceAll('_', '-')}`}>{entry.projectSubmission?.status === 'GRADED' ? 'Graded' : entry.projectSubmission?.status === 'SUBMITTED' ? 'Submitted' : 'Not Submitted'}</span></td><td>{entry.projectSubmission?.marksAwarded == null ? '-' : `${entry.projectSubmission.marksAwarded} / ${schedule.projectMarks || 0}`}</td><td>{entry.projectSubmission?.marksAwarded == null || !schedule.projectMarks ? '-' : `${((entry.projectSubmission.marksAwarded / schedule.projectMarks) * 100).toFixed(2)}%`}</td><td><div className="academic-project-evaluation-actions">{entry.projectSubmission?.filePath && <button type="button" className="academic-preparation-retest-button" onClick={() => openProjectPreview(entry)}>View Project</button>}{entry.projectSubmission?.status && entry.projectSubmission.status !== 'NOT_SUBMITTED' && <><div><input type="number" min="0" max={schedule.projectMarks || 0} disabled={entry.projectSubmission.status === 'GRADED'} value={projectGrades[entry.student.id] ?? entry.projectSubmission.marksAwarded ?? ''} onChange={(event) => { const value = event.target.value; setProjectGrades((current) => ({ ...current, [entry.student.id]: value })); setProjectGradeErrors((current) => ({ ...current, [entry.student.id]: Number(value) > Number(schedule.projectMarks || 0) ? `Mark cannot exceed ${schedule.projectMarks || 0}.` : '' })) }} placeholder="Mark" />{projectGradeErrors[entry.student.id] && <small className="academic-project-grade-error">{projectGradeErrors[entry.student.id]}</small>}</div><button type="button" className="academic-preparation-retest-button" disabled={entry.projectSubmission.status === 'GRADED' || savingProjectId === entry.student.id || Boolean(projectGradeErrors[entry.student.id])} onClick={async () => { setSavingProjectId(entry.student.id); try { await onGradeProject(schedule.id, entry.student.id, projectGrades[entry.student.id] ?? entry.projectSubmission.marksAwarded) } finally { setSavingProjectId('') } }}>{savingProjectId === entry.student.id ? 'Saving...' : 'Save Mark'}</button></>}</div></td><td>{entry.projectSubmission?.filePath ? <button type="button" className="academic-preparation-retest-button" onClick={() => onDownloadProject(schedule.id, entry.student.id, entry.projectSubmission.fileName)}>Download</button> : '-'}</td></> : <><td><span className={`academic-preparation-result-status is-${statusClass}`}>{displayStatus}</span></td><td>{display.attemptedCount ?? 0}</td>{!schedule.hasAssessment && <><td>{display.correctCount ?? 0}</td><td>{display.wrongCount ?? 0}</td></>}<td>{display.unmarkedCount ?? schedule.totalQuestions}</td><td>{assessmentPending ? 'Pending' : display.obtainedMarks == null ? '-' : `${display.obtainedMarks} / ${display.totalMarks || schedule.totalMarks}`}</td><td><span className={`academic-preparation-result-value is-${String(displayResult || 'none').toLowerCase()}`}>{assessmentPending ? 'Pending' : displayResult || '-'}</span></td><td>{assessmentPending ? <button type="button" className="academic-preparation-retest-button" onClick={() => onViewAssessment(retestCompleted ? retest.schedule.id : schedule.id, entry.student.id)}>View Assessment</button> : <>{display.percentage == null && !retest ? '-' : display.percentage == null ? null : `${Number(display.percentage).toFixed(2)}%`}
+                  {canRetest && <button type="button" className="academic-preparation-retest-button" onClick={() => onScheduleRetest({ ...entry, retestSource: retest?.schedule || null })}>Retest</button>}
+                  {retest && !retestCompleted && <div className="academic-preparation-retest-actions"><span className="academic-preparation-retest-chip" data-tooltip={`Retest scheduled date: ${scheduleDateLabel(retest.schedule?.testDate)}\nRetest scheduled time: ${scheduleTimeLabel(retest.schedule?.startTime)} - ${scheduleTimeLabel(retest.schedule?.endTime)}`} aria-label={`Retest scheduled date: ${scheduleDateLabel(retest.schedule?.testDate)}; Retest scheduled time: ${scheduleTimeLabel(retest.schedule?.startTime)} - ${scheduleTimeLabel(retest.schedule?.endTime)}`}>Retest Assigned</span><RetestActionMenu retest={retest} retestStarted={retestStarted} onEditRetestSchedule={onEditRetestSchedule} onEditRetestQuestions={onEditRetestQuestions} onCancelRetest={onCancelRetest} /></div>}
+                </>}</td></>}
+              </tr>
+            }) : <tr><td colSpan={resultTab === 'project' ? 7 : schedule.hasAssessment ? 7 : 9} className="academic-test-empty">No active students found for this batch.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {projectPreviewLoading && <div className="academic-project-preview-loading">Loading project file...</div>}
+      {projectPreview && <div className="academic-project-preview-backdrop"><div className="academic-project-preview-modal"><div className="academic-preparation-modal-heading"><div><p className="academic-test-kicker">PROJECT SUBMISSION</p><h2>{schedule.projectTitle || 'Project'}</h2><span>{projectPreview.entry.student.studentName || '-'} · {projectPreview.entry.student.emailAddress || '-'}</span></div><button type="button" onClick={() => { if (projectPreview.url) URL.revokeObjectURL(projectPreview.url); setProjectPreview(null) }} aria-label="Close project preview"><X size={19} /></button></div><div className="academic-project-preview-meta"><strong>Student:</strong> {projectPreview.entry.student.studentName || '-'}<strong>Link:</strong> {projectPreview.entry.projectSubmission?.link ? <a href={projectPreview.entry.projectSubmission.link} target="_blank" rel="noreferrer">Open student link</a> : 'No link provided'}<strong>File:</strong> {projectPreview.entry.projectSubmission?.fileName || '-'}</div>{projectPreview.file.previewHtml ? <iframe title="Project document preview" srcDoc={projectPreview.file.previewHtml} className="academic-project-preview-frame" /> : projectPreview.file.contentType?.includes('pdf') || projectPreview.file.contentType?.startsWith('image/') ? <iframe title="Project document preview" src={projectPreview.url} className="academic-project-preview-frame" /> : <p className="academic-project-preview-note">This file type cannot be previewed in the browser.</p>}<div className="academic-project-preview-actions"><label className="academic-project-preview-mark-label">Mark / {schedule.projectMarks || 0}<input type="number" min="0" max={schedule.projectMarks || 0} disabled={projectPreview.entry.projectSubmission?.status === 'GRADED'} value={projectGrades[projectPreview.entry.student.id] ?? projectPreview.entry.projectSubmission?.marksAwarded ?? ''} onChange={(event) => { const value = event.target.value; setProjectGrades((current) => ({ ...current, [projectPreview.entry.student.id]: value })); setProjectGradeErrors((current) => ({ ...current, [projectPreview.entry.student.id]: Number(value) > Number(schedule.projectMarks || 0) ? `Mark cannot exceed ${schedule.projectMarks || 0}.` : '' })) }} placeholder="Mark" />{projectGradeErrors[projectPreview.entry.student.id] && <small className="academic-project-grade-error">{projectGradeErrors[projectPreview.entry.student.id]}</small>}</label>{projectPreview.entry.projectSubmission?.status !== 'GRADED' && <button type="button" className="academic-preparation-retest-button" disabled={!projectGrades[projectPreview.entry.student.id] || Boolean(projectGradeErrors[projectPreview.entry.student.id]) || savingProjectId === projectPreview.entry.student.id} onClick={async () => { setSavingProjectId(projectPreview.entry.student.id); try { await onGradeProject(schedule.id, projectPreview.entry.student.id, projectGrades[projectPreview.entry.student.id]) } finally { setSavingProjectId('') } }}>{savingProjectId === projectPreview.entry.student.id ? 'Saving...' : 'Save Mark'}</button>}{projectPreview.entry.projectSubmission?.status === 'GRADED' && <span className="academic-project-preview-graded">Mark saved</span>}<button type="button" className="academic-preparation-retest-button" onClick={() => onDownloadProject(schedule.id, projectPreview.entry.student.id, projectPreview.entry.projectSubmission?.fileName)}>Download Document</button><button type="button" className="academic-preparation-retest-button" onClick={() => { if (projectPreview.url) URL.revokeObjectURL(projectPreview.url); setProjectPreview(null) }}>Close</button></div></div></div>}
+    </div>
+  </div>
+}
+
+function StudentResultModal({ entry, schedule, onClose }) {
+  const status = studentStatusLabel({ ...entry, schedule })
+  return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-student-result-modal" role="dialog" aria-modal="true" aria-labelledby="academic-student-result-title"><div className="academic-preparation-modal-heading"><div><p className="academic-test-kicker">STUDENT RESULT</p><h2 id="academic-student-result-title">{entry.student.studentName || 'Student'}</h2><span>{entry.student.studentId || '-'} · {entry.student.emailAddress || '-'}</span></div><button type="button" onClick={onClose} aria-label="Close"><X size={19} /></button></div><div className="academic-preparation-student-result-status"><span>Status</span><strong>{status}</strong></div><div className="academic-preparation-result-summary"><div><span>Attempted</span><strong>{entry.attemptedCount ?? 0}</strong></div><div><span>Correct</span><strong>{entry.correctCount ?? 0}</strong></div><div><span>Wrong</span><strong>{entry.wrongCount ?? 0}</strong></div><div><span>Unanswered</span><strong>{entry.unmarkedCount ?? schedule.totalQuestions}</strong></div><div><span>Marks</span><strong>{entry.obtainedMarks == null ? '-' : `${entry.obtainedMarks} / ${entry.totalMarks || schedule.totalMarks}`}</strong></div><div><span>Percentage</span><strong>{entry.percentage == null ? '-' : `${Number(entry.percentage).toFixed(2)}%`}</strong></div></div><div className="academic-preparation-modal-actions"><button type="button" onClick={onClose}>Close</button></div></div></div>
+}
+
+function ScheduleRowActionMenu({ createLabel, onView, onEdit, onEditSchedule, onCancel }) {
+  return <div className="academic-evaluation-actions academic-schedule-actions"><button type="button" className="academic-evaluation-create" onClick={onEdit}>{createLabel}</button>{onView && <button type="button" className="academic-evaluation-result academic-evaluation-view-result" onClick={onView}>View Result</button>}</div>
+}
+
+function RetestStudentActions({ result, onSchedule }) {
+  const candidates = result.students.filter((entry) => studentStatusLabel({ ...entry, schedule: result.test }) === 'Not Attended' && !entry.retest)
+  if (!candidates.length) return null
+  return <aside className="academic-preparation-retest-panel"><strong>Retest candidates</strong><span>Students who did not attend the test</span>{candidates.map((entry) => <button type="button" key={entry.student.id} onClick={() => onSchedule(entry)}>Schedule Retest · {entry.student.studentName || entry.student.studentId}</button>)}</aside>
+}
+
+function RetestEditorModal({ target, testName, form, saving, error, onChange, onClose, onSave }) {
+  return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-retest-modal" role="dialog" aria-modal="true" aria-labelledby="academic-retest-title"><div className="academic-preparation-modal-heading"><div><p className="academic-test-kicker">ACADEMIC TEST RETEST</p><h2 id="academic-retest-title">{testName || 'Academic Test'} - Schedule Retest</h2><span>{target.student.studentName || '-'} · {target.student.studentId || '-'}</span></div><button type="button" onClick={onClose} disabled={saving} aria-label="Close"><X size={19} /></button></div>{error && <div className="academic-test-error">{error}</div>}<p className="academic-preparation-modal-note">This retest is assigned only to this student for <strong>{testName || 'this test'}</strong>. The original test result remains unchanged.</p><div className="academic-preparation-schedule-grid"><label>Retest date<input type="date" min={new Date().toISOString().slice(0, 10)} value={form.testDate} onChange={(event) => onChange({ ...form, testDate: event.target.value })} /></label><AcademicTimePicker label="Start time" value={form.startTime} onChange={(value) => onChange({ ...form, startTime: value })} /><AcademicTimePicker label="End time" value={form.endTime} onChange={(value) => onChange({ ...form, endTime: value })} /></div><div className="academic-preparation-modal-actions"><button type="button" onClick={onClose} disabled={saving}>Keep Result</button><button type="button" className="academic-test-primary" onClick={onSave} disabled={saving}>{saving ? 'Scheduling...' : 'Schedule Retest'}</button></div></div></div>
+}
+
+export default function AcademicTestPreparationPage({ facultyCourseProgressByBatch = null, facultyWeekOffBlocked = false, onWeekOffBlocked }) {
+  const { itemId, batchId } = useParams()
+  const routerNavigate = useNavigate()
+  const navigate = (to, options) => to === '/dashboard/faculty/exams/academic-tests?create=1' ? routerNavigate(`${window.location.pathname}?create=1`) : routerNavigate(to, options)
+  const [searchParams] = useSearchParams()
+  const [data, setData] = useState(null)
+  const [questions, setQuestions] = useState([])
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0)
+  const [marksPerQuestion, setMarksPerQuestion] = useState(1)
+  const [paperQuestionType, setPaperQuestionType] = useState('MCQ')
+  const [showRequiredErrors, setShowRequiredErrors] = useState(false)
+  const [passMark, setPassMark] = useState(0)
+  const [project, setProject] = useState({ projectTitle: '', projectDescription: '', projectRequirements: '', projectMarks: 0 })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState(() => searchParams.get('message') || '')
+  const [saveConfirmation, setSaveConfirmation] = useState(null)
+  const [prepareConfirmOpen, setPrepareConfirmOpen] = useState(false)
+  const [showBuilder, setShowBuilder] = useState(() => searchParams.get('view') === 'builder')
+  const [showInlineCreate, setShowInlineCreate] = useState(false)
+  const [scheduledTests, setScheduledTests] = useState([])
+  const [scheduleLoading, setScheduleLoading] = useState(true)
+  const [result, setResult] = useState(null)
+  const [resultLoading, setResultLoading] = useState(false)
+  const [scheduleEditor, setScheduleEditor] = useState(null)
+  const [scheduleForm, setScheduleForm] = useState({ testDate: '', startTime: '10:00', endTime: '11:00' })
+  const [scheduleSaving, setScheduleSaving] = useState(false)
+  const [cancelTarget, setCancelTarget] = useState(null)
+  const [cancelBlocked, setCancelBlocked] = useState(false)
+  const [cancelRetestTarget, setCancelRetestTarget] = useState(null)
+  const [resultActionOpen, setResultActionOpen] = useState(false)
+  const [evaluationPage, setEvaluationPage] = useState(1)
+  useEffect(() => {
+    setShowBuilder(searchParams.get('view') === 'builder')
+    setMessage(searchParams.get('message') || '')
+  }, [searchParams.toString()])
+  useEffect(() => { if (!resultActionOpen) return undefined; const closeOnOutsideClick = (event) => { if (!event.target.closest('.academic-preparation-result-actions-overlay')) setResultActionOpen(false) }; document.addEventListener('click', closeOnOutsideClick); return () => document.removeEventListener('click', closeOnOutsideClick) }, [resultActionOpen])
+  const [retestTarget, setRetestTarget] = useState(null)
+  const [retestForm, setRetestForm] = useState({ testDate: '', startTime: '10:00', endTime: '11:00' })
+  const [retestSaving, setRetestSaving] = useState(false)
+  const [retestError, setRetestError] = useState('')
+  const [assessmentContext, setAssessmentContext] = useState(null)
+  const [assessmentMarks, setAssessmentMarks] = useState({})
+  const [assessmentSaving, setAssessmentSaving] = useState(false)
+  const [courseProgress, setCourseProgress] = useState(null)
+  const courseProgressContextRef = useRef('')
+  const cycleResetRef = useRef('')
+
+  const blockFacultyWeekOffAction = () => {
+    if (!facultyWeekOffBlocked) return false
+    onWeekOffBlocked?.()
+    return true
+  }
+
+  const load = async () => {
+    setLoading(true); setError('')
+    try {
+      let next = await getAcademicTestPreparation(itemId, batchId)
+      // Once the final academic cycle is complete, close it and open a fresh
+      // cycle before showing the preparation screen. Historical papers,
+      // schedules and reports remain linked to the completed cycle; the new
+      // cycle starts with Test 1 and zero preparation progress.
+      const cycleResetKey = `${itemId}:${batchId}`
+      const hasExistingCycleContent = (next.tests || []).some((test) => Boolean(
+        test?.schedule?.id ||
+        test?.paper?.id ||
+        test?.project?.id,
+      ))
+      const looksLikeCompletedCycle = Number(next.courseProgress) === 0 && hasExistingCycleContent
+      if ((next.batchComplete || looksLikeCompletedCycle) && cycleResetRef.current !== cycleResetKey) {
+        cycleResetRef.current = cycleResetKey
+        await startAcademicTestCycle(itemId, batchId)
+        next = await getAcademicTestPreparation(itemId, batchId)
+      }
+      const siblingTests = await Promise.all((next.tests || []).map(async (test) => {
+        if (test.academicTestItemId === next.academicTestItemId) return test
+        try {
+          const sibling = await getAcademicTestPreparation(test.academicTestItemId, batchId)
+          return { ...test, ...sibling, academicTestItemId: test.academicTestItemId, sequence: test.sequence, testType: test.testType }
+        } catch {
+          return test
+        }
+      }))
+      const preparedData = { ...next, tests: siblingTests }
+      setData(preparedData); const loadedQuestions = normalizeEditorQuestions(next.paper?.questions || [], next.paper?.marksPerQuestion || 1); setQuestions(loadedQuestions); setPaperQuestionType(loadedQuestions.length && loadedQuestions.every((question) => question.questionType === 'ASSESSMENT') ? 'ASSESSMENT' : 'MCQ'); setActiveQuestionIndex(0); setMarksPerQuestion(next.paper?.marksPerQuestion || 1); setPassMark(next.paper?.passMark || 0); setProject(next.project || { projectTitle: '', projectDescription: '', projectRequirements: '', projectMarks: 0 })
+    } catch (e) { setError(e.message || 'Unable to load preparation details.') } finally { setLoading(false) }
+  }
+  // Loading this route synchronizes the editor with the selected test item/batch.
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [itemId, batchId])
+  useEffect(() => {
+    setScheduleLoading(true)
+    listFacultyScheduledAcademicTests().then(setScheduledTests).catch((e) => setError(e.message || 'Unable to load scheduled tests.')).finally(() => setScheduleLoading(false))
+  }, [itemId, batchId, searchParams.toString()])
+  useEffect(() => {
+    let active = true
+    if (data?.cycle) {
+      const cycleValue = Number(data.courseProgress)
+      setCourseProgress(Number.isFinite(cycleValue) ? Math.round(Math.max(0, Math.min(100, cycleValue))) : 0)
+      return () => { active = false }
+    }
+    const selectedBatchIds = [batchId, data?.batch?.id, data?.batch?.batchId].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+    const progressContextKey = [itemId, ...selectedBatchIds].join('|')
+    if (courseProgressContextRef.current !== progressContextKey) {
+      courseProgressContextRef.current = progressContextKey
+      setCourseProgress(null)
+    }
+    const findExternalProgress = () => Array.from(facultyCourseProgressByBatch?.entries?.() || [])
+      .find(([key]) => selectedBatchIds.includes(String(key || '').trim().toLowerCase()))?.[1]
+    const externalProgress = Number(findExternalProgress())
+    if (Number.isFinite(externalProgress)) {
+      setCourseProgress(Math.round(Math.max(0, Math.min(100, externalProgress))))
+      return () => { active = false }
+    }
+    getFacultyMyBatchesSummary().then((summary) => {
+      if (!active) return
+      const selectedBatch = (summary?.batchCounts || []).find((entry) => [entry?.batchId, entry?.id].some((value) => selectedBatchIds.includes(String(value || '').trim().toLowerCase())))
+      const value = Number(selectedBatch?.courseProgress)
+      const externalValue = findExternalProgress()
+      const progressValue = Number(externalValue ?? value)
+      setCourseProgress(Number.isFinite(progressValue) ? Math.round(Math.max(0, Math.min(100, progressValue))) : 0)
+    }).catch(() => {
+      if (!active) return
+      const externalValue = findExternalProgress()
+      const progressValue = Number(externalValue)
+      setCourseProgress(Number.isFinite(progressValue) ? Math.round(Math.max(0, Math.min(100, progressValue))) : 0)
+    })
+    return () => { active = false }
+  }, [batchId, data?.batch?.id, data?.batch?.batchId, data?.cycle?.id, data?.progress, facultyCourseProgressByBatch])
+  useEffect(() => { setEvaluationPage(1) }, [itemId, batchId])
+  useEffect(() => { setShowRequiredErrors(false) }, [activeQuestionIndex])
+  const totalMarks = useMemo(() => questions.reduce((sum, question) => { const marks = Number(question.marks || (question.questionType === 'MCQ' ? marksPerQuestion : 0)); return sum + (Number.isFinite(marks) ? marks : 0) }, 0), [questions, marksPerQuestion])
+  const updateQuestion = (index, field, value) => setQuestions((current) => current.map((question, questionIndex) => questionIndex === index ? { ...question, [field]: field === 'marks' && value === '' ? '\u200b' : value } : question))
+  const passMarkNumber = Number(passMark)
+  const settingsValid = Boolean(paperQuestionType) && (paperQuestionType !== 'MCQ' || Number.isFinite(Number(marksPerQuestion)) && Number(marksPerQuestion) >= 1) && Number.isFinite(passMarkNumber) && passMarkNumber >= 1 && passMarkNumber <= totalMarks
+  const settingsErrorMessage = !paperQuestionType ? 'Question Type is required.' : paperQuestionType === 'MCQ' && (!Number.isFinite(Number(marksPerQuestion)) || Number(marksPerQuestion) < 1) ? 'Default marks per question is required.' : !Number.isFinite(passMarkNumber) || passMarkNumber < 1 ? 'Pass mark is required.' : passMarkNumber > totalMarks ? `Pass mark cannot be greater than Total marks (${totalMarks}).` : ''
+  const requireSettings = () => { setShowRequiredErrors(true); return settingsValid }
+  const addQuestion = () => { const missingCorrectAnswerIndex = questions.findIndex((question) => question.questionType !== 'ASSESSMENT' && !['A', 'B', 'C', 'D'].includes(question.correctAnswer)); if (missingCorrectAnswerIndex >= 0) { setShowRequiredErrors(true); setActiveQuestionIndex(missingCorrectAnswerIndex); setError(`Correct Answer is required for question ${missingCorrectAnswerIndex + 1}.`); return } setShowRequiredErrors(false); setError(''); setQuestions((current) => { const next = [...current, { ...emptyQuestion(), questionType: paperQuestionType, marks: paperQuestionType === 'MCQ' ? Number(marksPerQuestion || 1) : 1 }]; setActiveQuestionIndex(next.length - 1); return next }) }
+  const changePaperQuestionType = (value) => { setPaperQuestionType(value); setQuestions((current) => current.map((question) => ({ ...question, questionType: value, marks: value === 'MCQ' ? Number(marksPerQuestion || 1) : Number(question.marks || 1) }))) }
+  const changeDefaultMarks = (value) => { setMarksPerQuestion(value); setQuestions((current) => current.map((question) => question.questionType === 'MCQ' ? { ...question, marks: value } : question)) }
+  const performSavePaper = async (status = 'DRAFT') => { if (blockFacultyWeekOffAction()) return; const validationError = validateQuestionPaper(questions, marksPerQuestion, passMark, status); if (validationError) { setSaveConfirmation(null); setMessage(''); setError(validationError); return } setSaving(true); setSaveConfirmation(null); setError(''); setMessage(''); try { const payload = { academicTestItemId: itemId, branchBatchId: batchId, marksPerQuestion, passMark, questions, status }; const next = data?.paper?.id ? await updateQuestionPaper(data.paper.id, payload) : await saveQuestionPaper(payload); const savedQuestions = normalizeEditorQuestions(next.paper?.questions || [], next.paper?.marksPerQuestion || marksPerQuestion || 1); const resultMessage = status === 'PREPARED' ? `Question paper prepared successfully. ${savedQuestions.length} question${savedQuestions.length === 1 ? '' : 's'} saved.` : `Question paper draft saved. ${savedQuestions.length} question${savedQuestions.length === 1 ? '' : 's'} saved.`; setData(next); setQuestions(savedQuestions); setPassMark(next.paper?.passMark ?? passMark); setMessage(resultMessage); setSaveConfirmation({ status, count: savedQuestions.length }); if (status === 'PREPARED') { setShowBuilder(false); navigate(`/dashboard/faculty/exams/academic-tests/${itemId}/${batchId}`) } } catch (e) { setError(e.message || 'Unable to save question paper.') } finally { setSaving(false) } }
+  const savePaper = (status = 'DRAFT') => { if (!requireSettings()) return; if (status !== 'PREPARED') return performSavePaper(status); const validationError = validateQuestionPaper(questions, marksPerQuestion, passMark, status); if (validationError) { setError(validationError); const missingCorrectAnswerIndex = questions.findIndex((question) => question.questionType !== 'ASSESSMENT' && !['A', 'B', 'C', 'D'].includes(question.correctAnswer)); if (missingCorrectAnswerIndex >= 0) setActiveQuestionIndex(missingCorrectAnswerIndex); return } setPrepareConfirmOpen(true) }
+  const saveProject = async (status = 'DRAFT') => { setSaving(true); setError(''); setMessage(''); try { const payload = { academicTestItemId: itemId, branchBatchId: batchId, ...project, status }; const next = data?.project?.id ? await updateAcademicTestProject(data.project.id, payload) : await saveAcademicTestProject(payload); setData(next); setProject(next.project || project); if (status === 'PREPARED') { const latestSchedules = await listFacultyScheduledAcademicTests().catch(() => scheduledTests); const sameBatch = (schedule) => String(schedule?.batch?.id || schedule?.branchBatchId || '').trim() === String(batchId).trim(); const currentItemId = String(itemId).trim(); const relatedItemId = next?.parentAcademicTestItemId || next?.parentItemId || next?.testGroupItemId || data?.parentAcademicTestItemId || data?.parentItemId || data?.testGroupItemId; const relatedSchedule = latestSchedules.filter((schedule) => sameBatch(schedule) && String(schedule.academicTestItemId || '').trim() !== currentItemId && !schedule.isRetest && schedule.status !== 'CANCELLED').sort((left, right) => Number(right.testType === 'TEST_AND_PROJECT') - Number(left.testType === 'TEST_AND_PROJECT'))[0]; const destinationItemId = relatedItemId || relatedSchedule?.academicTestItemId || currentItemId; routerNavigate(`/dashboard/faculty/exams/academic-tests/${destinationItemId}/${batchId}`) } else setMessage('Project draft saved.') } catch (e) { setError(e.message || 'Unable to save project.') } finally { setSaving(false) } }
+  const downloadPdf = async () => { if (!data?.paper?.id) return; try { const file = await downloadQuestionPaperPdf(data.paper.id); const url = URL.createObjectURL(file.blob); const link = document.createElement('a'); link.href = url; link.download = file.fileName || 'academic-test-question-paper.pdf'; link.click(); URL.revokeObjectURL(url) } catch (e) { setError(e.message || 'Unable to download PDF.') } }
+  const scheduleFor = (test) => {
+    if (data?.batchComplete && Number(courseProgress ?? data?.courseProgress ?? 0) >= 100) return null
+    if (test?.schedule?.id) return test.schedule
+    if (String(test?.academicTestItemId || '') === String(itemId) && data?.schedule?.id) return data.schedule
+    // Do not fall back to the global scheduled-test list here. That list also
+    // contains completed schedules from previous cycles, which would expose
+    // an old View Result button in a fresh cycle.
+    return null
+  }
+  const openResult = async (schedule) => { setResultLoading(true); setResultActionOpen(false); setError(''); try { const next = await getFacultyAcademicTestResults(schedule.id); const normalizedTest = { ...next.test, rawStartTime: next.test?.startTime, rawEndTime: next.test?.endTime, startTime: scheduleTimeLabel(next.test?.startTime), endTime: scheduleTimeLabel(next.test?.endTime) }; setResult({ ...next, test: normalizedTest, scheduleMeta: schedule }) } catch (e) { setError(academicRetestError(e, 'Unable to load student results.')) } finally { setResultLoading(false) } }
+  const viewProjectFile = async (scheduleId, studentId) => { const file = await getFacultyProjectFile(scheduleId, studentId); if (file.contentType.includes('wordprocessingml.document')) { try { file.previewHtml = await getFacultyProjectPreview(scheduleId, studentId) } catch { file.previewHtml = '' } } return file }
+  const downloadProjectFile = async (scheduleId, studentId, fileName = 'project-document') => { try { const file = await getFacultyProjectFile(scheduleId, studentId); const url = URL.createObjectURL(file.blob); const link = document.createElement('a'); link.href = url; link.download = fileName || file.fileName || 'project-document'; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000) } catch (e) { setError(e.message || 'Unable to download project file.') } }
+  const saveProjectMark = async (scheduleId, studentId, marks) => {
+    await gradeFacultyProject(scheduleId, studentId, marks)
+    window.dispatchEvent(new Event('academic-project-graded'))
+    const refreshed = await getFacultyAcademicTestResults(scheduleId)
+    setResult((current) => current
+      ? {
+          ...current,
+          ...refreshed,
+          test: {
+            ...current.test,
+            ...refreshed.test,
+            rawStartTime: current.test?.rawStartTime,
+            rawEndTime: current.test?.rawEndTime,
+            startTime: current.test?.startTime,
+            endTime: current.test?.endTime,
+          },
+        }
+      : current)
+  }
+  const openAssessment = async (scheduleId, studentId) => { setError(''); try { const context = await getFacultyAssessment(scheduleId, studentId); setAssessmentMarks(Object.fromEntries((context.questions || []).map((question) => [question.id, question.answer?.marksAwarded ?? '']))); setAssessmentContext(context) } catch (e) { setError(e.message || 'Unable to load Assessment submission.') } }
+  const saveAssessment = async () => { if (!assessmentContext) return; setAssessmentSaving(true); setError(''); try { await evaluateFacultyAssessment(assessmentContext.schedule.id, assessmentContext.student.id, assessmentContext.questions.map((question) => ({ questionId: question.id, marksObtained: Number(assessmentMarks[question.id]) }))); setAssessmentContext(null); await openResult(result.scheduleMeta) } catch (e) { setError(e.message || 'Unable to save Assessment evaluation.') } finally { setAssessmentSaving(false) } }
+  const openRetest = (entry) => { setRetestError(''); setRetestTarget(entry); setRetestForm({ testDate: '', startTime: '10:00', endTime: '11:00' }) }
+  const saveRetest = async () => { if (!retestTarget || !result?.scheduleMeta) return; setRetestSaving(true); setRetestError(''); try { const sourceSchedule = retestTarget.retestSource || result.scheduleMeta; await scheduleFacultyAcademicTestRetest(sourceSchedule.id, { studentId: retestTarget.student.id, ...retestForm }); setRetestTarget(null); await openResult(result.scheduleMeta) } catch (e) { setRetestError(academicRetestError(e, 'Unable to schedule retest.')) } finally { setRetestSaving(false) } }
+  const openRetestScheduleEditor = (schedule) => { setResult(null); setResultActionOpen(false); openScheduleEditor(schedule) }
+  const openRetestQuestions = (schedule) => { setResult(null); setResultActionOpen(false); if (schedule?.academicTestItemId) navigate(`/dashboard/faculty/exams/academic-tests/${schedule.academicTestItemId}/${batchId}?view=builder`) }
+  const requestCancelRetest = (schedule) => { setResult(null); setError(''); setCancelRetestTarget(schedule) }
+  const cancelRetest = async () => { if (!cancelRetestTarget) return; setScheduleSaving(true); setError(''); try { await cancelFacultyScheduledAcademicTest(cancelRetestTarget.id); setCancelRetestTarget(null); setScheduledTests(await listFacultyScheduledAcademicTests()); setMessage('Retest cancelled successfully.') } catch (e) { setError(e.message || 'Unable to cancel retest.') } finally { setScheduleSaving(false) } }
+  const openScheduleEditor = (schedule) => { setScheduleEditor(schedule); setScheduleForm({ testDate: schedule.testDate || '', startTime: schedule.startTime || '10:00', endTime: schedule.endTime || '11:00' }) }
+  const saveSchedule = async () => { if (!scheduleEditor) return; setScheduleSaving(true); setError(''); try { await updateFacultyScheduledAcademicTest(scheduleEditor.id, scheduleForm); setScheduleEditor(null); setScheduledTests(await listFacultyScheduledAcademicTests()); setMessage('Academic Test schedule updated successfully.') } catch (e) { setError(e.message || 'Unable to update test schedule.') } finally { setScheduleSaving(false) } }
+  const cancelSchedule = async () => { if (!cancelTarget) return; setScheduleSaving(true); setError(''); try { await cancelFacultyScheduledAcademicTest(cancelTarget.id); setCancelTarget(null); setScheduledTests(await listFacultyScheduledAcademicTests()); setMessage('Academic Test cancelled successfully.') } catch (e) { setError(e.message || 'Unable to cancel test.') } finally { setScheduleSaving(false) } }
+  if (loading) return <section className="academic-preparation-page"><p>Loading preparation details...</p></section>
+  if (!data) return <section className="academic-preparation-page"><div className="academic-test-error">{error || 'Preparation details not found.'}</div></section>
+  const openBuilder = (test) => { setSaveConfirmation(null); setMessage(''); setError(''); setShowBuilder(true); navigate(`/dashboard/faculty/exams/academic-tests/${test.academicTestItemId}/${batchId}?view=builder`) }
+  const tests = (data.tests || [data]).filter((test) => !scheduleFor(test)?.isRetest && (data.testType !== 'PROJECT' || test.testType === 'PROJECT'))
+  const evaluationPageCount = Math.max(1, Math.ceil(tests.length / 5))
+  const visibleTests = tests.slice((evaluationPage - 1) * 5, evaluationPage * 5)
+  // The API exposes a derived status (UPCOMING/AVAILABLE/EXPIRED), not the
+  // database status (SCHEDULED). A future test can therefore be edited even
+  // when its derived status is UPCOMING.
+  const resultCanManage = Boolean(result && result.scheduleMeta?.status !== 'CANCELLED' && !scheduleIsStarted(result.test))
+  if (resultLoading) return <ScheduleResultModal result={null} loading onClose={() => setResult(null)} />
+  if (searchParams.get('create') === '1') return <AcademicTestPage mode="faculty" facultyWeekOffBlocked={facultyWeekOffBlocked} onWeekOffBlocked={onWeekOffBlocked} autoOpenCreate onCreateClose={() => routerNavigate(`/dashboard/faculty/exams/academic-tests/${itemId}/${batchId}`)} />
+  if (result && retestTarget) return <RetestEditorModal target={retestTarget} testName={result.test?.testName || `Test ${result.test?.testNumber || ''}`.trim()} form={retestForm} saving={retestSaving} error={retestError} onChange={setRetestForm} onClose={() => setRetestTarget(null)} onSave={saveRetest} />
+  if (cancelRetestTarget) return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="academic-retest-cancel-title"><p className="academic-test-kicker">CANCEL RETEST</p><h2 id="academic-retest-cancel-title">Cancel this retest?</h2>{error && <div className="academic-test-error">{error}</div>}<p className="academic-preparation-modal-note">This retest will be cancelled for the assigned student, and the student will no longer be able to attend it.</p><div className="academic-preparation-modal-actions"><button type="button" onClick={() => setCancelRetestTarget(null)} disabled={scheduleSaving}>Keep Retest</button><button type="button" className="academic-evaluation-cancel" onClick={cancelRetest} disabled={scheduleSaving}>{scheduleSaving ? 'Cancelling...' : 'Cancel Retest'}</button></div></div></div>
+  if (result) return <><ScheduleResultModal result={result} loading={false} onClose={() => setResult(null)} onScheduleRetest={openRetest} onEditRetestSchedule={openRetestScheduleEditor} onEditRetestQuestions={openRetestQuestions} onCancelRetest={requestCancelRetest} onViewProject={viewProjectFile} onDownloadProject={downloadProjectFile} onGradeProject={saveProjectMark} onViewAssessment={openAssessment} />{!assessmentContext && <div className="academic-preparation-result-actions-overlay"><button type="button" className="academic-preparation-result-menu-button" aria-label="Open test actions" onClick={() => setResultActionOpen((current) => !current)}><MoreVertical size={19} /></button>{resultActionOpen && <div className="academic-preparation-result-menu"><button type="button" disabled={!resultCanManage} onClick={() => { const schedule = result.scheduleMeta; setResult(null); if (schedule?.academicTestItemId) openBuilder({ academicTestItemId: schedule.academicTestItemId }) }}>Edit</button><button type="button" disabled={!resultCanManage} onClick={() => { const schedule = result.scheduleMeta; setResult(null); if (schedule) openScheduleEditor(schedule) }}>Edit Schedule</button><button type="button" className="is-danger" onClick={() => { const schedule = result.scheduleMeta; setResult(null); if (schedule) { if (scheduleIsStarted(schedule)) { setCancelBlocked(true); setCancelTarget(schedule) } else { setError(''); setCancelTarget(schedule) } } }}>Cancel</button></div>}</div>}{assessmentContext && <AssessmentEvaluationModal context={assessmentContext} marks={assessmentMarks} saving={assessmentSaving} onChange={(questionId, value) => setAssessmentMarks((current) => ({ ...current, [questionId]: value }))} onSave={saveAssessment} onClose={() => setAssessmentContext(null)} />}</>
+  if (cancelBlocked) return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-confirm-modal"><p className="academic-test-kicker">TEST STARTED</p><h2>Cannot cancel this test</h2><p className="academic-preparation-modal-note">The exam has already started, so its schedule cannot be cancelled.</p><div className="academic-preparation-modal-actions"><button type="button" className="academic-test-primary" onClick={() => { setCancelBlocked(false); setCancelTarget(null) }}>Close</button></div></div></div>
+  if (scheduleEditor) return <ScheduleEditorModal schedule={scheduleEditor} form={scheduleForm} saving={scheduleSaving} onChange={setScheduleForm} onClose={() => setScheduleEditor(null)} onSave={saveSchedule} />
+  if (cancelTarget) return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-confirm-modal"><p className="academic-test-kicker">CANCEL TEST</p><h2>Cancel this scheduled test?</h2>{error && <div className="academic-test-error">{error}</div>}<p className="academic-preparation-modal-note">Students will no longer be able to attend this schedule.</p><div className="academic-preparation-modal-actions"><button type="button" onClick={() => setCancelTarget(null)} disabled={scheduleSaving}>Keep Test</button><button type="button" className="academic-evaluation-cancel" onClick={cancelSchedule} disabled={scheduleSaving}>{scheduleSaving ? 'Cancelling...' : 'Cancel Test'}</button></div></div></div>
+  if (prepareConfirmOpen) return <div className="academic-preparation-modal-backdrop"><div className="academic-preparation-modal academic-preparation-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="academic-prepare-confirm-title"><p className="academic-test-kicker">PREPARE QUESTION PAPER</p><h2 id="academic-prepare-confirm-title">Prepare and publish this paper?</h2><p className="academic-preparation-modal-note">After saving, this question paper will be marked as Prepared and you will return to the Academic Test list.</p>{error && <div className="academic-test-error" role="alert">{error}</div>}<div className="academic-preparation-modal-actions"><button type="button" onClick={() => { setPrepareConfirmOpen(false); setError('') }} disabled={saving}>Review Paper</button><button type="button" className="academic-test-primary" onClick={() => { setPrepareConfirmOpen(false); performSavePaper('PREPARED') }} disabled={saving}>{saving ? 'Saving...' : 'Prepare & Save'}</button></div></div></div>
+  if (saveConfirmation && showBuilder) return <><section className="academic-preparation-page">{error && <div className="academic-test-error">{error}</div>}{message && <div className="academic-preparation-message">{message}</div>}<div className="academic-preparation-card"><div className="academic-preparation-card-heading"><div><p className="academic-test-kicker">FACULTY WORKSPACE</p><h1>Prepare Academic Test</h1><p>Question paper saved successfully.</p></div><StatusBadge value={saveConfirmation.status} /></div><div className="academic-preparation-save-confirmation"><strong>{saveConfirmation.status === 'PREPARED' ? 'Question paper prepared successfully' : 'Question paper draft saved successfully'}</strong><span>{saveConfirmation.count} question{saveConfirmation.count === 1 ? '' : 's'} saved and available for this test.</span><button type="button" className="academic-test-primary" onClick={() => setSaveConfirmation(null)}>Continue Editing</button></div></div></section></>
+  if (!showBuilder) { const progress = courseProgress ?? 0; return <section className="academic-preparation-page"><button type="button" className="academic-preparation-back" onClick={() => navigate(`/dashboard/faculty/exams/academic-tests?courseId=${encodeURIComponent(data.course?.id || '')}&batchId=${encodeURIComponent(batchId)}&view=list`)}><ArrowLeft size={17} /> Back to Academic Tests</button><header className="academic-preparation-header"><div><p className="academic-test-kicker">FACULTY WORKSPACE</p><h1>Question Paper Preparation</h1><p>Manage and prepare evaluations for each batch.</p></div><div className="academic-preparation-header-actions"><div className="academic-preparation-course-progress" aria-label={`Course Progress: ${progress}% Complete`}><div className="academic-preparation-course-progress-heading"><span>Course Progress</span><strong>{courseProgress === null ? 'Loading...' : `${progress}% Complete`}</strong></div><div className="academic-preparation-course-progress-track"><span style={{ width: `${progress}%` }} /></div></div><button type="button" className="academic-test-primary academic-preparation-create-test" onClick={() => navigate(`/dashboard/faculty/exams/academic-tests?create=1&itemId=${encodeURIComponent(itemId)}&batchId=${encodeURIComponent(batchId)}`)}><Plus size={17} /> Create Test</button></div></header>{error && <div className="academic-test-error" role="alert">{error}</div>}{message && <div className="academic-preparation-message" role="status" aria-live="polite">{message}</div>}<div className="academic-evaluation-card"><div className="academic-evaluation-table-wrap"><table className="academic-evaluation-table"><thead><tr><th>Batch Name</th><th>Batch ID</th><th>Course</th><th>Evaluation Type</th><th>Total Marks</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleTests.map((test) => { const testMarks = Number(test.paper?.totalMarks || 0); const projectMarks = Number(test.project?.projectMarks || 0); const totalMarks = test.testType === 'TEST_AND_PROJECT' ? <div className="academic-preparation-total-marks"><span>Test: {testMarks}</span><span>Project: {projectMarks}</span><strong>Total: {testMarks + projectMarks}</strong></div> : test.testType === 'PROJECT' ? test.project?.projectMarks || '-' : test.paper?.totalMarks || '-'; const evaluationType = test.testType === 'PROJECT' ? 'Project' : test.testType === 'TEST_AND_PROJECT' ? 'Test + Project' : 'Test'; const createLabel = test.testType === 'PROJECT' ? 'Create Project' : test.testType === 'TEST_AND_PROJECT' ? 'Create Evaluation' : 'Create Question Paper'; const schedule = scheduleFor(test); return <tr key={test.academicTestItemId}><td>{data.batch.batchName || '-'}</td><td>{data.batch.batchId || '-'}</td><td>{data.course.name || '-'}<small>{data.course.courseCode || ''}</small></td><td>{evaluationType}</td><td>{totalMarks}</td><td><StatusBadge value={test.status} /></td><td><ScheduleRowActionMenu createLabel={createLabel} onView={schedule ? () => openResult(schedule) : null} onEdit={() => openBuilder(test)} /></td></tr> })}</tbody></table></div>{evaluationPageCount > 1 && <div className="academic-test-pagination" aria-label="Evaluation pages"><button type="button" onClick={() => setEvaluationPage((page) => Math.max(1, page - 1))} disabled={evaluationPage === 1}>Previous</button>{Array.from({ length: evaluationPageCount }, (_, index) => index + 1).map((page) => <button key={page} type="button" className={page === evaluationPage ? 'is-active' : ''} onClick={() => setEvaluationPage(page)}>{page}</button>)}<button type="button" onClick={() => setEvaluationPage((page) => Math.min(evaluationPageCount, page + 1))} disabled={evaluationPage === evaluationPageCount}>Next</button></div>}</div></section> }
+  return <section className="academic-preparation-page">
+    <button type="button" className="academic-preparation-back" onClick={() => { setShowBuilder(false); navigate(`/dashboard/faculty/exams/academic-tests/${itemId}/${batchId}`) }}><ArrowLeft size={17} /> Question Paper Preparation</button>
+    <header className="academic-preparation-header"><div><p className="academic-test-kicker">FACULTY WORKSPACE</p><h1>Prepare Academic Test</h1><p>{data.course.name} ({data.course.courseCode}) · {data.batch.batchName}</p></div><div className="academic-preparation-header-controls"><StatusBadge value={data.status} />{includes(data.testType, 'paper') && <label className="academic-preparation-pass-mark"><span>Pass mark</span><input type="number" min="1" max={totalMarks || undefined} value={passMark} onChange={(event) => setPassMark(event.target.value)} /></label>}</div></header>
+    {error && <div className="academic-test-error" role="alert">{error}</div>}{message && <div className="academic-preparation-message" role="status" aria-live="polite">{message}</div>}
+    <div className="academic-preparation-meta"><span>Test {data.sequence}</span><span>Total questions: {questions.length}</span><span>Total marks: {totalMarks}</span><span>Required progress: {data.requiredProgress || 0}%</span><span>Type: {data.testType.replaceAll('_', ' + ')}</span><span>Paper: <StatusBadge value={data.paperStatus} /></span>{data.projectStatus && <span>Project: <StatusBadge value={data.projectStatus} /></span>}</div>
+    {includes(data.testType, 'paper') && <div className="academic-preparation-paper-settings"><label className="academic-preparation-field compact"><span>Question Type</span><select value={paperQuestionType} onChange={(event) => changePaperQuestionType(event.target.value)}><option value="MCQ">MCQ</option><option value="ASSESSMENT">Assessment</option></select></label>{paperQuestionType === 'MCQ' && <label className="academic-preparation-field compact"><span>Default marks per question</span><input type="number" min="1" value={marksPerQuestion} onChange={(event) => changeDefaultMarks(event.target.value)} /></label>}<label className="academic-preparation-field compact"><span>Pass mark</span><input type="number" min="1" max={totalMarks || undefined} value={passMark} onChange={(event) => setPassMark(event.target.value)} /></label></div>}
+    {showRequiredErrors && !settingsValid && <div className="academic-preparation-required-error">{settingsErrorMessage}</div>}
+    {includes(data.testType, 'paper') && <article className="academic-preparation-card"><div className="academic-test-question-toolbar"><span>Question {Math.min(activeQuestionIndex + 1, Math.max(questions.length, 1))} of {questions.length}</span></div><div className="academic-preparation-card-heading"><div><h2>Question Paper</h2></div><div className="academic-preparation-actions"><button type="button" onClick={downloadPdf} disabled={!data.paper?.id}><Download size={16} /> PDF</button></div></div><div className="academic-preparation-summary"><span>Total Questions: <strong>{questions.length}</strong></span><span>Total Marks: <strong>{totalMarks}</strong></span></div><label className="academic-preparation-pass-mark"><span>Pass mark</span><input type="number" min="1" max={totalMarks || undefined} value={passMark} onChange={(event) => setPassMark(event.target.value)} /></label><div className="academic-preparation-questions">{questions.slice(activeQuestionIndex, activeQuestionIndex + 1).map((question) => { const actualIndex = activeQuestionIndex; const isAssessment = question.questionType === 'ASSESSMENT'; return <div className={`academic-preparation-question ${isAssessment ? 'is-assessment' : ''}`} key={question.id || actualIndex}><div className="academic-preparation-question-heading"><strong>Question {actualIndex + 1}</strong><button type="button" onClick={() => { setQuestions((current) => current.filter((_, questionIndex) => questionIndex !== actualIndex)); setActiveQuestionIndex((current) => Math.max(0, Math.min(current, questions.length - 2))) }} aria-label={`Delete question ${actualIndex + 1}`}><Trash2 size={16} /></button></div><label className="academic-preparation-field compact"><span>Question Type</span><select value={question.questionType || 'MCQ'} onChange={(event) => updateQuestion(actualIndex, 'questionType', event.target.value)}><option value="MCQ">Multiple Choice Question</option><option value="ASSESSMENT">Assessment</option></select></label><textarea placeholder="Question text" value={question.questionText} onChange={(event) => updateQuestion(actualIndex, 'questionText', event.target.value)} />{!isAssessment && <><div className="academic-preparation-options">{[['optionA', 'Option A'], ['optionB', 'Option B'], ['optionC', 'Option C'], ['optionD', 'Option D']].map(([field, label]) => <input key={field} placeholder={label} value={question[field]} onChange={(event) => updateQuestion(actualIndex, field, event.target.value)} />)}</div><label className="academic-preparation-field academic-preparation-correct-answer-field"><span>Correct Answer</span><select required aria-required="true" value={question.correctAnswer} onChange={(event) => updateQuestion(actualIndex, 'correctAnswer', event.target.value)}><option value="">Select answer</option><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option></select>{showRequiredErrors && !question.correctAnswer && <small className="academic-preparation-required-field-error">Correct Answer is required.</small>}</label></>}<label className="academic-preparation-field compact"><span>Marks</span><input type="number" min="1" value={question.marks || 1} onChange={(event) => updateQuestion(actualIndex, 'marks', event.target.value)} /></label></div>})}<div className="academic-preparation-question-navigation"><button type="button" onClick={() => setActiveQuestionIndex((current) => Math.max(0, current - 1))} disabled={activeQuestionIndex === 0}>Previous</button><button type="button" onClick={() => setActiveQuestionIndex((current) => Math.min(Math.max(questions.length - 1, 0), current + 1))} disabled={activeQuestionIndex >= questions.length - 1}>Next</button></div><button type="button" className="academic-preparation-add" onClick={addQuestion}><Plus size={16} /> Add question</button></div><div className="academic-preparation-footer"><button type="button" onClick={() => savePaper('DRAFT')} disabled={saving}><Save size={16} /> Save draft</button><button type="button" className="academic-test-primary" onClick={() => savePaper('PREPARED')} disabled={saving}>Prepare paper</button></div></article>}
+    {includes(data.testType, 'project') && <article className="academic-preparation-card"><div className="academic-preparation-card-heading"><div><h2>Project Preparation</h2><p>Prepare the project brief for this test.</p></div></div><div className="academic-preparation-project-grid"><label className="academic-preparation-field"><span>Project title</span><input value={project.projectTitle} onChange={(event) => setProject((current) => ({ ...current, projectTitle: event.target.value }))} /></label><label className="academic-preparation-field"><span>Project marks</span><input type="number" min="1" value={project.projectMarks} onChange={(event) => setProject((current) => ({ ...current, projectMarks: event.target.value }))} /></label></div><label className="academic-preparation-field"><span>Description</span><textarea value={project.projectDescription} onChange={(event) => setProject((current) => ({ ...current, projectDescription: event.target.value }))} /></label><label className="academic-preparation-field"><span>Requirements</span><textarea value={project.projectRequirements || ''} onChange={(event) => setProject((current) => ({ ...current, projectRequirements: event.target.value }))} /></label><div className="academic-preparation-footer"><button type="button" onClick={() => saveProject('DRAFT')} disabled={saving}><Save size={16} /> Save draft</button><button type="button" className="academic-test-primary" onClick={() => saveProject('PREPARED')} disabled={saving}>Prepare project</button></div></article>}
+  </section>
+}

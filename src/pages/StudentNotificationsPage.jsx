@@ -1,0 +1,191 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, Bell, BookOpen, CalendarDays, CheckCheck, ChevronDown, CircleAlert, CircleUserRound, CreditCard, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, UserRound, X } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
+import { request } from '../services/apiClient'
+import { NotificationBell } from '../components/NotificationBell'
+import { PaginationBar } from '../components/PaginationBar'
+import { unwrapNotifications } from '../services/notificationService'
+import '../styles/StudentNewDashboardPage.css'
+import '../styles/StudentNotificationsPage.css'
+
+const formatAcademicNotification = (message) => String(message || '').replace(/from (\d{1,2}):(\d{2}) to (\d{1,2}):(\d{2})/g, (_, startHour, startMinute, endHour, endMinute) => { const format = (hour, minute) => `${String(Number(hour) % 12 || 12).padStart(2, '0')}:${minute} ${Number(hour) >= 12 ? 'PM' : 'AM'}`; return `from ${format(startHour, startMinute)} to ${format(endHour, endMinute)}` })
+
+export function StudentNotificationsPage() {
+  const navigate = useNavigate()
+  const { user, signOut } = useAuth()
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try { return window.localStorage.getItem('cispro.student-sidebar-collapsed') === 'true' } catch { return false }
+  })
+  const [isExamsExpanded, setIsExamsExpanded] = useState(false)
+  const [items, setItems] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('all')
+  const [notificationPage, setNotificationPage] = useState(1)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false)
+
+  useEffect(() => {
+    try { window.localStorage.setItem('cispro.student-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* Ignore storage failures. */ }
+  }, [isSidebarCollapsed])
+
+  const handleLogout = () => {
+    setIsLogoutModalOpen(true)
+  }
+
+  const handleLogoutCancel = () => {
+    setIsLogoutModalOpen(false)
+  }
+
+  const handleLogoutConfirm = async () => {
+    setIsLogoutModalOpen(false)
+    try { window.sessionStorage.removeItem('cispro.student-session') } catch { /* Ignore storage errors. */ }
+    await signOut()
+    navigate('/login', { replace: true })
+  }
+
+  const load = useCallback(async () => {
+    try {
+      const response = await request('/notifications?limit=100&page=1')
+      const body = unwrapNotifications(response)
+      setItems(body.data)
+      setUnreadCount(Number(body.meta?.unreadCount || 0))
+      setError('')
+    } catch (err) {
+      setError(err.message || 'Unable to load notifications')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void Promise.resolve().then(load)
+    const timer = setInterval(load, 30000)
+    window.addEventListener('focus', load)
+    window.addEventListener('institute-leave-updated', load)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', load)
+      window.removeEventListener('institute-leave-updated', load)
+    }
+  }, [load])
+
+  const visibleItems = useMemo(() => items.filter((item) => {
+    const text = `${item.title || ''} ${item.message || ''}`.toLowerCase()
+    return (!query || text.includes(query.toLowerCase()))
+      && (filter === 'all' || (filter === 'unread' ? !item.read : item.read))
+  }), [filter, items, query])
+
+  const notificationsPerPage = 10
+  const notificationTotalPages = Math.max(1, Math.ceil(visibleItems.length / notificationsPerPage))
+  const safeNotificationPage = Math.min(notificationPage, notificationTotalPages)
+  const paginatedItems = useMemo(
+    () => visibleItems.slice(
+      (safeNotificationPage - 1) * notificationsPerPage,
+      safeNotificationPage * notificationsPerPage,
+    ),
+    [safeNotificationPage, visibleItems],
+  )
+
+
+  const markAllRead = async () => {
+    try {
+      await request('/notifications/mark-read', {
+        method: 'PATCH',
+        body: JSON.stringify({ notificationIds: items.map((item) => item.id) }),
+      })
+      await load()
+    } catch (err) { setError(err.message || 'Unable to update notifications') }
+  }
+
+  const openNotification = async (item) => {
+    try {
+      await request('/notifications/mark-read', {
+        method: 'PATCH',
+        body: JSON.stringify({ notificationIds: [item.id] }),
+      })
+    } catch (err) {
+      setError(err.message || 'Unable to update notification')
+    }
+
+    const kind = String(item?.kind || '').toUpperCase()
+    const description = String(item?.requestDescription || '').toUpperCase()
+    if (kind === 'STUDENT_DISCONTINUATION' || description.startsWith('DISCONTINUATION_')) {
+      navigate('/student-new-dashboard?section=profile&open=discontinuation')
+      return
+    }
+  }
+
+  return <div className={`student-notifications-layout student-new-shell ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''}`.trim()}>
+    {isMobileSidebarOpen ? <button type="button" className="student-new-sidebar-backdrop" aria-label="Close navigation menu" onClick={() => setIsMobileSidebarOpen(false)} /> : null}
+    <aside className={`student-new-sidebar ${isMobileSidebarOpen ? 'is-open' : ''} ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''}`.trim()} aria-label="Student navigation">
+      <div className="student-new-sidebar-brand">
+        <img className="student-new-sidebar-brand-logo" src="/logo1.png" alt="CISPRO logo" />
+        <button type="button" className="student-new-sidebar-collapse-toggle" data-tooltip={isSidebarCollapsed ? 'Expand menu' : 'Collapse menu'} aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setIsSidebarCollapsed((current) => !current)}>
+          {isSidebarCollapsed ? <PanelLeftOpen size={19} strokeWidth={2.3} /> : <PanelLeftClose size={19} strokeWidth={2.3} />}
+        </button>
+        <button type="button" className="student-new-sidebar-close" aria-label="Close navigation menu" onClick={() => setIsMobileSidebarOpen(false)}><X size={18} strokeWidth={2.6} /></button>
+      </div>
+      <nav className="student-new-sidebar-nav">
+        <div className="student-new-sidebar-section">
+          <span className="student-new-sidebar-section-label">MAIN</span>
+          <button type="button" className="student-new-sidebar-item" data-tooltip="Dashboard" onClick={() => navigate('/student-new-dashboard')}><span className="student-new-sidebar-icon"><LayoutDashboard size={18} strokeWidth={2.2} /></span><span>Dashboard</span></button>
+        </div>
+        <div className="student-new-sidebar-section">
+          <span className="student-new-sidebar-section-label">STUDENT</span>
+          <button type="button" className="student-new-sidebar-item" data-tooltip="My Profile" onClick={() => navigate('/student-new-dashboard')}><span className="student-new-sidebar-icon"><UserRound size={18} strokeWidth={2.2} /></span><span>My Profile</span></button>
+          <button type="button" className="student-new-sidebar-item" data-tooltip="Course" onClick={() => navigate('/student-new-dashboard')}><span className="student-new-sidebar-icon"><BookOpen size={18} strokeWidth={2.2} /></span><span>Course</span></button>
+          <button type="button" className="student-new-sidebar-item" data-tooltip="Calendar" onClick={() => navigate('/student-new-dashboard')}><span className="student-new-sidebar-icon"><CalendarDays size={18} strokeWidth={2.2} /></span><span>Calendar</span></button>
+          <button type="button" className="student-new-sidebar-item" data-tooltip="Fees & Payments" onClick={() => navigate('/student-new-dashboard')}><span className="student-new-sidebar-icon"><CreditCard size={18} strokeWidth={2.2} /></span><span>Fees &amp; Payments</span></button>
+          <button type="button" className="student-new-sidebar-item" data-tooltip="Exams & Results" aria-expanded={isExamsExpanded} onClick={() => setIsExamsExpanded((current) => !current)}><span className="student-new-sidebar-icon"><BookOpen size={18} strokeWidth={2.2} /></span><span>Exams &amp; Results</span><ChevronDown className={`student-new-sidebar-chevron ${isExamsExpanded ? 'is-expanded' : ''}`.trim()} size={16} strokeWidth={2.2} aria-hidden="true" /></button>
+          {isExamsExpanded ? <div className="student-new-sidebar-subnav"><button type="button" onClick={() => navigate('/student-new-dashboard/exams?tab=tests')}>Tests</button><button type="button" onClick={() => navigate('/student-new-dashboard/exams?tab=assessments')}>Assessments</button><button type="button" onClick={() => navigate('/student-new-dashboard/exams?tab=reports')}>Reports</button></div> : null}
+          <button type="button" className="student-new-sidebar-item is-active" data-tooltip="Notifications" aria-current="page"><span className="student-new-sidebar-icon"><Bell size={18} strokeWidth={2.2} /></span><span>Notifications</span></button>
+        </div>
+      </nav>
+      <div className="student-new-sidebar-footer"><div className="student-new-sidebar-profile-card"><span className="student-new-sidebar-user-avatar"><CircleUserRound size={28} strokeWidth={1.9} /><span className="student-new-sidebar-user-status" /></span><div className="student-new-sidebar-profile-copy"><strong>Student</strong><span>Student Profile</span></div><button type="button" className="student-new-sidebar-logout-button" aria-label="Logout" onClick={handleLogout}><LogOut size={21} strokeWidth={2.15} /></button></div></div>
+    </aside>
+    <main className="student-notifications-page student-new-main">
+      <header className="student-notifications-topbar">
+        <button type="button" className="student-new-sidebar-toggle" aria-label="Open navigation menu" aria-expanded={isMobileSidebarOpen} onClick={() => setIsMobileSidebarOpen(true)}><Menu size={20} strokeWidth={2.4} /></button>
+        <h2>Student Dashboard</h2>
+        <div className="student-notifications-topbar-profile"><NotificationBell /><span className="student-notifications-avatar"><CircleUserRound size={28} /></span><div><strong>{user?.fullName || user?.name || 'Student'}</strong><small>Student</small></div></div>
+      </header>
+    <header className="student-notifications-header">
+      <div><h1>Notifications</h1><p>You have <strong>{items.length}</strong> notifications{unreadCount ? <> and <strong>{unreadCount}</strong> unread items</> : null}.</p></div>
+      <div className="student-notifications-actions"><button type="button" onClick={() => navigate('/student-new-dashboard')}><ArrowLeft size={16} /> Back to dashboard</button><button type="button" onClick={markAllRead} disabled={!unreadCount}><CheckCheck size={16} /> Mark all as read</button></div>
+    </header>
+    <div className="student-notifications-filters"><label><input value={query} onChange={(event) => { setNotificationPage(1); setQuery(event.target.value) }} placeholder="Search notifications" aria-label="Search notifications" /></label><select value={filter} onChange={(event) => { setNotificationPage(1); setFilter(event.target.value) }} aria-label="Filter notification status"><option value="all">All status</option><option value="unread">Unread only</option><option value="read">Read only</option></select></div>
+    {error ? <p className="student-notifications-error" role="alert">{error}</p> : null}
+    <section className="student-notifications-list" aria-label="All notifications">
+      {loading ? <p className="student-notifications-empty">Loading notifications…</p> : null}
+      {!loading && !visibleItems.length ? <p className="student-notifications-empty">No notifications found.</p> : null}
+      {paginatedItems.map((item) => <button type="button" key={item.id} className={`student-notification-card ${item.read ? '' : 'is-unread'}`.trim()} onClick={() => void openNotification(item)}><span className="student-notification-icon"><Bell size={20} /></span><div><div className="student-notification-title"><h2>{item.title}</h2><time>{new Date(item.createdAt).toLocaleString()}</time></div><p>{formatAcademicNotification(item.message)}</p><small className="student-notification-action-label">{String(item.kind || '').toUpperCase() === 'STUDENT_DISCONTINUATION' ? 'Open discontinuation request' : 'View notification'}</small></div>{!item.read ? <span className="student-notification-unread"><CircleAlert size={14} /> Unread</span> : null}</button>)}
+    </section>
+    {visibleItems.length > notificationsPerPage ? (
+      <PaginationBar
+        className="notifications-page-pagination"
+        currentPage={safeNotificationPage}
+        totalPages={notificationTotalPages}
+        onPageChange={setNotificationPage}
+        label="Notification pagination"
+        previousLabel="Previous"
+        nextLabel="Next"
+        summaryText={['Showing', (safeNotificationPage - 1) * notificationsPerPage + 1, '–', Math.min(safeNotificationPage * notificationsPerPage, visibleItems.length), 'of', visibleItems.length].join(' ')}
+      />
+    ) : null}
+    </main>
+    {isLogoutModalOpen ? <div className="student-new-logout-overlay" role="presentation">
+      <div className="student-new-logout-modal" role="dialog" aria-modal="true" aria-labelledby="student-notifications-logout-title" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="student-new-logout-close" aria-label="Close logout confirmation" onClick={handleLogoutCancel}><X size={22} strokeWidth={2} /></button>
+        <div className="student-new-logout-content"><h2 id="student-notifications-logout-title">Are you sure you want<br />to logout?</h2></div>
+        <div className="student-new-logout-actions">
+          <button type="button" className="student-new-logout-cancel" onClick={handleLogoutCancel}>Cancel</button>
+          <button type="button" className="student-new-logout-confirm" onClick={handleLogoutConfirm}>Logout</button>
+        </div>
+      </div>
+    </div> : null}
+  </div>
+}

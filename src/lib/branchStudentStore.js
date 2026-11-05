@@ -1,0 +1,681 @@
+import { request } from '../services/apiClient'
+
+const BRANCH_STUDENT_SAVE_TIMEOUT_MS = 120000
+
+/**
+ * Branch Student Store
+ * local cache + backend sync for branch student records.
+ * Each student record carries a `branchId` so Super Admin can count per branch.
+ */
+
+export const BRANCH_STUDENTS_KEY = 'cispro.branch-students'
+
+function isBrowser() {
+  return typeof window !== 'undefined' && Boolean(window.localStorage)
+}
+
+function normalizeBranchScope(branchScope) {
+  const values = []
+
+  if (!branchScope) {
+    return values
+  }
+
+  if (Array.isArray(branchScope)) {
+    branchScope.forEach((value) => {
+      values.push(...normalizeBranchScope(value))
+    })
+    return [...new Set(values)]
+  }
+
+  if (typeof branchScope === 'object') {
+    values.push(branchScope.id, branchScope.branchId, branchScope.branchCode)
+  } else {
+    values.push(branchScope)
+  }
+
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+}
+
+function getRecordBranchKeys(record = {}) {
+  return normalizeBranchScope([
+    record.branchId,
+    record.branchCode,
+    record.branchKey,
+  ])
+}
+
+function recordMatchesBranchScope(record, branchScope) {
+  const scopeKeys = normalizeBranchScope(branchScope)
+  if (scopeKeys.length === 0) return true
+
+  const recordKeys = getRecordBranchKeys(record)
+  return scopeKeys.some((scopeKey) => recordKeys.includes(scopeKey))
+}
+
+function normalizeStoredStudentRecord(record = {}) {
+  const nestedCourse = record.course && typeof record.course === 'object' ? record.course : {}
+  const nestedBatch = record.batch && typeof record.batch === 'object' ? record.batch : {}
+  const nestedFaculty = record.faculty && typeof record.faculty === 'object' ? record.faculty : {}
+
+  return {
+    ...record,
+    branchId: String(record.branchId || '').trim(),
+    branchCode: String(record.branchCode || record.branchKey || '').trim(),
+    studentId: String(record.studentId || '').trim(),
+    courseId: String(record.courseId || nestedCourse.id || '').trim(),
+    courseName: record.courseName || record.courseInterested || nestedCourse.name || '',
+    courseMode: record.courseMode || nestedCourse.courseMode || '',
+    facultyId: String(record.facultyId || nestedFaculty.id || nestedFaculty.facultyId || '').trim(),
+    facultyName: record.facultyName || nestedFaculty.name || nestedFaculty.facultyName || '',
+    batchGroupId: String(record.batchGroupId || nestedBatch.batchGroupId || '').trim(),
+    batchId: String(record.batchId || record.batchEntryId || nestedBatch.batchId || nestedBatch.id || '').trim(),
+    batchName: record.batchName || (typeof record.batch === 'string' ? record.batch : '') || nestedBatch.batchName || nestedBatch.name || '',
+    batchTiming: record.batchTiming || record.batchTime || nestedBatch.batchTiming || nestedBatch.timing || '',
+    classSchedule: record.classSchedule || record.schedule || nestedBatch.classSchedule || nestedBatch.schedule || '',
+    courseSchedule: record.courseSchedule || record.classSchedule || record.schedule || nestedBatch.courseSchedule || nestedBatch.classSchedule || nestedBatch.schedule || '',
+    courseStartDate: record.courseStartDate || record.courseStart || record.startDate || nestedBatch.courseStartDate || nestedBatch.startDate || '',
+    courseDuration: record.courseDuration || record.duration || nestedCourse.duration || nestedCourse.courseDuration || '',
+    passedOutYear: record.passedOutYear || record.passOutYear || record.yearOfPassing || record.graduationYear || record.educationDetails?.yearOfPassing || '',
+    currentStatus: record.currentStatus || '',
+    customCurrentStatus: record.customCurrentStatus || '',
+    courseEndDate: record.courseEndDate || '',
+    courseProgress: record.courseProgress,
+    courseCompletedAt: record.courseCompletedAt || null,
+    courseCompletionPercentage: record.courseCompletionPercentage,
+    progress: record.progress,
+    feeScheduleMode: 'BEFORE_70_PERCENT',
+    feeFirstPaymentDate: record.feeFirstPaymentDate || record.admissionDate || '',
+    fee70ProgressDate: record.fee70ProgressDate || '',
+    fee70TargetHours: record.fee70TargetHours ?? '',
+    feePaymentDeadline: record.feePaymentDeadline || record.fee70ProgressDate || '',
+    feeComplianceStatus: record.feeComplianceStatus || 'PENDING',
+    _fromBackend: Boolean(record._fromBackend),
+    _isExistingRecord: Boolean(record._isExistingRecord),
+  }
+}
+
+function mergePreservedStudentFields(incoming = {}, existing = {}) {
+  const nextRecord = { ...incoming }
+
+  if (!String(nextRecord.passedOutYear || nextRecord.passOutYear || nextRecord.yearOfPassing || '').trim()) {
+    const preservedYear = existing.passedOutYear || existing.passOutYear || existing.yearOfPassing || existing.graduationYear || ''
+    if (preservedYear) {
+      nextRecord.passedOutYear = preservedYear
+      nextRecord.yearOfPassing = preservedYear
+    }
+  }
+
+  if (nextRecord.courseProgress === undefined && existing.courseProgress !== undefined) {
+    nextRecord.courseProgress = existing.courseProgress
+  }
+
+  if (nextRecord.courseCompletionPercentage === undefined && existing.courseCompletionPercentage !== undefined) {
+    nextRecord.courseCompletionPercentage = existing.courseCompletionPercentage
+  }
+
+  if (nextRecord.progress === undefined && existing.progress !== undefined) {
+    nextRecord.progress = existing.progress
+  }
+
+  if (!String(nextRecord.batchId || '').trim() && String(existing.batchId || existing.batchEntryId || '').trim()) {
+    nextRecord.batchId = String(existing.batchId || existing.batchEntryId || '').trim()
+  }
+
+  if (!String(nextRecord.batchGroupId || '').trim() && String(existing.batchGroupId || '').trim()) {
+    nextRecord.batchGroupId = String(existing.batchGroupId || '').trim()
+  }
+
+  if (!String(nextRecord.batchName || nextRecord.batch || '').trim() && String(existing.batchName || existing.batch || '').trim()) {
+    nextRecord.batchName = String(existing.batchName || existing.batch || '').trim()
+    nextRecord.batch = String(existing.batchName || existing.batch || '').trim()
+  }
+
+  if (!String(nextRecord.batchTiming || nextRecord.batchTime || '').trim() && String(existing.batchTiming || existing.batchTime || '').trim()) {
+    nextRecord.batchTiming = String(existing.batchTiming || existing.batchTime || '').trim()
+  }
+
+  if (!String(nextRecord.courseDuration || nextRecord.duration || '').trim() && String(existing.courseDuration || existing.duration || '').trim()) {
+    nextRecord.courseDuration = String(existing.courseDuration || existing.duration || '').trim()
+  }
+
+  if (!String(nextRecord.courseSchedule || nextRecord.classSchedule || nextRecord.schedule || '').trim() && String(existing.courseSchedule || existing.classSchedule || existing.schedule || '').trim()) {
+    nextRecord.courseSchedule = String(existing.courseSchedule || existing.classSchedule || existing.schedule || '').trim()
+  }
+
+  if (!String(nextRecord.facultyId || '').trim() && String(existing.facultyId || '').trim()) {
+    nextRecord.facultyId = String(existing.facultyId || '').trim()
+  }
+
+  if (!String(nextRecord.facultyName || '').trim() && String(existing.facultyName || '').trim()) {
+    nextRecord.facultyName = String(existing.facultyName || '').trim()
+  }
+
+  return nextRecord
+}
+
+function readAll() {
+  if (!isBrowser()) return []
+  try {
+    const raw = window.localStorage.getItem(BRANCH_STUDENTS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function writeAll(records) {
+  if (!isBrowser()) return
+  try {
+    window.localStorage.setItem(BRANCH_STUDENTS_KEY, JSON.stringify(records))
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function dispatchChange() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('cispro:branch-students-changed'))
+  }
+}
+
+function extractBranchStudentListPayload(payload) {
+  if (!payload) return []
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.records)) return payload.records
+
+  if (payload?.data && typeof payload.data === 'object') {
+    return extractBranchStudentListPayload(payload.data)
+  }
+
+  return []
+}
+
+async function findBranchStudentByStudentId(studentId, branchId = '') {
+  const search = String(studentId || '').trim()
+  if (!search) return null
+
+  const branchScope = String(branchId || '').trim()
+  const query = new URLSearchParams({
+    page: '1',
+    limit: '100',
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+    search,
+  })
+
+  if (branchScope) {
+    query.set('branchId', branchScope)
+  }
+
+  const response = await request(`/branch-students?${query.toString()}`, {
+    method: 'GET',
+  })
+  const payload = response?.data ?? response
+  const records = extractBranchStudentListPayload(payload)
+
+  return records.find((record) => String(record.studentId || '').trim() === search) || null
+}
+
+async function syncBranchStudentToBackend(student) {
+  const studentId = String(student.studentId || '').trim()
+  if (!studentId) return
+
+  const payload = { ...student }
+  delete payload.id
+  delete payload._fromBackend
+  delete payload._isExistingRecord
+  delete payload._originalStudentId
+  delete payload.originalStudentId
+  delete payload.studentIdSuffix
+  delete payload._recordId
+  delete payload.recordId
+
+  if (payload.sourceLeadId) {
+    const leadId = String(payload.sourceLeadId).trim()
+    const response = await request(`/sales-admins/admissions/leads/${encodeURIComponent(leadId)}/convert`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+    return response?.data ?? response
+  }
+
+  if (student._isExistingRecord) {
+    const pathStudentKey = String(
+      student._recordId
+      || student.recordId
+      || student.id
+      || student._id
+      || student._originalStudentId
+      || student.originalStudentId
+      || studentId,
+    ).trim()
+
+    if (!pathStudentKey) {
+      throw new Error('Student record identifier is required for update')
+    }
+
+    try {
+      const response = await request(`/branch-students/${encodeURIComponent(pathStudentKey)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+
+      return response?.data ?? response
+    } catch (error) {
+      if (error?.status === 403) {
+        return null
+      }
+
+      if (error?.status === 404) {
+        let backendMatch
+        try {
+          backendMatch = await findBranchStudentByStudentId(
+            studentId,
+            payload.branchId || payload.branchCode || '',
+          )
+        } catch (lookupError) {
+          if (lookupError?.status !== 403) throw lookupError
+          throw error
+        }
+
+        if (backendMatch?.id) {
+          const backendRecordId = String(backendMatch.id).trim()
+          if (!backendRecordId || backendRecordId === pathStudentKey) throw error
+          try {
+            const response = await request(`/branch-students/${encodeURIComponent(backendRecordId)}`, {
+              method: 'PATCH',
+              body: JSON.stringify(payload),
+            })
+            return response?.data ?? response
+          } catch (retryError) {
+            if (retryError?.status === 403) return null
+            throw retryError
+          }
+        }
+
+        throw new Error(
+          'Existing student record was not found for update. No new student record was created.',
+          { cause: error },
+        )
+      }
+
+      throw error
+    }
+  }
+
+  try {
+    const response = await request('/branch-students', {
+      method: 'POST',
+      timeoutMs: BRANCH_STUDENT_SAVE_TIMEOUT_MS,
+      body: JSON.stringify(payload),
+    })
+
+    return response?.data ?? response
+  } catch (error) {
+    if (error?.status === 403) {
+      return null
+    }
+
+    throw error
+  }
+}
+
+export async function previewBranchStudentFeePlan(payload = {}) {
+  const response = await request('/branch-students/fee-plan-preview', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return response?.data ?? response
+}
+
+function resolveStudentDeleteCandidates(studentOrId) {
+  const candidates = []
+
+  if (studentOrId && typeof studentOrId === 'object') {
+    candidates.push(
+      studentOrId.id,
+      studentOrId._id,
+      studentOrId.recordId,
+      studentOrId._recordId,
+      studentOrId.studentId,
+      studentOrId.originalStudentId,
+      studentOrId._originalStudentId,
+    )
+  } else {
+    candidates.push(studentOrId)
+  }
+
+  return [...new Set(candidates.map((value) => String(value || '').trim()).filter(Boolean))]
+}
+
+function removeStudentFromLocalCache(studentOrId, deletedStudentId = '') {
+  const all = readAll()
+  const candidates = resolveStudentDeleteCandidates(studentOrId)
+  const normalizedDeletedStudentId = String(deletedStudentId || '').trim()
+  const next = all.filter((record) => {
+    const recordCandidates = [
+      record.id,
+      record._id,
+      record.recordId,
+      record._recordId,
+      record.studentId,
+      record.originalStudentId,
+      record._originalStudentId,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+
+    if (candidates.some((candidate) => recordCandidates.includes(candidate))) {
+      return false
+    }
+
+    if (normalizedDeletedStudentId && String(record.studentId || '').trim() === normalizedDeletedStudentId) {
+      return false
+    }
+
+    return true
+  })
+
+  writeAll(next)
+  dispatchChange()
+}
+
+export async function refreshBranchStudents(branchId, options = {}) {
+  const branchScopeKeys = normalizeBranchScope(branchId)
+  if (branchScopeKeys.length === 0) return []
+
+  const includeProgress = options?.includeProgress !== false
+
+  let records
+
+  try {
+    // The dashboard totals are branch-wide. Loading only the first page made
+    // the KPI cards silently under-count branches with more than 100 students.
+    const pageSize = 100
+    const pages = []
+    let page = 1
+    let totalPages = 1
+    do {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(pageSize),
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        branchId: branchScopeKeys[0],
+      })
+      if (!includeProgress) params.set('includeProgress', 'false')
+      const response = await request(`/branch-students?${params.toString()}`, {
+        method: 'GET',
+        impersonateBranchId: branchScopeKeys[0],
+      })
+      const payload = response?.data ?? response
+      pages.push(...extractBranchStudentListPayload(payload))
+      const meta = response?.meta || payload?.meta || payload?.pagination || payload?.pageInfo
+      totalPages = Math.max(1, Number(meta?.totalPages || Math.ceil(Number(meta?.total || 0) / pageSize) || 1))
+      page += 1
+    } while (page <= totalPages && page <= 100)
+
+    records = pages.map((record) => normalizeStoredStudentRecord({
+      ...record,
+      _fromBackend: true,
+      _isExistingRecord: true,
+    }))
+  } catch (error) {
+    if (error?.status !== 403) {
+      throw error
+    }
+
+    records = loadBranchStudents(branchScopeKeys)
+  }
+
+  const all = readAll()
+  const existingByStudentId = new Map(
+    all
+      .filter((record) => recordMatchesBranchScope(record, branchScopeKeys))
+      .map((record) => [String(record.studentId || '').trim(), record])
+      .filter(([studentId]) => Boolean(studentId)),
+  )
+  const existingByRecordId = new Map(
+    all
+      .filter((record) => recordMatchesBranchScope(record, branchScopeKeys))
+      .map((record) => [String(record.id || record._id || record.recordId || record._recordId || '').trim(), record])
+      .filter(([recordId]) => Boolean(recordId)),
+  )
+
+  records = records.map((record) => {
+    const recordId = String(record.id || record._id || record.recordId || record._recordId || '').trim()
+    const studentId = String(record.studentId || '').trim()
+    const existingRecord = existingByRecordId.get(recordId) || existingByStudentId.get(studentId) || null
+    return normalizeStoredStudentRecord(
+      mergePreservedStudentFields(
+        {
+          ...record,
+          _fromBackend: true,
+          _isExistingRecord: true,
+        },
+        existingRecord || {},
+      ),
+    )
+  })
+
+  const remaining = all.filter((record) => !recordMatchesBranchScope(record, branchScopeKeys))
+  writeAll([...records, ...remaining])
+  return records
+}
+
+export async function listBranchStudentsByLifecycle(branchId = '', lifecycle = '') {
+  const query = new URLSearchParams({
+    page: '1',
+    limit: '100',
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+  })
+
+  if (String(branchId || '').trim()) query.set('branchId', String(branchId).trim())
+  if (String(lifecycle || '').trim()) query.set('lifecycle', String(lifecycle).trim())
+
+  const response = await request(`/branch-students?${query.toString()}`, { method: 'GET' })
+  const payload = response?.data ?? response
+  return extractBranchStudentListPayload(payload).map((record) => normalizeStoredStudentRecord({
+    ...record,
+    _fromBackend: true,
+    _isExistingRecord: true,
+  }))
+}
+
+/**
+ * Returns the next auto-generated Student ID for a branch.
+ * Format: STU-001, STU-002, ...
+ */
+export function getNextStudentId(branchId) {
+  const all = readAll()
+  const branchStudents = normalizeBranchScope(branchId).length > 0
+    ? all.filter((s) => recordMatchesBranchScope(s, branchId))
+    : all
+
+  let highest = 0
+  branchStudents.forEach((s) => {
+    // Support both legacy STU-001 IDs and current branch-scoped IDs such as CISBRSTU042.
+    const match = String(s.studentId || '').trim().match(/STU-?(\d+)$/i)
+    if (match) {
+      const num = Number(match[1])
+      if (Number.isFinite(num) && num > highest) highest = num
+    }
+  })
+
+  return `STU-${String(highest + 1).padStart(3, '0')}`
+}
+
+/**
+ * Load all students for a specific branch.
+ */
+export function loadBranchStudents(branchId) {
+  const all = readAll()
+  const normalizedScope = normalizeBranchScope(branchId)
+  if (normalizedScope.length === 0) return all.map(normalizeStoredStudentRecord)
+  return all
+    .filter((s) => recordMatchesBranchScope(s, normalizedScope))
+    .map(normalizeStoredStudentRecord)
+}
+
+/**
+ * Save (add or update) a student record.
+ */
+export async function saveBranchStudent(student) {
+  const all = readAll()
+  const studentId = String(student.studentId || '').trim()
+  const originalStudentId = String(student._originalStudentId || student.originalStudentId || studentId).trim()
+  const recordId = String(student._recordId || student.recordId || student.id || '').trim()
+  const existingIndex = all.findIndex(
+    (s) => String(s.studentId || '').trim() === originalStudentId
+  )
+  const existingStudent = existingIndex >= 0 ? all[existingIndex] : null
+  const isExistingRecord = Boolean(student._isExistingRecord || existingStudent)
+  const nextStudent = existingStudent
+    ? {
+        ...existingStudent,
+        ...student,
+        id: recordId || existingStudent.id || existingStudent._id || existingStudent.recordId || '',
+        _recordId: recordId || existingStudent.id || existingStudent._id || existingStudent.recordId || '',
+        _isExistingRecord: true,
+      }
+    : { ...student, _isExistingRecord: isExistingRecord }
+
+  const backendRecord = await syncBranchStudentToBackend(nextStudent)
+  const resolvedRecordId = String(
+    recordId
+    || backendRecord?.id
+    || backendRecord?._id
+    || backendRecord?.recordId
+    || nextStudent._recordId
+    || nextStudent.id
+    || nextStudent._id
+    || nextStudent.recordId
+    || ''
+  ).trim()
+  const resolvedStudentId = String(
+    student.studentId
+    || backendRecord?.studentId
+    || nextStudent.studentId
+    || ''
+  ).trim()
+  const savedRecord = normalizeStoredStudentRecord({
+    ...mergePreservedStudentFields(
+      {
+        ...nextStudent,
+        // The backend recalculates fee dates from the selected schedule mode.
+        // Keep that authoritative response instead of re-applying stale form dates.
+        ...(backendRecord || {}),
+      },
+      existingStudent || {},
+    ),
+    id: resolvedRecordId,
+    _id: resolvedRecordId,
+    recordId: resolvedRecordId,
+    _recordId: resolvedRecordId,
+    studentId: resolvedStudentId,
+    branchCode: nextStudent.branchCode || nextStudent.branchId || '',
+    courseDuration: nextStudent.courseDuration || nextStudent.duration || '',
+    courseSchedule: nextStudent.courseSchedule || nextStudent.classSchedule || nextStudent.schedule || '',
+    _fromBackend: true,
+    _isExistingRecord: true,
+  })
+  const updatedAll = readAll()
+  const cleaned = updatedAll.filter((record) => String(record.studentId || '').trim() !== originalStudentId)
+  writeAll([savedRecord, ...cleaned])
+  dispatchChange()
+  return savedRecord
+}
+
+/**
+ * Delete a student record by studentId.
+ */
+export async function deleteBranchStudent(studentOrId, branchScopeInput = '') {
+  const candidates = resolveStudentDeleteCandidates(studentOrId)
+  const studentKey = candidates[0] || ''
+  const studentId = studentOrId && typeof studentOrId === 'object'
+    ? String(studentOrId.studentId || studentOrId.originalStudentId || studentOrId._originalStudentId || '').trim()
+    : String(studentKey || '').trim()
+
+  if (!studentKey && !studentId) {
+    throw new Error('Student identifier is required for delete')
+  }
+
+  let lastError = null
+  const requestCandidates = [
+    ...new Set([
+      ...(studentId ? [studentId] : []),
+      ...candidates,
+    ]),
+  ]
+
+  if (studentOrId && typeof studentOrId === 'object') {
+    const branchScope = String(
+      branchScopeInput ||
+      studentOrId.branchId ||
+      studentOrId.branchCode ||
+      '',
+    ).trim()
+    if (studentId && branchScope) {
+      try {
+        const backendMatch = await findBranchStudentByStudentId(studentId, branchScope)
+        const backendMatchId = String(backendMatch?.id || '').trim()
+        if (backendMatchId && !requestCandidates.includes(backendMatchId)) {
+          requestCandidates.push(backendMatchId)
+        }
+      } catch {
+        // Ignore lookup errors and fall back to the explicit candidates.
+      }
+    }
+  }
+
+  for (const candidate of requestCandidates) {
+    try {
+      await request(`/branch-students/${encodeURIComponent(candidate)}`, {
+        method: 'DELETE',
+      })
+      removeStudentFromLocalCache(studentOrId, studentId)
+      return
+    } catch (error) {
+      lastError = error
+      if (error?.status === 403 || error?.status === 404) {
+        continue
+      }
+    }
+  }
+
+  if (lastError?.status === 403 || lastError?.status === 404) {
+    removeStudentFromLocalCache(studentOrId, studentId)
+    return
+  }
+
+  if (lastError) {
+    throw lastError
+  }
+}
+
+/**
+ * Count students for a specific branch.
+ */
+export function countBranchStudents(branchId) {
+  return loadBranchStudents(branchId).length
+}
+
+/**
+ * Returns a map of branchId → student count for all branches.
+ */
+export function getAllBranchStudentCounts() {
+  const all = readAll()
+  const counts = {}
+  all.forEach((s) => {
+    const bid = String(s.branchId || s.branchCode || '').trim()
+    if (!bid) return
+    counts[bid] = (counts[bid] || 0) + 1
+  })
+  return counts
+}

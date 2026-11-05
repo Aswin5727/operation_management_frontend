@@ -1,0 +1,870 @@
+.branch-completed-import-status {
+  position: sticky;
+  top: 0;
+  z-index: 35;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  margin: 12px 24px 0;
+  padding: 14px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: linear-gradient(105deg, #f4f8ff 0%, #ffffff 72%);
+  box-shadow: 0 8px 22px rgba(32, 78, 150, .08);
+  color: #17335c;
+}
+
+/* During a route transition the next branch header may not be mounted yet.
+   Keep the status visible in the shared header area until the portal target is
+   available again. */
+.branch-completed-import-status.is-persistent {
+  position: fixed;
+  top: 10px;
+  left: clamp(276px, 31vw, 520px);
+  right: 190px;
+  z-index: 1000001;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  box-shadow: 0 5px 16px rgba(32, 78, 150, .07);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+}
+
+.branch-completed-import-status.is-persistent .branch-completed-import-status__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.branch-completed-import-status.is-persistent .branch-completed-import-status__eyebrow {
+  margin-bottom: 0;
+  font-size: 8px;
+}
+
+.branch-completed-import-status.is-persistent h3 { font-size: 12px; line-height: 1.2; }
+.branch-completed-import-status.is-persistent .branch-completed-import-status__file { max-width: 230px; margin-top: 1px; font-size: 9px; }
+.branch-completed-import-status.is-persistent .branch-completed-import-status__heading,
+.branch-completed-import-status.is-persistent .branch-completed-import-status__footer { gap: 8px; }
+.branch-completed-import-status.is-persistent .branch-completed-import-status__heading > strong { font-size: 14px; }
+.branch-completed-import-status.is-persistent .branch-completed-import-status__track { height: 5px; margin: 5px 0 4px; }
+.branch-completed-import-status.is-persistent .branch-completed-import-status__footer { font-size: 9px; }
+.branch-completed-import-status.is-persistent .branch-completed-import-status__actions { gap: 8px; }
+.branch-completed-import-status.is-persistent .branch-completed-import-status__link { font-size: 9px; }
+
+/* The import strip belongs to the branch workspace header so it remains
+   visible while the user moves between dashboard sections. */
+.branch-dashboard-app-shell .super-admin-topbar {
+  flex-wrap: nowrap;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  min-height: 78px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status {
+  position: relative;
+  top: auto;
+  flex: 1 1 360px;
+  width: auto;
+  max-width: 560px;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  box-shadow: 0 5px 16px rgba(32, 78, 150, .07);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__eyebrow {
+  margin-bottom: 0;
+  font-size: 8px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status h3 {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__file {
+  max-width: 230px;
+  margin-top: 1px;
+  font-size: 9px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__heading,
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__footer {
+  gap: 8px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__heading > strong {
+  font-size: 14px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__track {
+  height: 5px;
+  margin: 5px 0 4px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__footer {
+  font-size: 9px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__actions {
+  gap: 8px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status .branch-completed-import-status__link {
+  font-size: 9px;
+}
+
+.branch-completed-import-status.is-complete {
+  border-color: #b8ead8;
+  background: linear-gradient(105deg, #f0fbf6 0%, #ffffff 72%);
+}
+
+.branch-completed-import-status.is-warning {
+  border-color: #f5d8a8;
+  background: linear-gradient(105deg, #fffaf0 0%, #ffffff 72%);
+}
+
+.branch-completed-import-status.is-failed {
+  border-color: #f3c4c0;
+  background: linear-gradient(105deg, #fff5f4 0%, #ffffff 72%);
+}
+
+.branch-completed-import-status__icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: #e5efff;
+  color: #2864e8;
+}
+
+.is-complete .branch-completed-import-status__icon { background: #dcf7eb; color: #13845f; }
+.is-warning .branch-completed-import-status__icon { background: #fff0d1; color: #bb750b; }
+.is-failed .branch-completed-import-status__icon { background: #ffe1df; color: #c0342d; }
+
+.branch-completed-import-status__content { min-width: 0; }
+
+.branch-completed-import-status__heading,
+.branch-completed-import-status__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.branch-completed-import-status__title-wrap { min-width: 0; }
+
+.branch-completed-import-status__title-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.branch-completed-import-status__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 2px;
+  color: #52719b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.branch-completed-import-status h3 {
+  margin: 0;
+  color: #17335c;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-completed-import-status__file {
+  display: block;
+  overflow: hidden;
+  max-width: min(480px, 58vw);
+  margin-top: 2px;
+  color: #71829d;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-completed-import-status__heading > strong {
+  flex: 0 0 auto;
+  color: #2864e8;
+  font-size: 17px;
+}
+
+.is-complete .branch-completed-import-status__heading > strong { color: #13845f; }
+.is-warning .branch-completed-import-status__heading > strong { color: #bb750b; }
+.is-failed .branch-completed-import-status__heading > strong { color: #c0342d; }
+
+.branch-completed-import-status__close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #71829d;
+  cursor: pointer;
+}
+
+.branch-completed-import-status__close:hover { background: rgba(66, 98, 143, .1); color: #17335c; }
+
+.branch-completed-import-status__track {
+  height: 7px;
+  margin: 9px 0 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7eef8;
+}
+
+.branch-completed-import-status__track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2864e8, #4f8df4);
+  transition: width .35s ease;
+}
+
+.is-complete .branch-completed-import-status__track span { background: linear-gradient(90deg, #139b6e, #41c795); }
+.is-warning .branch-completed-import-status__track span { background: linear-gradient(90deg, #d88916, #f2b349); }
+.is-failed .branch-completed-import-status__track span { background: #d54a42; }
+
+.branch-completed-import-status__footer {
+  color: #6c809c;
+  font-size: 11px;
+}
+
+.branch-completed-import-status__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.branch-completed-import-status__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #2864e8;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.branch-completed-import-status__link:hover { color: #174dbb; text-decoration: underline; }
+
+.branch-completed-import-status__link.is-danger { color: #c0342d; }
+.branch-completed-import-status__link.is-danger:hover { color: #9f241e; }
+.branch-completed-import-status__link:disabled { opacity: .55; cursor: default; text-decoration: none; }
+
+.branch-completed-import-status__error {
+  margin: 7px 0 0;
+  color: #b53029;
+  font-size: 11px;
+}
+
+.branch-completed-import-confirm-backdrop {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, .46);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.branch-completed-import-confirm {
+  width: min(430px, 100%);
+  padding: 24px;
+  border: 1px solid #dbe5f1;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .25);
+}
+
+.branch-completed-import-confirm__icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: #fff4df;
+  color: #b76b09;
+}
+
+.branch-completed-import-confirm h2 {
+  margin: 0;
+  color: #17335c;
+  font-size: 18px;
+}
+
+.branch-completed-import-confirm p {
+  margin: 9px 0 22px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.branch-completed-import-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.branch-completed-import-confirm__actions button {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.branch-completed-import-confirm__keep {
+  border: 1px solid #cbd8e8;
+  background: #fff;
+  color: #31547f;
+}
+
+.branch-completed-import-confirm__keep:hover,
+.branch-completed-import-confirm__keep:focus-visible {
+  border-color: #8fb0d6;
+  background: #f7faff;
+}
+
+.branch-completed-import-confirm__cancel {
+  border: 1px solid #c0342d;
+  background: #c0342d;
+  color: #fff;
+}
+
+.branch-completed-import-confirm__cancel:hover,
+.branch-completed-import-confirm__cancel:focus-visible {
+  border-color: #9f241e;
+  background: #9f241e;
+}
+
+.branch-completed-import-confirm__actions button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, .25);
+  outline-offset: 2px;
+}
+
+.branch-completed-import-confirm__actions button:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+.is-spinning { animation: branch-completed-import-spin 1s linear infinite; }
+
+@keyframes branch-completed-import-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 760px) {
+  .branch-dashboard-app-shell .super-admin-topbar { flex-wrap: wrap; }
+  .branch-dashboard-app-shell .branch-dashboard-topbar-row { min-height: 74px; flex-wrap: wrap; }
+
+  .branch-dashboard-app-shell .branch-dashboard-topbar-row > .branch-completed-import-status {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .branch-completed-import-status {
+    margin: 9px 12px 0;
+    padding: 12px;
+  }
+
+  .branch-completed-import-status.is-persistent {
+    top: 7px;
+    left: 12px;
+    right: 12px;
+    padding: 10px 12px;
+  }
+
+  .branch-completed-import-status__footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .branch-completed-import-status__actions { justify-content: flex-start; }
+  .branch-completed-import-status__file { max-width: 72vw; }
+
+  .branch-completed-import-confirm { padding: 20px; }
+  .branch-completed-import-confirm__actions { justify-content: stretch; }
+  .branch-completed-import-confirm__actions button { flex: 1 1 140px; }
+}
+
+/* Header layout: keep the branch title, import status, and account controls
+   in three predictable columns. The status card is portaled into the middle
+   slot so it can never cover the notification bell or profile button. */
+.branch-dashboard-app-shell .branch-dashboard-topbar-row {
+  display: grid;
+  grid-template-columns: minmax(185px, .82fr) minmax(320px, 1.85fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  min-height: 78px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-title {
+  min-width: 0;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status {
+  position: relative;
+  top: auto;
+  z-index: 1;
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 580px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 12px;
+  box-shadow: 0 5px 16px rgba(32, 78, 150, .07);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__eyebrow {
+  margin-bottom: 0;
+  font-size: 8px;
+  line-height: 1.1;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status h3 {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__file {
+  max-width: min(230px, 38vw);
+  margin-top: 1px;
+  font-size: 9px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__heading,
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__footer {
+  gap: 8px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__heading > strong {
+  font-size: 14px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__track {
+  height: 5px;
+  margin: 5px 0 4px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__footer {
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__actions {
+  gap: 8px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status .branch-completed-import-status__link {
+  font-size: 9px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .super-admin-topbar-right {
+  min-width: max-content;
+  margin-left: 0;
+}
+
+@media (max-width: 980px) {
+  .branch-dashboard-app-shell .branch-dashboard-topbar-row {
+    grid-template-columns: minmax(160px, .8fr) minmax(260px, 1.4fr) auto;
+    gap: 10px;
+  }
+
+  .branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status {
+    padding-inline: 9px;
+  }
+}
+
+@media (max-width: 760px) {
+  .branch-dashboard-app-shell .branch-dashboard-topbar-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    min-height: 74px;
+    gap: 8px 10px;
+  }
+
+  .branch-dashboard-app-shell .branch-dashboard-topbar-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .branch-dashboard-app-shell .branch-dashboard-topbar-row > .super-admin-topbar-right {
+    flex: 0 0 auto;
+  }
+
+  .branch-dashboard-app-shell .branch-dashboard-import-status-slot {
+    order: 3;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .branch-dashboard-app-shell .branch-dashboard-import-status-slot > .branch-completed-import-status {
+    max-width: none;
+  }
+}
+
+/* Final header placement. The status card is a direct child of the stable
+   topbar and is centered between the title and the account controls. Keeping
+   the normal row as flex prevents the bell/profile group from dropping below
+   the header when an import result is visible. */
+.branch-dashboard-app-shell .super-admin-topbar {
+  position: sticky;
+  min-width: 0;
+  overflow: visible;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  min-height: 78px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .super-admin-topbar-right {
+  flex: 0 0 auto;
+  min-width: max-content;
+  margin-left: auto;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1002;
+  width: min(580px, calc(100% - 520px));
+  max-width: 450px;
+  min-width: 360px;
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 12px;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 5px 16px rgba(32, 78, 150, .07);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__title-line {
+  gap: 6px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__eyebrow {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+  font-size: 8px;
+  line-height: 1.1;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status h3 {
+  flex: 1 1 auto;
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__file {
+  max-width: 190px;
+  margin-top: 1px;
+  font-size: 8px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__track {
+  height: 4px;
+  margin: 4px 0 3px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__footer {
+  font-size: 8px;
+  line-height: 1.1;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__eyebrow {
+  margin-bottom: 0;
+  font-size: 8px;
+  line-height: 1.1;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status h3 {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__file {
+  max-width: 230px;
+  margin-top: 1px;
+  font-size: 9px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__heading,
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__footer {
+  gap: 8px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__heading > strong {
+  font-size: 14px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__track {
+  height: 5px;
+  margin: 5px 0 4px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__footer {
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__actions {
+  gap: 8px;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__link {
+  font-size: 9px;
+}
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status {
+    width: min(470px, calc(100% - 430px));
+    min-width: 310px;
+  }
+}
+
+@media (max-width: 760px) {
+  .branch-dashboard-app-shell .super-admin-topbar {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status {
+    position: relative;
+    top: auto;
+    left: auto;
+    order: 2;
+    flex: 1 0 100%;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    transform: none;
+  }
+}
+
+/* The portal target is the topbar itself. Turn the row wrapper into a
+   transparent layout container so the three real header items occupy stable
+   columns: title | import status | notification/profile. */
+.branch-dashboard-app-shell .super-admin-topbar {
+  display: grid;
+  grid-template-columns: minmax(185px, .82fr) minmax(360px, 1.85fr) auto;
+  align-items: center;
+  justify-content: initial;
+  gap: 14px;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row {
+  display: contents;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-title {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.branch-dashboard-app-shell .branch-dashboard-topbar-row > .super-admin-topbar-right {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status {
+  position: relative;
+  top: auto;
+  left: auto;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+  width: 100%;
+  max-width: 580px;
+  min-width: 0;
+  transform: none;
+}
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .branch-dashboard-app-shell .super-admin-topbar {
+    grid-template-columns: minmax(160px, .8fr) minmax(300px, 1.4fr) auto;
+    gap: 10px;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status {
+    max-width: 430px;
+  }
+}
+
+@media (max-width: 760px) {
+  .branch-dashboard-app-shell .super-admin-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 10px;
+  }
+
+  .branch-dashboard-app-shell .branch-dashboard-topbar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 74px;
+  }
+
+  .branch-dashboard-app-shell .branch-dashboard-topbar-title,
+  .branch-dashboard-app-shell .branch-dashboard-topbar-row > .super-admin-topbar-right {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status {
+    position: relative;
+    grid-column: auto;
+    grid-row: auto;
+    justify-self: stretch;
+  }
+}
+
+/* Compact desktop header card: keep the full status inside the topbar's
+   vertical rhythm instead of letting its bottom edge meet the header border. */
+@media (min-width: 761px) {
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status {
+    align-self: center;
+    box-sizing: border-box;
+    width: min(320px, 100%);
+    max-width: 320px;
+    padding: 8px 8px;
+    border-radius: 10px;
+    gap: 7px;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__title-line {
+    gap: 5px;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__eyebrow {
+    font-size: 8px;
+    line-height: 1.1;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status h3 {
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__file {
+    max-width: 160px;
+    margin-top: 2px;
+    font-size: 8px;
+    line-height: 1.1;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__track {
+    height: 4px;
+    margin: 5px 0 4px;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__footer {
+    font-size: 8px;
+    line-height: 1.1;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__link {
+    font-size: 7px;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__heading > strong {
+    font-size: 12px;
+  }
+
+  .branch-dashboard-app-shell .super-admin-topbar > .branch-completed-import-status .branch-completed-import-status__close {
+    width: 22px;
+    height: 22px;
+  }
+}
