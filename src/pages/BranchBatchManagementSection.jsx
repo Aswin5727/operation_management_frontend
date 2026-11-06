@@ -1822,6 +1822,11 @@ export function BranchBatchManagementSection({
     setActionMenuPosition(null)
   }, [])
 
+
+
+
+
+  
   const confirmDeleteGroup = useCallback(() => {
     if (!deleteGroupTarget) return
 
