@@ -2431,6 +2431,21 @@ body.super-admin-notification-menu-open .super-admin-content {
 .branch-table tbody tr.branch-table-row:focus-visible td {
   background: #f8fbff;
 }
+/* Keep the selected row and its actions above neighboring table rows. */
+.branch-table tbody tr.branch-table-row.is-actions-open {
+  position: relative;
+  z-index: 30;
+}
+
+.branch-table tbody tr.branch-table-row.is-actions-open > td {
+  position: relative;
+  z-index: 31;
+}
+
+.branch-table tbody tr.branch-table-row.is-actions-open .branch-actions-wrap {
+  z-index: 32;
+}
+
 
 .branch-table-col-index {
   width: 56px;
@@ -2750,12 +2765,6 @@ body.super-admin-notification-menu-open .super-admin-content {
   bottom: calc(100% + 8px);
   transform: translateY(6px) scale(0.98);
   transform-origin: bottom right;
-}
-
-.branch-actions-wrap:hover .branch-actions-menu {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
 }
 
 .branch-actions-wrap.is-open .branch-actions-menu {
