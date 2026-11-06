@@ -2762,7 +2762,7 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
-                                  style={actionMenuBranchId === branch.id && actionMenuPosition ? {
+                                  style={actionMenuPosition ? {
                                     position: 'fixed',
                                     top: String(actionMenuPosition.top) + 'px',
                                     left: String(actionMenuPosition.left) + 'px',
@@ -2835,7 +2835,7 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
-                                  style={actionMenuBranchId === branch.id && actionMenuPosition ? {
+                                  style={actionMenuPosition ? {
                                     position: 'fixed',
                                     top: String(actionMenuPosition.top) + 'px',
                                     left: String(actionMenuPosition.left) + 'px',
