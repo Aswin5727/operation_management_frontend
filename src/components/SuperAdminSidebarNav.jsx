@@ -86,7 +86,8 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
     {
       id: 'userRole', label: 'User & Role Management', icon: Users,
       children: [
-        { id: 'user-role', label: 'Users', icon: Users, section: 'user-role' },
+        { id: 'branch-admin', label: 'Branch Admin', icon: Shield, section: 'branch-admin' },
+        { id: 'sales-admin', label: 'Sales Admin', icon: BriefcaseBusiness, section: 'sales-admin' },
         { id: 'faculty', label: 'Faculty', icon: UserRound, section: 'faculty' },
       ],
     },

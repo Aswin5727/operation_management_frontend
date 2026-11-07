@@ -1,7 +1,8 @@
 import { request } from './apiClient'
 
-export async function listBranchAccessUsers() {
-  const response = await request('/user-role-accounts/branch-access/users', { method: 'GET' })
+export async function listBranchAccessUsers(accountType = '') {
+  const query = accountType ? `?accountType=${encodeURIComponent(accountType)}` : ''
+  const response = await request(`/user-role-accounts/branch-access/users${query}`, { method: 'GET' })
   return Array.isArray(response?.data) ? response.data : []
 }
 

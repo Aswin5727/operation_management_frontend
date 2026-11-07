@@ -5,6 +5,7 @@ import html2pdf from 'html2pdf.js'
 import {
   BadgeCheck,
   Bell,
+  BriefcaseBusiness,
   Building2,
   CalendarDays,
   CircleUserRound,
@@ -50,14 +51,12 @@ import { SuperAdminOverallDashboard } from '../components/SuperAdminOverallDashb
 import { SuperAdminMetricDetailPage } from '../components/SuperAdminMetricDetailPage'
 import { SuperAdminSidebarNav } from '../components/SuperAdminSidebarNav'
 import { SuperAdminDiscontinuationPage } from './SuperAdminDiscontinuationPage'
-import { SalesAdminManagementPage } from './SalesAdminManagementPage'
 import { UserRoleManagementPage } from './UserRoleManagementPage'
 import { HelpdeskSupportPanel } from '../components/HelpdeskSupportPanel'
 import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
 import { BranchReportsAnalyticsPage } from './BranchReportsAnalyticsPage'
 import { SalesCrmReportPage } from './SalesCrmReportPage'
 import { SuperAdminSalesCrmPanel } from '../components/SuperAdminSalesCrmPanel'
-import { loadBranchStudents } from '../lib/branchStudentStore'
 import { loadBranchPaymentHistoryEntries } from '../lib/branchPaymentHistoryStore'
 import { buildModernPaymentReceiptHtml } from '../components/payments/RecordPayment'
 import '../styles/SuperAdminDashboardPage.css'
@@ -2303,6 +2302,10 @@ const filteredBranches = useMemo(() => {
                     <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><Shield size={15} strokeWidth={2.1} /></span>
                     <span>Branch Admin</span>
                   </button>
+                  <button type="button" className="super-admin-sidebar-subitem" onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('sales-admin'); setIsMobileSidebarOpen(false) }}>
+                    <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><BriefcaseBusiness size={15} strokeWidth={2.1} /></span>
+                    <span>Sales Admin</span>
+                  </button>
                   <button type="button" className="super-admin-sidebar-subitem" onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('faculty'); setIsMobileSidebarOpen(false) }}>
                     <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><UserRound size={15} strokeWidth={2.1} /></span>
                     <span>Faculty Management</span>
@@ -2311,7 +2314,7 @@ const filteredBranches = useMemo(() => {
               </div>
               <button
                 type="button"
-                className={`super-admin-sidebar-section-toggle ${['branch-admin', 'faculty'].includes(activeSection) ? 'is-active' : ''}`.trim()}
+                className={`super-admin-sidebar-section-toggle ${['branch-admin', 'sales-admin', 'faculty'].includes(activeSection) ? 'is-active' : ''}`.trim()}
                 aria-expanded={isUserRoleManagementExpanded}
                 onClick={() => setIsUserRoleManagementExpanded((current) => !current)}
               >
@@ -2332,6 +2335,15 @@ const filteredBranches = useMemo(() => {
                   >
                     <span className="super-admin-sidebar-icon" aria-hidden="true"><Shield size={18} strokeWidth={2.2} /></span>
                     <span>Branch Admin</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`super-admin-sidebar-item ${activeSection === 'sales-admin' ? 'is-active' : ''}`.trim()}
+                    data-tooltip="Sales Admin"
+                    onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('sales-admin'); setIsMobileSidebarOpen(false) }}
+                  >
+                    <span className="super-admin-sidebar-icon" aria-hidden="true"><BriefcaseBusiness size={18} strokeWidth={2.2} /></span>
+                    <span>Sales Admin</span>
                   </button>
                   <button
                     type="button"
@@ -3045,28 +3057,13 @@ const filteredBranches = useMemo(() => {
                 </div>
               </section>
             ) : activeSection === 'user-role' ? (
-              <UserRoleManagementPage />
+              <UserRoleManagementPage pageType="branch" />
             ) : activeSection === 'sales-admin' && ['leads', 'admissions'].includes(new URLSearchParams(location.search).get('view')) ? (
               <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} />
             ) : activeSection === 'sales-admin' ? (
-              <SalesAdminManagementPage />
+              <UserRoleManagementPage pageType="sales" />
             ) : activeSection === 'branch-admin' ? (
-              <section className="super-admin-global-panel">
-                <div className="super-admin-global-header">
-                  <div><p className="branch-management-kicker">User &amp; Role Management</p><h1>Branch Admin</h1></div>
-                  <span className="super-admin-global-count">{filteredBranches.length} branch admins</span>
-                </div>
-                <div className="super-admin-global-table-wrap">
-                  <table className="super-admin-global-table">
-                    <thead><tr><th>S.No</th><th>Branch ID</th><th>Admin Name</th><th>Mobile Number</th><th>Branch</th><th>Branch Address</th></tr></thead>
-                    <tbody>
-                      {paginatedBranches.map((branch, index) => <tr key={branch.id || branch.branchId} role="button" tabIndex={0} className="super-admin-global-table-row-action" aria-label={`View ${branch.branchName || branch.branchId || 'branch'} details`} onClick={() => openViewBranch(branch)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openViewBranch(branch) } }}><td>{(safeCurrentPage - 1) * rowsPerPage + index + 1}</td><td><strong>{branch.branchId || '-'}</strong></td><td><strong>{branch.branchAdminName || 'Branch admin not set'}</strong><small>{branch.branchAdminEmail || branch.branchEmail || '-'}</small></td><td>{branch.branchAdminPhone || branch.adminPhone || branch.branchPhone || '-'}</td><td><strong>{branch.branchName || '-'}</strong></td><td>{branch.branchAddress || '-'}</td></tr>)}
-                      {!filteredBranches.length ? <tr><td colSpan="6" className="super-admin-global-empty">No branch admin records found.</td></tr> : null}
-                    </tbody>
-                  </table>
-                </div>
-                {filteredBranches.length > rowsPerPage ? <PaginationBar className="super-admin-pagination" currentPage={safeCurrentPage} totalPages={totalPages} onPageChange={setCurrentPage} label="Branch admin pagination" previousLabel="Prev" nextLabel="Next" /> : null}
-              </section>
+              <UserRoleManagementPage pageType="branch" />
             ) : activeSection === 'faculty' ? (
               <section className="super-admin-global-panel">
                 <div className="super-admin-global-header">

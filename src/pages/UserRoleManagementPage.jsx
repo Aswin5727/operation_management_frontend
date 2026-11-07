@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getCitiesOfState, getCountries, getStatesOfCountry } from '@countrystatecity/countries-browser'
 import { AlertCircle, BriefcaseBusiness, Building2, CheckCircle2, ChevronDown, Mail, MapPin, Phone, Shield, UserPlus, Users, X } from 'lucide-react'
 import { request } from '../services/apiClient'
 import { listBranches } from '../services/branchService'
+import { listBranchAccessUsers } from '../services/userRoleManagementService'
 import '../styles/UserRoleManagementPage.css'
 
 const accountTypes = [
@@ -150,7 +151,14 @@ function BranchMultiSelect({ value = [], branches = [], onToggle, loading = fals
   )
 }
 
-export function UserRoleManagementPage() {
+export function UserRoleManagementPage({ pageType = 'branch' }) {
+  const isSalesPage = pageType === 'sales'
+  const pageTitle = isSalesPage ? 'Sales Admin' : 'Branch Admin'
+  const [users, setUsers] = useState([])
+  const [usersLoading, setUsersLoading] = useState(true)
+  const [usersError, setUsersError] = useState('')
+  const [search, setSearch] = useState('')
+  const [userPage, setUserPage] = useState(1)
   const [form, setForm] = useState(initialForm)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -162,6 +170,34 @@ export function UserRoleManagementPage() {
   const [countryOptions, setCountryOptions] = useState([])
   const [stateOptions, setStateOptions] = useState([])
   const [cityOptions, setCityOptions] = useState([])
+
+  const loadUsers = useCallback(async () => {
+    setUsersLoading(true)
+    setUsersError('')
+    try {
+      setUsers(await listBranchAccessUsers(isSalesPage ? 'SALES_ADMIN' : 'BRANCH_ADMIN'))
+    } catch (reason) {
+      setUsersError(reason?.message || `Unable to load ${pageTitle.toLowerCase()} accounts.`)
+    } finally {
+      setUsersLoading(false)
+    }
+  }, [isSalesPage, pageTitle])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadUsers() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadUsers])
+
+  const filteredUsers = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return users
+    return users.filter((user) => [user.userCode, user.fullName, user.email, user.phone, user.managedBranch?.branchName, ...(user.assignedBranches || []).map((branch) => branch.branchName)].some((value) => String(value || '').toLowerCase().includes(query)))
+  }, [search, users])
+  const userPageCount = Math.max(1, Math.ceil(filteredUsers.length / 5))
+  const safeUserPage = Math.min(userPage, userPageCount)
+  const paginatedUsers = filteredUsers.slice((safeUserPage - 1) * 5, safeUserPage * 5)
+
+  useEffect(() => { setUserPage(1) }, [search])
 
   useEffect(() => {
     if (!isCreateOpen) return undefined
@@ -338,6 +374,7 @@ export function UserRoleManagementPage() {
       const invitationSent = response?.data?.invitationSent !== false
       const accessAssigned = response?.data?.accessAssigned === true
       if (form.accountType !== 'SALES_ADMIN') window.dispatchEvent(new CustomEvent('cispro:branches-changed'))
+      await loadUsers()
       setSuccess(invitationSent ? selectedType.label + ' created successfully. ' + (accessAssigned ? 'Branch access assigned.' : 'Assign branch access from the Branch Admin table.') : selectedType.label + ' created successfully, but the invitation email could not be sent.')
       setForm((current) => ({ ...initialForm, accountType: current.accountType }))
     } catch (reason) {
@@ -350,17 +387,13 @@ export function UserRoleManagementPage() {
   return (
     <main className="user-role-page">
       <header className="user-role-page-header">
-        <div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h1>Users</h1><p>Create Branch Admin and Sales Admin accounts from one controlled form.</p></div>
+        <div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h1>{pageTitle}</h1><p>Create Branch Admin and Sales Admin accounts from one controlled form.</p></div>
         <div className="user-role-page-header-actions"><div className="user-role-header-badge"><Users size={18} /><span>Super Admin only</span></div><button type="button" className="user-role-create-button" onClick={openCreateForm}><UserPlus size={17} />Create User</button></div>
       </header>
 
-      <section className="user-role-landing-card">
-        <div className="user-role-landing-icon"><Users size={24} /></div>
-        <div><span className="user-role-card-kicker">USER ACCOUNTS</span><h2>Manage access from one place</h2><p>Use the <strong>Create User</strong> button to choose the account type and send the login invitation. Branch Admin access is selected during creation; Sales Admin access is managed from the Branch Admin table.</p></div>
-      </section>
-
-      <section className="user-role-account-summary" aria-label="Available account types">
-        {accountTypes.map((type) => { const Icon = type.icon; return <article key={type.value} className={'user-role-summary-card tone-' + type.tone}><span className="user-role-summary-icon"><Icon size={19} /></span><div><strong>{type.label}</strong><p>{type.description}</p></div></article> })}
+      <section className="user-role-table-card" aria-label={`${pageTitle} accounts`}>
+        <div className="user-role-table-header"><div><span className="user-role-card-kicker">{pageTitle.toUpperCase()} ACCOUNTS</span><h2>{pageTitle} accounts</h2></div><div className="user-role-table-tools"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${pageTitle.toLowerCase()} accounts`} aria-label={`Search ${pageTitle} accounts`} /><span>{filteredUsers.length} account{filteredUsers.length === 1 ? '' : 's'}</span></div></div>
+        {usersLoading ? <p className="user-role-table-state">Loading accounts...</p> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>Account Type</th><th>Phone</th><th>Branch access</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchNames = user.managedBranch ? [user.managedBranch.branchName] : (user.assignedBranches || []).map((branch) => branch.branchName).filter(Boolean); return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.userCode || '-'} · {user.email || '-'}</small></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{user.phone || '-'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button" onClick={() => setSearch(user.userCode || user.fullName || '')}>View</button></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="6" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
       </section>
 
       {isCreateOpen ? <div className="user-role-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCreateForm() }}>
