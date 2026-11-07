@@ -2,11 +2,9 @@ import { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell,
-  BookOpen,
   BriefcaseBusiness,
   CalendarDays,
   ChartNoAxesCombined,
-  CheckCircle2,
   ChevronDown,
   CircleUserRound,
   FileText,
@@ -95,15 +93,9 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
       id: 'academic', label: 'Academic Operations', icon: LayoutGrid,
       children: [
         { id: 'students', label: 'Student Management', icon: Users, section: 'students' },
-        { id: 'completed-students', label: 'Completed Students', icon: CheckCircle2, section: 'students', view: 'completed' },
         { id: 'exams-results', label: 'Exams and Result', icon: FileText, section: 'exams-results' },
-        { id: 'syllabus-test', label: 'Syllabus Test', icon: FileText, section: 'exams-results', view: 'syllabus' },
-        { id: 'academic-test', label: 'Academic Test', icon: BookOpen, section: 'academic-tests', view: 'tests' },
-        { id: 'academic-test-reports', label: 'Test Reports', icon: ChartNoAxesCombined, section: 'academic-tests', view: 'reports' },
         { id: 'institute-leave', label: 'Institute Leave', icon: CalendarDays, section: 'leave-management', view: 'institute' },
         { id: 'faculty-leave', label: 'Faculty Leave', icon: CalendarDays, section: 'faculty-leave' },
-        { id: 'progress-notifications', label: 'Progress Alerts', icon: Bell, section: 'leave-management', view: 'progress' },
-        { id: 'faculty-edit-requests', label: 'Faculty Edit Requests', icon: FileText, section: 'leave-management', view: 'edit-requests' },
         { id: 'discontinuations', label: 'Student Discontinuation', icon: FileText, section: 'discontinuations' },
       ],
     },

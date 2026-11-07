@@ -9,12 +9,14 @@ const dateLabel = (value) => {
   return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], studentsLoading = false }) {
+export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], studentsLoading = false, branches = [] }) {
   const isAdmissions = view === 'admissions'
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [branchFilter, setBranchFilter] = useState('all')
+  const [currentPage, setCurrentPage] = useState(1)
   const [reloadKey, setReloadKey] = useState(0)
   const [downloading, setDownloading] = useState(false)
   const admissionRows = useMemo(() => students.filter((student) => student?.admissionDate || student?.sourceLeadId || student?.admissionSource), [students])
@@ -47,13 +49,20 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
   const sourceRows = isAdmissions ? admissionRows : rows
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase()
-    if (!query) return sourceRows
     return sourceRows.filter((row) => {
       const student = isAdmissions ? row.admissionStudent : row
-      return [row.leadId, row.studentId, row.studentName, row.emailAddress, row.email, row.branchName, row.branch?.branchName, row.branchRecord?.branchName, row.courseName, row.course?.name, row.courseEnrollments?.[0]?.courseName, row.assignedAdminName, row.assignedTo?.fullName, student?.studentId, student?.studentName]
+      const branchKey = String(row.branchId || row.branch?.id || row.branch?.branchId || row.branchRecord?.id || row.branchRecord?.branchId || '').trim()
+      const matchesBranch = branchFilter === 'all' || branchKey === String(branchFilter)
+      const matchesSearch = !query || [row.leadId, row.studentId, row.studentName, row.emailAddress, row.email, row.branchName, row.branch?.branchName, row.branchRecord?.branchName, row.courseName, row.course?.name, row.courseEnrollments?.[0]?.courseName, row.assignedAdminName, row.assignedTo?.fullName, student?.studentId, student?.studentName]
         .some((value) => String(value || '').toLowerCase().includes(query))
+      return matchesBranch && matchesSearch
     })
-  }, [isAdmissions, search, sourceRows])
+  }, [branchFilter, isAdmissions, search, sourceRows])
+
+  const pageSize = 5
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
+  const safePage = Math.min(currentPage, totalPages)
+  const paginatedRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   const downloadReport = async () => {
     setDownloading(true)
@@ -88,14 +97,14 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
           <button type="button" className="super-admin-primary-action" onClick={() => void downloadReport()} disabled={downloading}><Download size={16} /> {downloading ? 'Preparing...' : 'Download Excel'}</button>
         </div>
       </header>
-      <div className="super-admin-sales-crm-toolbar"><label className="super-admin-sales-crm-search"><Search size={17} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isAdmissions ? 'Search admission student, branch, course...' : 'Search lead, student, branch, course...'} aria-label={`Search ${title}`} /></label><span>{filteredRows.length} records</span></div>
+      <div className="super-admin-sales-crm-toolbar"><div className="super-admin-sales-crm-filters"><label className="super-admin-sales-crm-search"><Search size={17} /><input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1) }} placeholder={isAdmissions ? 'Search admission student, branch, course...' : 'Search lead, student, branch, course...'} aria-label={`Search ${title}`} /></label><label className="super-admin-sales-crm-branch-filter"><span className="sr-only">Filter by branch</span><select value={branchFilter} onChange={(event) => { setBranchFilter(event.target.value); setCurrentPage(1) }} aria-label="Filter leads by branch"><option value="all">All branches</option>{branches.map((branch) => { const value = branch.id || branch.branchId; return <option key={value} value={value}>{branch.branchName || branch.branchId || 'Unnamed branch'}</option> })}</select></label></div><span>{filteredRows.length} records</span></div>
       {error ? <div className="super-admin-global-state is-error" role="alert">{error}</div> : null}
       {((isAdmissions ? studentsLoading : loading)) ? <div className="super-admin-sales-crm-loading" role="status">Loading {isAdmissions ? 'admission students' : 'leads'}...</div> : (
         <div className="super-admin-sales-crm-table-wrap">
           <table className="super-admin-sales-crm-table">
             <thead>{isAdmissions ? <tr><th>Student</th><th>Student ID</th><th>Branch</th><th>Course</th><th>Admission Date</th><th>Assigned To</th><th>Payment</th></tr> : <tr><th>Lead</th><th>Phone</th><th>Branch</th><th>Course</th><th>Stage</th><th>Status</th><th>Assigned To</th><th>Lead Date</th></tr>}</thead>
             <tbody>
-              {filteredRows.map((row) => {
+              {paginatedRows.map((row) => {
                 const student = row.admissionStudent || row
                 return isAdmissions ? <tr key={row.id || row.leadId || row.studentId}><td><strong>{text(student.studentName || row.studentName)}</strong><small>{text(row.leadId || row.sourceLeadId)}</small></td><td>{text(student.studentId || row.studentId)}</td><td>{text(row.branchName || row.branch?.branchName || row.branchRecord?.branchName)}</td><td>{text(row.courseName || row.course?.name || row.courseEnrollments?.[0]?.courseName)}</td><td>{dateLabel(student.admissionDate || row.admissionDate || row.createdAt)}</td><td>{text(row.assignedAdminName || row.assignedTo?.fullName)}</td><td>{text(row.paymentStatus || row.paidProgress?.percentage ? `${row.paymentStatus || 'Paid'}${row.paidProgress?.percentage !== undefined ? ` (${row.paidProgress.percentage}%)` : ''}` : '')}</td></tr> : <tr key={row.id || row.leadId}><td><strong>{text(row.studentName)}</strong><small>{text(row.leadId)}</small></td><td>{text(row.phoneNumber)}</td><td>{text(row.branch?.branchName)}</td><td>{text(row.course?.name)}</td><td><span className="super-admin-sales-crm-badge">{text(row.stage)}</span></td><td>{text(row.status)}</td><td>{text(row.assignedTo?.fullName)}</td><td>{dateLabel(row.leadDate || row.createdAt)}</td></tr>
               })}
@@ -104,6 +113,7 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
           </table>
         </div>
       )}
+      {!(isAdmissions ? studentsLoading : loading) && !error && filteredRows.length > pageSize ? <div className="super-admin-sales-crm-pagination"><span>Page {safePage} of {totalPages}</span><div><button type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={safePage === 1}>Previous</button><button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={safePage === totalPages}>Next</button></div></div> : null}
     </section>
   )
 }

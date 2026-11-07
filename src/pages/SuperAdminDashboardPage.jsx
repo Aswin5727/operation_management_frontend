@@ -2960,7 +2960,7 @@ const filteredBranches = useMemo(() => {
                 </div>
               </section>
             ) : activeSection === 'sales-admin' && ['leads', 'admissions'].includes(new URLSearchParams(location.search).get('view')) ? (
-              <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} />
+              <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} branches={globalBranchFilterOptions} />
             ) : activeSection === 'sales-admin' ? (
               <SalesAdminManagementPage />
             ) : activeSection === 'branch-admin' ? (
