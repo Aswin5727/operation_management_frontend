@@ -668,7 +668,19 @@ export function CompletedStudentsPage({ academicProgressByStudent = new Map(), b
       <CompletedStudentUploadModal
         isOpen
         onClose={() => setIsUploadOpen(false)}
-        onImported={async () => { resultCacheRef.current.chunks.clear(); resultCacheRef.current.total = 0; setPage(1); await onDeleted?.(); await loadRef.current(tab, 1, true) }}
+        onImported={async (importedResult = {}) => {
+          resultCacheRef.current.chunks.clear()
+          resultCacheRef.current.total = 0
+          setPage(1)
+          await onDeleted?.()
+          const expectedImported = Number(importedResult?.importedRows || 0)
+          for (let attempt = 0; attempt < 15; attempt += 1) {
+            const refreshed = await loadRef.current(tab, 1, true)
+            const loadedTotal = Number(refreshed?.meta?.total || resultCacheRef.current.total || 0)
+            if (!expectedImported || loadedTotal >= expectedImported) break
+            await new Promise((resolve) => window.setTimeout(resolve, 1000))
+          }
+        }}
       />
     )
   }

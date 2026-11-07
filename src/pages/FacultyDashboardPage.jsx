@@ -879,13 +879,10 @@ function getStudentAttendanceStatus(statuses = {}, student = {}) {
   const savedStatus = getStudentAttendanceKeys(student).map((key) => statuses[key]).find(Boolean) || ''
   if (isAttendanceMarkedStatus(savedStatus)) return savedStatus
 
-  const directStatus = String(
-    student?.attendanceStatus
-      || student?.attendanceStatusLabel
-      || student?.todayAttendanceStatus
-      || student?.attendance?.status
-      || '',
-  ).trim().toUpperCase()
+  // `attendanceStatus` and `attendance.status` can be the latest historical
+  // value from the student list. They must not be reused for another date.
+  // Only trust an explicitly date-scoped today value here.
+  const directStatus = String(student?.todayAttendanceStatus || '').trim().toUpperCase()
   if (isAttendanceMarkedStatus(directStatus)) return directStatus
 
   const today = getAttendanceDateKey()
@@ -2210,7 +2207,7 @@ function FacultyDashboardScheduleSections({ batches = [], todayWorkEntries = [],
   const monthLabel = month.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 
   return (
-    <div className="faculty-dashboard-schedule-sections">
+    <div className={`faculty-dashboard-schedule-sections ${batches.length ? '' : 'is-unassigned'}`.trim()}>
       <FacultyDashboardSection
         title={<span className="faculty-dashboard-section-title-with-icon"><CalendarDays size={18} aria-hidden="true" />Today’s Classes</span>}
         description="Classes scheduled for the current date."
@@ -2224,7 +2221,7 @@ function FacultyDashboardScheduleSections({ batches = [], todayWorkEntries = [],
       </FacultyDashboardSection>
 
       <FacultyDashboardSection title="My Schedule" description="Your schedule from the same faculty calendar used by My Calendar.">
-        {loading ? <div className="faculty-dashboard-schedule-loading">Loading schedule…</div> : error ? <div className="faculty-dashboard-overview-empty"><strong>Schedule unavailable</strong><p>{error}</p></div> : <div className="faculty-dashboard-schedule-layout"><div className="faculty-dashboard-calendar-card"><div className="faculty-dashboard-calendar-head"><button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} aria-label="Previous month"><ChevronLeft size={16} /></button><strong>{monthLabel}</strong><button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} aria-label="Next month"><ChevronRight size={16} /></button></div><div className="faculty-dashboard-calendar-weekdays">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div><div className="faculty-dashboard-calendar-grid">{monthDays.map((date, index) => { if (!date) return <span key={`empty-${index}`} />; const dateKey = facultyDashboardDateKey(date); const tooltip = eventTooltipsByDate.get(dateKey) || ''; return <button type="button" key={dateKey} className={`${dateKey === selectedDate ? 'is-selected ' : ''}${dateKey === today ? 'is-today' : ''}`} onClick={() => setSelectedDate(dateKey)} data-tooltip={tooltip}>{date.getDate()}{eventDates.has(dateKey) ? <i aria-label="Scheduled event" /> : null}</button> })}</div></div><div className="faculty-dashboard-schedule-details"><span className="faculty-dashboard-card-kicker">{facultyDashboardParseDate(selectedDate)?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>{selectedEvents.length ? <div className="faculty-dashboard-class-list">{selectedEvents.map((event, index) => <article className="faculty-dashboard-class-item" key={event.id || `${event.batchId || event.batchName}-${index}`}><strong>{facultyDashboardEventTiming(event)}</strong><span>{event.courseName || event.courseCode || 'Course'}</span><small>Batch: {event.batchName || event.batchId || '—'}{facultyDashboardEventModule(event) ? ` · Module: ${facultyDashboardEventModule(event)}` : ''}</small></article>)}</div> : <div className="faculty-dashboard-schedule-empty">No classes scheduled</div>}</div></div>}
+        {loading ? <div className="faculty-dashboard-schedule-loading">Loading schedule…</div> : error ? <div className="faculty-dashboard-overview-empty"><strong>Schedule unavailable</strong><p>{error}</p></div> : <div className="faculty-dashboard-schedule-layout"><div className="faculty-dashboard-calendar-card"><div className="faculty-dashboard-calendar-head"><button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} aria-label="Previous month"><ChevronLeft size={16} /></button><strong>{monthLabel}</strong><button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} aria-label="Next month"><ChevronRight size={16} /></button></div><div className="faculty-dashboard-calendar-weekdays">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div><div className="faculty-dashboard-calendar-grid">{monthDays.map((date, index) => { if (!date) return <span key={`empty-${index}`} />; const dateKey = facultyDashboardDateKey(date); const tooltip = eventTooltipsByDate.get(dateKey) || ''; return <button type="button" key={dateKey} className={`${dateKey === selectedDate ? 'is-selected ' : ''}${dateKey === today ? 'is-today' : ''}`} onClick={() => setSelectedDate(dateKey)} data-tooltip={tooltip}>{date.getDate()}{eventDates.has(dateKey) ? <i aria-label="Scheduled event" /> : null}</button> })}</div></div><div className="faculty-dashboard-schedule-details"><span className="faculty-dashboard-card-kicker">{facultyDashboardParseDate(selectedDate)?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>{selectedEvents.length ? <div className="faculty-dashboard-class-list">{selectedEvents.map((event, index) => <article className="faculty-dashboard-class-item" key={event.id || `${event.batchId || event.batchName}-${index}`}><strong>{facultyDashboardEventTiming(event)}</strong><span>{event.courseName || event.courseCode || 'Course'}</span><small>Batch: {event.batchName || event.batchId || '—'}{facultyDashboardEventModule(event) ? ` · Module: ${facultyDashboardEventModule(event)}` : ''}</small></article>)}</div> : <div className="faculty-dashboard-schedule-empty">{batches.length ? 'No classes scheduled' : 'Your schedule will appear here once a course and batch are assigned.'}</div>}</div></div>}
       </FacultyDashboardSection>
     </div>
   )
@@ -2446,6 +2443,7 @@ export function FacultyDashboardPage() {
   }, [facultyName])
 
   const [dashboardSummary, setDashboardSummary] = useState(null)
+  const [dashboardSummaryLoading, setDashboardSummaryLoading] = useState(true)
   const [dashboardOverview, setDashboardOverview] = useState(null)
   const [dashboardOverviewLoading, setDashboardOverviewLoading] = useState(true)
   const [dashboardOverviewError, setDashboardOverviewError] = useState('')
@@ -2646,12 +2644,15 @@ export function FacultyDashboardPage() {
     let isMounted = true
 
     const loadFacultySummary = async () => {
+      setDashboardSummaryLoading(true)
       try {
         const response = await getFacultyMyBatchesSummary()
         if (!isMounted) return
         setDashboardSummary(response?.data ?? response ?? null)
       } catch (error) {
         console.error('Failed to load faculty summary', error)
+      } finally {
+        if (isMounted) setDashboardSummaryLoading(false)
       }
     }
 
@@ -6045,17 +6046,22 @@ const nextName = trimmedValue
     [visibleNotifications],
   )
 
+  const summaryCardsLoading = dashboardOverviewLoading || dashboardSummaryLoading
   const stats = [
-    { label: 'Assigned Courses', value: dashboardOverviewLoading ? '—' : String(dashboardOverview?.courseIds?.length ?? new Set(assignedCourseIds).size ?? 0), note: 'Active courses', icon: BookOpen, tone: 'blue' },
-    { label: 'Total Batches', value: dashboardSummary?.totalBatches ?? '—', note: 'Across all Courses', icon: Layers3, tone: 'purple' },
+    { label: 'Assigned Courses', value: summaryCardsLoading ? 'Loading...' : String(dashboardOverview?.courseIds?.length ?? new Set(assignedCourseIds).size ?? 0), note: summaryCardsLoading ? 'Loading course data' : 'Active courses', icon: BookOpen, tone: 'blue' },
+    { label: 'Total Batches', value: summaryCardsLoading ? 'Loading...' : (dashboardSummary?.totalBatches ?? '0'), note: summaryCardsLoading ? 'Loading batch data' : 'Across all Courses', icon: Layers3, tone: 'purple' },
     {
       label: 'Next Week Off',
-      value: facultyNextWeekOff.date
+      value: summaryCardsLoading
+        ? 'Loading...'
+        : facultyNextWeekOff.date
         ? facultyNextWeekOff.date.split('-').reverse().join('.')
-        : 'Not configured',
-      note: facultyNextWeekOff.day
+        : 'Not set',
+      note: summaryCardsLoading
+        ? 'Loading week-off details'
+        : facultyNextWeekOff.day
         ? `${facultyNextWeekOff.day.charAt(0)}${facultyNextWeekOff.day.slice(1).toLowerCase()}${facultyNextWeekOff.temporary ? ' - Alternate week-off' : ''}`
-        : 'Contact Branch Admin to configure',
+        : 'Weekly off not set · Contact Branch Admin',
       icon: CalendarDays,
       tone: 'orange',
       highlightNote: true,
@@ -6634,7 +6640,7 @@ const nextName = trimmedValue
 
                   <div className="branch-dashboard-stats">
                     {stats.map((stat) => (
-                      <article key={stat.label} className={`branch-dashboard-stat-card branch-dashboard-stat-card--${stat.tone}`}>
+                      <article key={stat.label} className={`branch-dashboard-stat-card branch-dashboard-stat-card--${stat.tone} ${summaryCardsLoading ? 'is-loading' : ''}`.trim()}>
                         <div className="branch-dashboard-stat-heading">
                           <span className="branch-dashboard-stat-icon"><stat.icon size={19} strokeWidth={2.1} aria-hidden="true" /></span>
                           <span>{stat.label}</span>

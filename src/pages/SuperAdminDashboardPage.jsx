@@ -641,6 +641,7 @@ export function SuperAdminDashboardPage() {
   const [deleteTargetBranch, setDeleteTargetBranch] = useState(null)
   const [resendTargetBranch, setResendTargetBranch] = useState(null)
   const [actionMenuBranchId, setActionMenuBranchId] = useState(null)
+  const [actionMenuPosition, setActionMenuPosition] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [successMessage, setSuccessMessage] = useState('')
   const [successTitle, setSuccessTitle] = useState('Action completed successfully')
@@ -763,7 +764,7 @@ export function SuperAdminDashboardPage() {
   }, [superAdminStudentView])
 
   useEffect(() => {
-    if (!branches.length) {
+    if (activeSection !== 'students' || !branches.length) {
       setIsGlobalStudentsLoading(false)
       setAllBranchStudents([])
       return undefined
@@ -773,31 +774,36 @@ export function SuperAdminDashboardPage() {
     setIsGlobalStudentsLoading(true)
     const loadStudents = async () => {
       try {
-        const results = await Promise.all(
-          [1].map(async () => {
-            const firstResponse = await request('/branch-students?page=1&limit=100&summary=1&sortBy=createdAt&sortOrder=desc')
-            const firstPayload = firstResponse?.data ?? firstResponse
-            const firstRows = Array.isArray(firstPayload) ? firstPayload : []
-            const totalPages = Math.min(100, Math.max(1, Number(firstResponse?.meta?.totalPages || 1)))
-            const remainingResponses = await Promise.all(
-              Array.from({ length: totalPages - 1 }, (_, index) => request(`/branch-students?page=${index + 2}&limit=100&summary=1&sortBy=createdAt&sortOrder=desc`)),
-            )
-            return [
-              ...firstRows,
-              ...remainingResponses.flatMap((response) => {
-                const payload = response?.data ?? response
-                return Array.isArray(payload) ? payload : []
-              }),
-            ].map((student) => ({
-              ...student,
-              branchRecord: branches.find((branch) => {
-                const branchKeys = [branch.id, branch.branchId, branch.branchCode].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
-                const studentKeys = [student.branchId, student.branchCode, student.branch?.id, student.branch?.branchId, student.branch?.branchCode].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
-                return studentKeys.some((key) => branchKeys.includes(key))
-              }) || null,
-            }))
-          }),
-        )
+        const rows = []
+        let page = 1
+        let totalPages = 1
+        do {
+          const response = await request(`/branch-students?page=${page}&limit=100&summary=1&includeProgress=0&sortBy=createdAt&sortOrder=desc`)
+          const payload = response?.data ?? response
+          const pageRows = Array.isArray(payload)
+            ? payload
+            : Array.isArray(payload?.data)
+              ? payload.data
+              : Array.isArray(payload?.items)
+                ? payload.items
+                : Array.isArray(payload?.records)
+                  ? payload.records
+                  : []
+          rows.push(...pageRows)
+          const meta = response?.meta || payload?.meta || payload?.pagination || payload?.pageInfo
+          totalPages = Math.min(100, Math.max(1, Number(meta?.totalPages || 1)))
+          page += 1
+          if (!pageRows.length) break
+        } while (page <= totalPages)
+
+        const results = [rows.map((student) => ({
+          ...student,
+          branchRecord: branches.find((branch) => {
+            const branchKeys = [branch.id, branch.branchId, branch.branchCode].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+            const studentKeys = [student.branchId, student.branchCode, student.branch?.id, student.branch?.branchId, student.branch?.branchCode].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean)
+            return studentKeys.some((key) => branchKeys.includes(key))
+          }) || null,
+        }))]
 
         if (!cancelled) {
           setAllBranchStudents(results.flat())
@@ -815,7 +821,7 @@ export function SuperAdminDashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [branches, globalStudentRefreshKey])
+  }, [activeSection, branches, globalStudentRefreshKey])
 
   useEffect(() => {
     const refreshStudents = () => setGlobalStudentRefreshKey((current) => current + 1)
@@ -1216,6 +1222,7 @@ useEffect(() => {
       if (!(target instanceof Element)) return
       if (target.closest('.branch-actions-wrap')) return
       setActionMenuBranchId(null)
+      setActionMenuPosition(null)
     }
 
     window.addEventListener('pointerdown', onPointerDown)
@@ -1365,6 +1372,35 @@ const filteredBranches = useMemo(() => {
     const startIndex = (safeCurrentPage - 1) * rowsPerPage
     return filteredBranches.slice(startIndex, startIndex + rowsPerPage)
   }, [filteredBranches, rowsPerPage, safeCurrentPage])
+
+  const openActionMenu = (branchId, target) => {
+    if (actionMenuCloseTimerRef.current) {
+      clearTimeout(actionMenuCloseTimerRef.current)
+    }
+
+    const triggerRect = target?.getBoundingClientRect?.()
+    const menuWidth = 132
+    const menuHeight = 160
+    const gap = 8
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const rect = triggerRect || {
+      top: viewportHeight / 2,
+      bottom: viewportHeight / 2,
+      right: viewportWidth - 16,
+    }
+    const fitsBelow = rect.bottom + menuHeight + gap <= viewportHeight - 8
+    const top = fitsBelow
+      ? Math.min(viewportHeight - menuHeight - 8, rect.bottom + gap)
+      : Math.max(8, rect.top - menuHeight - gap)
+    const left = Math.min(
+      Math.max(8, rect.right - menuWidth),
+      Math.max(8, viewportWidth - menuWidth - 8),
+    )
+
+    setActionMenuPosition({ top, left })
+    setActionMenuBranchId(branchId)
+  }
 
   const openAddBranch = () => {
     setBranchErrors({})
@@ -2647,7 +2683,7 @@ const filteredBranches = useMemo(() => {
                         return (
                           <tr
                             key={branch.id}
-                            className="branch-table-row"
+                            className={`branch-table-row ${actionMenuBranchId === branch.id ? 'is-actions-open' : ''}`.trim()}
                             role="button"
                             tabIndex={0}
                             aria-label={`View details for branch ${branch.branchName || branch.branchId || ''}`.trim()}
@@ -2714,12 +2750,7 @@ const filteredBranches = useMemo(() => {
                             >
                               <div
                                 className={`branch-actions branch-actions-wrap ${isUpwardMenu ? 'is-upward' : ''} ${actionMenuBranchId === branch.id ? 'is-open' : ''}`.trim()}
-                                onMouseEnter={() => {
-                                  if (actionMenuCloseTimerRef.current) {
-                                    clearTimeout(actionMenuCloseTimerRef.current)
-                                  }
-                                  setActionMenuBranchId(branch.id)
-                                }}
+                                onMouseEnter={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 onMouseLeave={() => {
                                   actionMenuCloseTimerRef.current = setTimeout(() => {
                                     setActionMenuBranchId(null)
@@ -2732,7 +2763,7 @@ const filteredBranches = useMemo(() => {
                                   aria-label={`Open actions for ${branch.branchName}`}
                                   aria-haspopup="menu"
                                   aria-expanded={actionMenuBranchId === branch.id}
-                                  onClick={() => setActionMenuBranchId(branch.id)}
+                                  onClick={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 >
                                   <MoreVertical size={18} strokeWidth={2.3} />
                                 </button>
@@ -2741,6 +2772,14 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
+                                  style={actionMenuPosition ? {
+                                    position: 'fixed',
+                                    top: String(actionMenuPosition.top) + 'px',
+                                    left: String(actionMenuPosition.left) + 'px',
+                                    right: 'auto',
+                                    bottom: 'auto',
+                                    zIndex: 1000,
+                                  } : undefined}
                                 >
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
@@ -2784,12 +2823,7 @@ const filteredBranches = useMemo(() => {
 
                               <div
                                 className={`branch-actions branch-actions-wrap ${isUpwardMenu ? 'is-upward' : ''} ${actionMenuBranchId === branch.id ? 'is-open' : ''}`.trim()}
-                                onMouseEnter={() => {
-                                  if (actionMenuCloseTimerRef.current) {
-                                    clearTimeout(actionMenuCloseTimerRef.current)
-                                  }
-                                  setActionMenuBranchId(branch.id)
-                                }}
+                                onMouseEnter={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 onMouseLeave={() => {
                                   actionMenuCloseTimerRef.current = setTimeout(() => {
                                     setActionMenuBranchId(null)
@@ -2802,7 +2836,7 @@ const filteredBranches = useMemo(() => {
                                   aria-label={`Open actions for ${branch.branchName}`}
                                   aria-haspopup="menu"
                                   aria-expanded={actionMenuBranchId === branch.id}
-                                  onClick={() => setActionMenuBranchId(branch.id)}
+                                  onClick={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 >
                                   <MoreVertical size={18} strokeWidth={2.3} />
                                 </button>
@@ -2811,6 +2845,14 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
+                                  style={actionMenuPosition ? {
+                                    position: 'fixed',
+                                    top: String(actionMenuPosition.top) + 'px',
+                                    left: String(actionMenuPosition.left) + 'px',
+                                    right: 'auto',
+                                    bottom: 'auto',
+                                    zIndex: 1000,
+                                  } : undefined}
                                 >
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View

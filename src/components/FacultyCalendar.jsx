@@ -275,6 +275,15 @@ export function FacultyCalendar({ faculty, facultyProfile, assignedBatches, week
     const grouped = events.reduce((map, event) => { const key = String(event.date || '').slice(0, 10); const status = normalizeStatus(event); if (status === 'FACULTY_WEEKLY_OFF' && map[key]?.some((item) => normalizeStatus(item) === status)) return map; (map[key] ||= []).push(event); return map }, {})
     Object.keys(grouped).forEach((date) => {
       const dateEvents = grouped[date]
+      // An approved faculty interruption is the authoritative status for the
+      // day. Do not show attendance/class statuses alongside Permission or Leave.
+      const interruptionStatus = ['PERMISSION', 'HALF_DAY', 'LEAVE'].find((status) =>
+        dateEvents.some((event) => normalizeStatus(event) === status),
+      )
+      if (interruptionStatus) {
+        grouped[date] = dateEvents.filter((event) => normalizeStatus(event) === interruptionStatus)
+        return
+      }
       const hasClass = dateEvents.some((event) => ['CLASS', 'SCHEDULED', 'COMPLETED', 'PRESENT', 'REASSIGNED', 'COMBINED', 'RESCHEDULED', 'RESCHEDULED_ORIGINAL'].includes(normalizeStatus(event)))
       const hasHalfDay = dateEvents.some((event) => normalizeStatus(event) === 'HALF_DAY')
       if (hasClass || hasHalfDay) {
@@ -303,6 +312,8 @@ export function FacultyCalendar({ faculty, facultyProfile, assignedBatches, week
     return [date, statuses]
   })), [eventsByDate])
   const batchesByDate = useMemo(() => Object.fromEntries(Object.keys(eventsByDate).map((date) => {
+    const hasInterruption = eventsByDate[date]?.some((event) => ['PERMISSION', 'HALF_DAY', 'LEAVE'].includes(normalizeStatus(event)))
+    if (hasInterruption) return [date, []]
     const eventBatches = eventsByDate[date]
       .filter((event) => event.batchRecordId || event.batchId)
       .map((event) => batchLookup.get(String(event.batchRecordId || event.batchId).trim()) || event)
@@ -339,6 +350,7 @@ export function FacultyCalendar({ faculty, facultyProfile, assignedBatches, week
   const selectedBoundaryBatches = selected ? boundaryBatchesByDate[selected.date] || [] : []
   useEffect(() => {
     if (!selected || !selectedBoundaryBatches.length) return
+    if (selected.events.some((event) => ['PERMISSION', 'HALF_DAY', 'LEAVE'].includes(normalizeStatus(event)))) return
     const currentKeys = new Set(selected.events.map((event) => String(event.batchName || event.batchId || '').trim().toLowerCase()).filter(Boolean))
     const missing = selectedBoundaryBatches
       .filter((batch) => !currentKeys.has(String(batch.batchName || batch.batchId || '').trim().toLowerCase()))
@@ -358,7 +370,7 @@ export function FacultyCalendar({ faculty, facultyProfile, assignedBatches, week
       <SummaryCard icon={Sparkles} label="Assigned Courses" value={hasCalendarData ? courses.size : null} note={hasCalendarData ? `${classCount} scheduled events` : 'Loading schedule…'} />
       <SummaryCard icon={CheckCircle2} label="Assigned Batches" value={hasCalendarData ? assignedBatchCount : null} note="Active teaching batches" tone="green" />
       <SummaryCard icon={Timer} label="General Holidays" value={hasCalendarData ? holidayCount : null} note="Selected month" tone="red" />
-      <SummaryCard icon={CalendarOff} label="Next Week Off" value={hasCalendarData && nextWeekOff.date ? nextWeekOff.date.split('-').reverse().join('.') : 'Not configured'} note={nextWeekOff.day ? `${nextWeekOff.day.charAt(0)}${nextWeekOff.day.slice(1).toLowerCase()}${nextWeekOff.temporary ? ' - Alternate week-off' : ''}` : 'No weekly off configured'} tone="red" highlightNote />
+      <SummaryCard icon={CalendarOff} label="Next Week Off" value={hasCalendarData && nextWeekOff.date ? nextWeekOff.date.split('-').reverse().join('.') : 'Not set'} note={nextWeekOff.day ? `${nextWeekOff.day.charAt(0)}${nextWeekOff.day.slice(1).toLowerCase()}${nextWeekOff.temporary ? ' - Alternate week-off' : ''}` : 'Weekly off not set · Contact Branch Admin'} tone="red" highlightNote />
     </div>
     <div className="faculty-calendar-card"><div className="faculty-calendar-panel-head"><div><span className="faculty-calendar-eyebrow">FACULTY CALENDAR</span><h2>{month?.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</h2><p>Use the arrows or month tabs to browse your complete teaching schedule.</p></div><div className="faculty-calendar-navigation"><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} disabled={!calendarMonths.length || month <= calendarMonths[0]}><ChevronLeft /></button><div><strong>{month?.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</strong><span>{Math.max(1, calendarMonths.findIndex((item) => item.getFullYear() === month?.getFullYear() && item.getMonth() === month?.getMonth()) + 1)} / {calendarMonths.length || 1}</span></div><button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} disabled={!calendarMonths.length || month >= calendarMonths.at(-1)}><ChevronRight /></button></div></div>
       <div className="faculty-calendar-month-strip">{calendarMonths.map((item) => <button key={item.toISOString()} type="button" className={item.getFullYear() === month?.getFullYear() && item.getMonth() === month?.getMonth() ? 'is-active' : ''} onClick={() => setMonth(item)}>{item.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</button>)}</div>

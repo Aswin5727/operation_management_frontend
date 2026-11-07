@@ -131,7 +131,22 @@ function normalizeBranchCoursePaymentPlan(plan) {
 }
 
 function normalizeBranchCoursePaymentPlanList(plans) {
-  return Array.isArray(plans) ? plans.map(normalizeBranchCoursePaymentPlan).filter(Boolean) : []
+  if (!Array.isArray(plans)) return []
+
+  const seenIds = new Set()
+  const seenNames = new Set()
+
+  return plans
+    .map(normalizeBranchCoursePaymentPlan)
+    .filter(Boolean)
+    .filter((plan) => {
+      const id = String(plan.templateId || plan.id || '').trim().toLowerCase()
+      const name = String(plan.templateName || '').trim().replace(/\s+/g, ' ').toLowerCase()
+      if ((id && seenIds.has(id)) || (name && seenNames.has(name))) return false
+      if (id) seenIds.add(id)
+      if (name) seenNames.add(name)
+      return true
+    })
 }
 
 function normalizeBranchCourseFacultyList(facultyList) {

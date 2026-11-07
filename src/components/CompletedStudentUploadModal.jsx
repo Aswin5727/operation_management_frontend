@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, ArrowLeft, CheckCircle2, Download, Edit3, FileSpreadsheet, LoaderCircle, Save, Table2, Trash2, Upload, X } from 'lucide-react'
-import { downloadCompletedStudentFailedRows, downloadCompletedStudentTemplate, importCompletedStudents, previewCompletedStudentImport, revalidateCompletedStudentImport } from '../services/completedStudentImportService'
+import { downloadCompletedStudentFailedRows, downloadCompletedStudentImportJobFailedRows, downloadCompletedStudentTemplate, importCompletedStudents, listCompletedStudentImportJobs, previewCompletedStudentImport, revalidateCompletedStudentImport } from '../services/completedStudentImportService'
 import '../styles/CourseExcelUpload.css'
 import '../styles/CompletedStudentUploadModal.css'
+
+const COMPLETED_IMPORT_MAX_ROWS = 4000
+const COMPLETED_IMPORT_MAX_FILE_BYTES = 20 * 1024 * 1024
+const ACTIVE_IMPORT_MESSAGE = 'Another completed-student file is already processing for this branch. Wait until it finishes before uploading another file.'
 
 function errorMessage(error) { return error?.body?.message || error?.body?.error || error?.message || 'Something went wrong. Please try again.' }
 const PAGE_SIZE = 10
@@ -190,13 +194,34 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
 
   if (!isOpen) return null
 
+  const ResultIcon = result?.status === 'CANCELLED' ? AlertCircle : CheckCircle2
+
   const selectFile = async (nextFile) => {
     setError(''); setResult(null); setPreview(null); setEditingRow(null); setTableFilter('all'); setStudentSearch(''); setTablePage(1); setShowPreview(false); setContactReview(null); setImportConfirmation(null); setImportProgress(0)
     if (!nextFile) return
     if (!/\.xlsx$/i.test(nextFile.name)) { setError('Only .xlsx files are supported.'); return }
-    if (nextFile.size > 8 * 1024 * 1024) { setError('File size must be 8 MB or less.'); return }
-    setFile(nextFile); setBusy(true)
-    try { const response = await previewCompletedStudentImport(nextFile); setPreview(normalizeCompletedStudentImportPreview(response?.data || response)) } catch (requestError) { setError(errorMessage(requestError)) } finally { setBusy(false) }
+    if (nextFile.size > COMPLETED_IMPORT_MAX_FILE_BYTES) { setError('File size must be 20 MB or less.'); return }
+    setBusy(true)
+    try {
+      // Give the user immediate feedback before sending another workbook. The
+      // backend performs the authoritative check as well, including races.
+      try {
+        const activeResponse = await listCompletedStudentImportJobs()
+        const jobs = activeResponse?.data?.jobs || activeResponse?.jobs || []
+        if (jobs.some((job) => ['PENDING', 'RUNNING'].includes(String(job?.status || '').toUpperCase()))) {
+          setFile(null)
+          if (inputRef.current) inputRef.current.value = ''
+          setError(ACTIVE_IMPORT_MESSAGE)
+          return
+        }
+      } catch {
+        // The preview request below remains the source of truth if the status
+        // check is temporarily unavailable.
+      }
+      setFile(nextFile)
+      const response = await previewCompletedStudentImport(nextFile)
+      setPreview(normalizeCompletedStudentImportPreview(response?.data || response))
+    } catch (requestError) { setError(errorMessage(requestError)) } finally { setBusy(false) }
   }
 
   const importRows = async () => {
@@ -220,10 +245,15 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
     if (!selectedRows.length) return
     setError(''); setBusy(true); setImportProgress(5)
     try {
-      const response = await importCompletedStudents(selectedRows, { allowMissingContact: selectedMissing.length > 0, onChunkComplete: (completed, total) => setImportProgress(Math.min(96, Math.max(12, Math.round((completed / total) * 96)))) })
-      setImportProgress(100)
+      const response = await importCompletedStudents(selectedRows, { fileName: file?.name, skippedRows: importConfirmation.skippedRows, allowMissingContact: selectedMissing.length > 0, onChunkComplete: (completed, total) => setImportProgress(Math.min(96, Math.max(12, Math.round((completed / total) * 96)))) })
       const importedResult = response?.data || response
-      if (!Number(importedResult?.importedRows)) {
+      if (importedResult?.status === 'CANCELLED') {
+        setImportProgress(0)
+        setResult(importedResult)
+        return
+      }
+      setImportProgress(100)
+      if (!Number(importedResult?.importedRows) && !Number(importedResult?.failedRows)) {
         setImportProgress(0)
         setError(importedResult?.message || 'No records were imported. Review the validation errors and try again.')
         return
@@ -231,11 +261,19 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
       setResult(importedResult)
       if (importedResult?.importedRows) {
         setBusy(false)
-        await onImported?.()
+        await onImported?.(importedResult)
       }
-    } catch (requestError) { setError(errorMessage(requestError)); setImportProgress(0) } finally { setBusy(false) }
+    } catch (requestError) {
+      const validationData = requestError?.body?.data
+      if (validationData?.validationRequired && Array.isArray(validationData.rows)) {
+        setPreview(normalizeCompletedStudentImportPreview(validationData))
+        setImportConfirmation(null)
+        setShowPreview(true)
+        setError(validationData.message || 'Fix the validation errors and revalidate before importing.')
+      } else setError(errorMessage(requestError))
+      setImportProgress(0)
+    } finally { setBusy(false) }
   }
-
   const toggleImportConfirmationRow = (rowNumber) => setImportConfirmation((current) => current ? ({ ...current, missingContactRows: current.missingContactRows.map((item) => item.row.rowNumber === rowNumber ? { ...item, selected: !item.selected } : item) }) : current)
 
   const removePreviewRow = (rowNumber) => {
@@ -254,10 +292,15 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
     setContactReview(null)
     setError(''); setBusy(true); setImportProgress(5)
     try {
-      const response = await importCompletedStudents(selectedRows, { allowMissingContact: true, onChunkComplete: (completed, total) => setImportProgress(Math.min(96, Math.max(12, Math.round((completed / total) * 96)))) })
+      const response = await importCompletedStudents(selectedRows, { fileName: file?.name, skippedRows: (preview?.rows || []).filter((row) => !row.valid && !hasOnlyMissingContactErrors(row)).length, allowMissingContact: true, onChunkComplete: (completed, total) => setImportProgress(Math.min(96, Math.max(12, Math.round((completed / total) * 96)))) })
       const importedResult = response?.data || response
+      if (importedResult?.status === 'CANCELLED') {
+        setImportProgress(0)
+        setResult(importedResult)
+        return
+      }
       setImportProgress(100)
-      if (!Number(importedResult?.importedRows)) {
+      if (!Number(importedResult?.importedRows) && !Number(importedResult?.failedRows)) {
         setImportProgress(0)
         setError(importedResult?.message || 'No records were imported. Review the validation errors and try again.')
         return
@@ -265,9 +308,18 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
       setResult(importedResult)
       if (importedResult?.importedRows) {
         setBusy(false)
-        await onImported?.()
+        await onImported?.(importedResult)
       }
-    } catch (requestError) { setError(errorMessage(requestError)); setImportProgress(0) } finally { setBusy(false) }
+    } catch (requestError) {
+      const validationData = requestError?.body?.data
+      if (validationData?.validationRequired && Array.isArray(validationData.rows)) {
+        setPreview(normalizeCompletedStudentImportPreview(validationData))
+        setContactReview(null)
+        setShowPreview(true)
+        setError(validationData.message || 'Fix the validation errors and revalidate before importing.')
+      } else setError(errorMessage(requestError))
+      setImportProgress(0)
+    } finally { setBusy(false) }
   }
 
   const toggleContactReviewRow = (rowNumber) => setContactReview((current) => current.map((item) => item.row.rowNumber === rowNumber ? { ...item, selected: !item.selected } : item))
@@ -319,10 +371,10 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
         </ol>
         {!result ? <>
           <div className="completed-upload-upload-options">
-            <div className="completed-upload-instructions course-import-instructions"><strong>Before you upload</strong><p>Complete the student report template, then upload the .xlsx file.</p><button type="button" className="button button-ghost" onClick={() => void downloadCompletedStudentTemplate()} disabled={busy}><Download size={15} /> Download template</button><span className="completed-upload-limit"><b>Upload limit</b><span>Up to <strong>100 rows</strong> per file | .xlsx only</span></span></div>
+            <div className="completed-upload-instructions course-import-instructions"><strong>Before you upload</strong><p>Complete the student report template, then upload the .xlsx file.</p><button type="button" className="button button-ghost" onClick={() => void downloadCompletedStudentTemplate()} disabled={busy}><Download size={15} /> Download template</button></div>
             <label className={`completed-upload-file course-import-file${dragging ? ' is-dragging' : ''}${file ? ' has-file' : ''}${busy ? ' is-loading' : ''}`} aria-busy={busy} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); void selectFile(event.dataTransfer.files?.[0]) }}>
               <input ref={inputRef} type="file" accept=".xlsx" disabled={busy} onChange={(event) => void selectFile(event.target.files?.[0])} />
-              {busy ? <div className="completed-upload-file-progress course-import-file-progress" role="status" aria-live="polite"><LoaderCircle className="completed-upload-spinner" size={23} /><strong>Uploading student workbook...</strong><span>{file?.name || 'Please wait while we validate the workbook.'}</span></div> : <><Upload size={23} /><strong>{file ? file.name : 'Upload student Excel'}</strong><span>{file ? `${(file.size / 1024).toFixed(1)} KB | .xlsx` : '.xlsx only | up to 8 MB | 100 rows per upload'}</span></>}
+              {busy ? <div className="completed-upload-file-progress course-import-file-progress" role="status" aria-live="polite"><LoaderCircle className="completed-upload-spinner" size={23} /><strong>Uploading student workbook...</strong><span>{file?.name || 'Please wait while we validate the workbook.'}</span></div> : <><Upload size={23} /><strong>{file ? file.name : 'Upload student Excel'}</strong><span>{file ? `${(file.size / 1024).toFixed(1)} KB | .xlsx` : '.xlsx only | up to 20 MB'}</span></>}
             </label>
           </div>
           {preview ? <div className="completed-upload-summary"><div><strong>{preview.totalRows}</strong><span>Total rows</span></div><div className="is-valid"><strong>{preview.validRows}</strong><span>Valid</span></div><div className="is-invalid"><strong>{needsFixingRows.length}</strong><span>Needs fixing</span></div>{duplicateRows.length ? <div className="is-duplicate"><strong>{duplicateRows.length}</strong><span>Duplicate</span></div> : null}{preview.warningRows ? <div className="is-warning"><strong>{preview.warningRows}</strong><span>Warnings</span></div> : null}{preview.invalidRows > 0 ? <button type="button" className="completed-upload-error-download" onClick={() => void downloadCompletedStudentFailedRows(preview.rows)} disabled={busy}><Download size={15} /> Download Errors</button> : null}</div> : null}
@@ -339,7 +391,7 @@ export function CompletedStudentUploadModal({ isOpen, onClose, onImported }) {
   <td className="completed-upload-validation-cell">{row.errors?.length ? row.errors.join(' ') : row.warnings?.length ? row.warnings.join(' ') : 'Ready to import'}</td>
   <td className="completed-upload-action-column">{isDuplicateRow(row) ? <button type="button" className="completed-upload-row-action is-remove" onClick={() => removePreviewRow(row.rowNumber)} disabled={busy}><Trash2 size={14} /> Remove</button> : isEditing ? <button type="button" className="completed-upload-row-action is-save" onClick={() => void saveEditedRow()} disabled={busy}><Save size={14} /> Save</button> : <button type="button" className="completed-upload-row-action" onClick={() => beginEditing(row)} disabled={busy}><Edit3 size={14} /> Edit</button>}</td>
 </tr> })}</tbody></table></div><div className="completed-upload-fixed-result-rail" aria-label="Fixed validation results"><table><thead><tr><th>Status</th><th>Validation</th><th>Action</th></tr></thead><tbody style={{ transform: 'translate3d(0, calc(var(--completed-upload-scroll-top, 0px) * -1), 0)' }}>{visibleRows.map((row) => { const isEditing = editingRow?.rowNumber === row.rowNumber; const warning = isWarningRow(row); return <tr key={`fixed-${row.rowNumber}`}><td><span className={`completed-upload-pill ${isDuplicateRow(row) ? 'is-duplicate' : row.valid ? warning ? 'is-warning' : 'is-valid' : 'is-invalid'}`}>{isDuplicateRow(row) ? 'Duplicate' : row.valid ? warning ? 'Warning' : 'Valid' : 'Invalid'}</span></td><td>{row.errors?.length ? row.errors.join(' ') : row.warnings?.length ? row.warnings.join(' ') : 'Ready to import'}</td><td>{isDuplicateRow(row) ? <button type="button" className="completed-upload-row-action is-remove" onClick={() => removePreviewRow(row.rowNumber)} disabled={busy}><Trash2 size={14} /> Remove</button> : isEditing ? <button type="button" className="completed-upload-row-action is-save" onClick={() => void saveEditedRow()} disabled={busy}><Save size={14} /> Save</button> : <button type="button" className="completed-upload-row-action" onClick={() => beginEditing(row)} disabled={busy}><Edit3 size={14} /> Edit</button>}</td></tr> })}</tbody></table></div></div><div className="completed-upload-pagination"><span>Showing {visibleRows.length ? ((tablePage - 1) * PAGE_SIZE) + 1 : 0}-{Math.min(tablePage * PAGE_SIZE, filteredRows.length)} of {filteredRows.length}</span><div><button type="button" onClick={() => setTablePage((page) => Math.max(1, page - 1))} disabled={tablePage <= 1}>Previous</button><strong>Page {tablePage} of {totalTablePages}</strong><button type="button" onClick={() => setTablePage((page) => Math.min(totalTablePages, page + 1))} disabled={tablePage >= totalTablePages}>Next</button></div></div><div className="completed-upload-preview-actions"><button type="button" className="completed-upload-secondary" onClick={reset} disabled={busy}>Clear</button><button type="button" className="completed-upload-primary" onClick={() => void importRows()} disabled={busy || !preview?.rows?.length || !preview.rows.some((row) => row.valid || hasOnlyMissingContactErrors(row))}>{busy ? <><LoaderCircle className="completed-upload-spinner" size={16} /> Importing...</> : 'Import Valid Rows'}</button></div></> : null}
-        </> : <div className="completed-upload-result" role="status"><CheckCircle2 size={30} /><div><h3>Successfully imported</h3><p>{result.importedRows || 0} student record{Number(result.importedRows || 0) === 1 ? '' : 's'} added successfully.</p></div></div>}
+        </> : <div className={`completed-upload-result${result.status === 'CANCELLED' ? ' is-cancelled' : ''}`} role="status"><ResultIcon size={30} /><div><h3>{result.status === 'CANCELLED' ? 'Import cancelled' : result.status === 'COMPLETED_WITH_ERRORS' ? 'Import completed with errors' : 'Upload completed'}</h3><p>{result.status === 'CANCELLED' ? `${result.importedRows || 0} student record${Number(result.importedRows || 0) === 1 ? '' : 's'} imported before cancellation. Remaining rows were not processed.` : `${result.importedRows || 0} student record${Number(result.importedRows || 0) === 1 ? '' : 's'} imported successfully. ${result.failedRows || 0} failed row${Number(result.failedRows || 0) === 1 ? '' : 's'}. ${result.skippedRows || 0} skipped.`}</p>{result.failedRows > 0 && result.jobId ? <button type="button" className="completed-upload-error-download" onClick={() => void downloadCompletedStudentImportJobFailedRows(result.jobId)} disabled={busy}><Download size={15} /> Download failed rows</button> : null}</div></div>}
         {error ? <div className="completed-upload-error" role="alert"><AlertCircle size={17} />{error}</div> : null}
         {importConfirmation ? <div className="completed-upload-confirm-backdrop" role="presentation"><div className={`completed-upload-confirm-card completed-upload-import-confirm-card${result ? ' is-complete' : ''}`} role="dialog" aria-modal="true" aria-labelledby="completed-upload-import-confirm-title"><div className="completed-upload-confirm-header"><div><p>CONFIRM IMPORT</p><h3 id="completed-upload-import-confirm-title">Ready to import student records</h3><span>Review the import summary before saving these historical records.</span></div><button type="button" onClick={() => setImportConfirmation(null)} disabled={busy} aria-label="Close import confirmation"><X size={18} /></button></div><div className="completed-upload-import-summary"><div><strong>{importConfirmation.rows.filter((row) => row.valid).length}</strong><span>Ready to import</span></div><div><strong>{importConfirmation.missingContactRows.length}</strong><span>Missing contact review</span></div><div><strong>{importConfirmation.skippedRows}</strong><span>Will be skipped</span></div></div>{importConfirmation.missingContactRows.length ? <div className="completed-upload-confirm-list">{importConfirmation.missingContactRows.map(({ row, selected }) => <label className={`completed-upload-confirm-row${selected ? ' is-selected' : ''}`} key={`import-${row.rowNumber}`}><input type="checkbox" checked={selected} onChange={() => toggleImportConfirmationRow(row.rowNumber)} /><span><strong>{row.data?.studentName || row.studentId || 'Unnamed student'}</strong><small>Row {row.rowNumber} | {row.studentId || '-'}</small></span><em>{row.errors.filter(isMissingContactError).map((error) => error.replace(/\. Confirm before importing with an empty value\./i, '')).join(' and ')}</em></label>)}</div> : <div className="completed-upload-import-ready"><CheckCircle2 size={18} /><span>All selected rows contain the required import data.</span></div>}{result ? <div className="completed-upload-import-success"><CheckCircle2 size={28} /><strong>Successfully imported</strong></div> : null}{importProgress > 0 && busy ? <div className="completed-upload-progress"><div><span>Uploading records...</span><strong>{importProgress}%</strong></div><div className="completed-upload-progress-track"><span style={{ width: `${importProgress}%` }} /></div></div> : null}<div className="completed-upload-confirm-actions"><button type="button" className="completed-upload-secondary" onClick={() => setImportConfirmation(null)} disabled={busy}>Cancel</button><button type="button" className="completed-upload-primary" onClick={() => void confirmImport()} disabled={busy || !importConfirmation.missingContactRows.some((item) => item.selected) && importConfirmation.rows.every((row) => !row.valid)}>{busy ? <><LoaderCircle className="completed-upload-spinner" size={16} /> Uploading...</> : 'Confirm & Import'}</button></div><div className="completed-upload-confirm-actions completed-upload-success-actions">{result ? <button type="button" className="completed-upload-primary" onClick={() => { reset(); onClose() }} disabled={busy}>OK</button> : null}</div></div></div> : null}        {contactReview ? <div className="completed-upload-confirm-backdrop" role="presentation"><div className="completed-upload-confirm-card" role="dialog" aria-modal="true" aria-labelledby="completed-upload-confirm-title"><div className="completed-upload-confirm-header"><div><p>CONFIRM HISTORICAL DATA</p><h3 id="completed-upload-confirm-title">Some important fields are missing</h3><span>Select the students you want to import. Unselected students will be skipped.</span></div><button type="button" onClick={() => setContactReview(null)} disabled={busy} aria-label="Close confirmation"><X size={18} /></button></div><div className="completed-upload-confirm-list">{contactReview.map(({ row, selected }) => <label className={`completed-upload-confirm-row${selected ? ' is-selected' : ''}`} key={row.rowNumber}><input type="checkbox" checked={selected} onChange={() => toggleContactReviewRow(row.rowNumber)} /><span><strong>{row.data?.studentName || row.studentId || 'Unnamed student'}</strong><small>Row {row.rowNumber} | {row.studentId || '-'}</small></span><em>{row.errors.filter(isMissingContactError).map((error) => error.replace(/\. Confirm before importing with an empty value\./i, '')).join(' and ')}</em></label>)}</div><div className="completed-upload-confirm-actions"><button type="button" className="completed-upload-secondary" onClick={() => setContactReview(null)} disabled={busy}>Cancel</button><button type="button" className="completed-upload-primary" onClick={() => void confirmContactImport()} disabled={busy || !contactReview.some((item) => item.selected)}>Import Selected</button></div></div></div> : null}
       </div>

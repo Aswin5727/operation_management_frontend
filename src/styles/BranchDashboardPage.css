@@ -7744,7 +7744,7 @@ body.branch-notification-menu-open .main-area {
 
 .course-added-submodule-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px 28px;
+  grid-template-columns: 28px minmax(0, 1fr) auto 28px 28px;
   align-items: center;
   gap: 10px;
   min-height: 54px;
@@ -11724,6 +11724,12 @@ body.branch-notification-menu-open .main-area {
 .branch-student-payment-status.partially-paid {
   background: #dbeafe;
   color: #2563eb;
+  min-width: 130px;
+  justify-content: center;
+  padding-left: 14px;
+  padding-right: 14px;
+  letter-spacing: 0;
+  line-height: 1.2;
 }
 
 .branch-student-payment-status.pending {
@@ -12641,6 +12647,31 @@ body.branch-notification-menu-open .main-area {
   white-space: nowrap;
 }
 
+.branch-payment-table-shell .branch-course-table td:last-child .branch-student-payment-status.partially-paid {
+  width: 130px;
+  min-width: 130px;
+  max-width: 130px;
+  overflow: visible;
+  text-overflow: clip;
+  justify-content: center;
+}
+
+/* Keep Partially Paid as plain text without a surrounding pill. */
+.branch-student-payment-status.partially-paid,
+.branch-students-table-shell .branch-course-table td:nth-child(10) .branch-student-payment-status.partially-paid,
+.branch-payment-table-shell .branch-course-table td:last-child .branch-student-payment-status.partially-paid {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  overflow: visible;
+  text-overflow: clip;
+  justify-content: center;
+}
+
 /* Keep the payment table's student identifier readable in full. */
 .branch-payment-table-shell {
   overflow-x: auto;
@@ -12972,7 +13003,7 @@ body.branch-notification-menu-open .main-area {
   }
 
   .course-added-submodule-row {
-    grid-template-columns: 28px minmax(0, 1fr) 28px 28px;
+    grid-template-columns: 28px minmax(0, 1fr) auto 28px 28px;
   }
 }
 

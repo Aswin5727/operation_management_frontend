@@ -2765,6 +2765,21 @@ body.super-admin-notification-menu-open .super-admin-content {
 .branch-table tbody tr.branch-table-row:focus-visible td {
   background: #f8fbff;
 }
+/* Keep the selected row and its actions above neighboring table rows. */
+.branch-table tbody tr.branch-table-row.is-actions-open {
+  position: relative;
+  z-index: 30;
+}
+
+.branch-table tbody tr.branch-table-row.is-actions-open > td {
+  position: relative;
+  z-index: 31;
+}
+
+.branch-table tbody tr.branch-table-row.is-actions-open .branch-actions-wrap {
+  z-index: 32;
+}
+
 
 .branch-table-col-index {
   width: 56px;
@@ -3073,7 +3088,7 @@ body.super-admin-notification-menu-open .super-admin-content {
   background: #fff;
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.14);
   opacity: 0;
-  transform: translateY(-6px) scale(0.98);
+  transform: scale(0.98);
   transform-origin: top right;
   pointer-events: none;
   transition: opacity 0.16s ease, transform 0.16s ease;
@@ -3082,14 +3097,8 @@ body.super-admin-notification-menu-open .super-admin-content {
 .branch-actions-wrap.is-upward .branch-actions-menu {
   top: auto;
   bottom: calc(100% + 8px);
-  transform: translateY(6px) scale(0.98);
+  transform: scale(0.98);
   transform-origin: bottom right;
-}
-
-.branch-actions-wrap:hover .branch-actions-menu {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
 }
 
 .branch-actions-wrap.is-open .branch-actions-menu {

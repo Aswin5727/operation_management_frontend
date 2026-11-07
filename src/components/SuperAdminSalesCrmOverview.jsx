@@ -31,7 +31,7 @@ export function SuperAdminSalesCrmOverview({ branches = [], dateRange = null, on
     }, 250)
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [period, branchId, adminId, adminSearch, dateRange?.startDate, dateRange?.endDate])
-  const summary = data?.summary || {}
+  const summary = useMemo(() => data?.summary || {}, [data?.summary])
   useEffect(() => { onSummaryChange?.(summary) }, [onSummaryChange, summary])
   const admins = data?.salesAdmins || []
   const rows = data?.chart?.buckets || []

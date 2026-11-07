@@ -173,7 +173,11 @@ import '../styles/BranchDashboardPage.css'
 // React StrictMode replay, focus, visibility and section changes). Keep a
 // short recent-result window in addition to the in-flight lock so those
 // signals cannot issue the same live request repeatedly.
-const BRANCH_LIVE_REFRESH_DEDUPE_MS = 2000
+// Initial mount, focus/visibility events and auth/profile hydration can all
+// arrive within a few seconds. Keep one shared result window so a slow API
+// response is not followed by a duplicate request before the dashboard has
+// finished settling.
+const BRANCH_LIVE_REFRESH_DEDUPE_MS = 5000
 // Follow-up reminders are created by the backend scheduler. Poll only while
 // the dashboard is visible so due reminders appear without manual refreshes.
 const BRANCH_NOTIFICATION_POLL_MS = 30 * 1000
@@ -637,9 +641,12 @@ function isCompletedStudentReportRecord(student = {}) {
   })
   const hasVisibleEnrollment = enrollments.some((entry) => {
     const status = String(entry?.status || entry?.recordStatus || entry?.studentStatus || '').trim().toUpperCase()
+    const completionStatus = String(entry?.courseCompletion || entry?.courseCompletionStatus || '').trim().toUpperCase()
+    // courseCompletedAt can be stale or set before academic completion.
+    // Keep the enrollment in Students until the authoritative academic
+    // completion status is COMPLETED.
     return !['COMPLETED', 'DISCONTINUED'].includes(status)
-      && !entry?.courseCompletedAt
-      && !entry?.completedAt
+      && completionStatus !== 'COMPLETED'
   })
 
   if (enrollments.length) return !hasVisibleEnrollment
@@ -1464,13 +1471,7 @@ function computeBranchStudentPaymentSummary(stu = {}) {
       return paid > 0 && paid < amount
     })
 
-  const completionTolerance = scheduleInstallments.length > 0 ? 2 : 0
-  const isEffectivelyCompleted =
-    totalFee > 0 &&
-    (
-      allInstallmentsPaid ||
-      paidAmount >= Math.max(totalFee - completionTolerance, 0)
-    )
+  const isEffectivelyCompleted = scheduleInstallments.length > 0 && allInstallmentsPaid
 
   const displayPaidAmount = isEffectivelyCompleted ? totalFee : paidAmount
   const displayPendingAmount = isEffectivelyCompleted ? 0 : Math.max(totalFee - paidAmount, 0)
@@ -1480,16 +1481,6 @@ function computeBranchStudentPaymentSummary(stu = {}) {
     paymentStatus = 'Completed'
   } else if (hasPartialInstallment) {
     paymentStatus = 'Partially Paid'
-  } else if (nextDueDate) {
-    const today = new Date()
-    const dueDate = new Date(nextDueDate)
-    if (!Number.isNaN(dueDate.getTime()) && dueDate < today) {
-      paymentStatus = 'Overdue'
-    }
-  } else if (paidAmount > 0) {
-    paymentStatus = 'Upcoming'
-  } else {
-    paymentStatus = 'Upcoming'
   }
 
   return {
@@ -1615,9 +1606,25 @@ function getBranchStudentCourseRows(stu = {}) {
       ? Math.max(Number(nextInstallment.amount ?? nextInstallment.installmentAmount ?? 0) - Number(nextInstallment.paidAmount ?? nextInstallment.amountPaid ?? 0), 0)
       : 0
     const nextDueDate = nextInstallment?.dueDate || nextInstallment?.date || null
-    const isCompleted = totalFee > 0 && paidAmount >= Math.max(totalFee - 2, 0)
+    const allInstallmentsPaid = course.rows.length > 0 && course.rows.every((installment) => {
+      const amount = Number(installment.amount ?? installment.installmentAmount ?? 0)
+      const paid = Number(installment.paidAmount ?? installment.amountPaid ?? 0)
+      return amount > 0 && paid >= amount
+    })
+    const hasPartialInstallment = course.rows.some((installment) => {
+      const amount = Number(installment.amount ?? installment.installmentAmount ?? 0)
+      const paid = Number(installment.paidAmount ?? installment.amountPaid ?? 0)
+      return amount > 0 && paid > 0 && paid < amount
+    })
+    const isCompleted = allInstallmentsPaid
     const isOverdue = !isCompleted && nextDueDate && new Date(nextDueDate) < new Date()
-    const paymentStatus = isCompleted ? 'Completed' : isOverdue ? 'Overdue' : paidAmount > 0 ? 'Partially Paid' : 'Pending'
+    const paymentStatus = isCompleted
+      ? 'Completed'
+      : isOverdue
+        ? 'Overdue'
+        : hasPartialInstallment
+          ? 'Partially Paid'
+          : 'Pending'
     const student = {
       ...stu,
       courseId: course.courseId || stu.courseId,
@@ -1742,6 +1749,7 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
     ? student.courseEnrollments
     : Array.isArray(student.courses) ? student.courses : []
   const isSequentialReceipt = String(student.arrangementType || student.enrollmentType || '').trim().toUpperCase() === 'SEQUENTIAL'
+  const isParallelReceipt = String(student.arrangementType || student.enrollmentType || '').trim().toUpperCase() === 'PARALLEL' && studentEnrollments.length > 1
   const selectedSequentialEnrollment = isSequentialReceipt
     ? studentEnrollments.find((enrollment) => (
         (payment.courseId && String(enrollment?.courseId || enrollment?.id || '').trim() === String(payment.courseId).trim()) ||
@@ -1759,6 +1767,14 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
         installmentSchedule: getBranchSequentialCourseInstallments(student, studentEnrollments, selectedSequentialEnrollment),
       }
     : student
+  const receiptCourseName = isParallelReceipt
+    ? studentEnrollments
+        .map((enrollment) => enrollment?.courseName || enrollment?.course?.name || enrollment?.name || '')
+        .map((name) => String(name).trim())
+        .filter(Boolean)
+        .filter((name, index, names) => names.indexOf(name) === index)
+        .join(' + ') || receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-'
+    : receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-'
   const paymentSummary = computeBranchStudentPaymentSummary(receiptStudent)
   const receiptBatchNames = [
     ...(isSequentialReceipt
@@ -1808,7 +1824,7 @@ function downloadBranchStudentReceipt(payment = {}, student = {}, context = {}) 
     branchEmail: context.branchEmail || '-',
     studentName: receiptStudent.studentName || payment.studentName || 'Student',
     studentId: receiptStudent.studentId || payment.studentId || '-',
-    courseName: receiptStudent.courseName || receiptStudent.courseInterested || payment.course || '-',
+    courseName: receiptCourseName,
     batchName: receiptBatchNames.join(' + ') || student.batchId || '-',
     studentPhone: receiptStudent.mobileNumber || '-',
     receiptNumber,
@@ -1957,6 +1973,11 @@ function isUploadedCompletedStudentReportRecord(student = {}) {
     ...(Array.isArray(student.courseEnrollments) ? student.courseEnrollments.map((entry) => entry?.importedLifecycleStatus) : []),
   ]
   const importedLifecycleMarker = importedLifecycleValues.some((value) => ['COMPLETED', 'DISCONTINUED'].includes(String(value || '').trim().toUpperCase()))
+  const importedAcademicResultsMarker = Boolean(
+    student.importedAcademicResults &&
+    typeof student.importedAcademicResults === 'object' &&
+    !Array.isArray(student.importedAcademicResults),
+  )
   const uploadedStudentStatuses = [
     student.studentStatus,
     student.status,
@@ -1966,7 +1987,11 @@ function isUploadedCompletedStudentReportRecord(student = {}) {
   ].map((value) => String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, ' '))
   const reportStudentStatusMarker = uploadedStudentStatuses.some((value) => ['completed student', 'completed students', 'discontinued student', 'discontinued students'].includes(value))
 
-  return importMarker || sourceMarker || reportFieldMarker || importedLifecycleMarker || reportStudentStatusMarker
+  // Legacy completed-student uploads created before the import marker was
+  // persisted may only have a completed lifecycle/date and no enrollment
+  // metadata. Reuse the report-record classifier as a safe fallback so those
+  // old rows cannot recreate progress alerts after login.
+  return importMarker || sourceMarker || reportFieldMarker || importedLifecycleMarker || importedAcademicResultsMarker || reportStudentStatusMarker || isCompletedStudentReportRecord(student)
 }
 
 function isSuccessfulDashboardPayment(payment = {}) {
@@ -5168,7 +5193,12 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         const controller = new AbortController()
         const timeoutId = window.setTimeout(() => controller.abort(), BRANCH_NOTIFICATIONS_TIMEOUT_MS)
         try {
-          const response = await request('/notifications?limit=100&page=1', {
+          // The dashboard only needs the latest notifications for its bell
+          // and summary. Load the full page only when the user opens the
+          // notifications section, so login is not blocked by a large
+          // historical response.
+          const notificationLimit = activeSection === 'notifications' ? 100 : 20
+          const response = await request(`/notifications?limit=${notificationLimit}&page=1`, {
             method: 'GET',
             signal: controller.signal,
           })
@@ -5200,9 +5230,25 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
             return notification
           })
           const mergedIds = new Set(mergedNotifications.map((notification) => String(notification.id || '').trim()))
+          const importedCompletedStudentIds = new Set(
+            branchStudents
+              .filter((student) => isUploadedCompletedStudentReportRecord(student))
+              .flatMap((student) => [student?.studentId, student?.id])
+              .map((value) => String(value || '').trim().toLowerCase())
+              .filter(Boolean),
+          )
+          const activeBranchStudentIds = new Set(
+            branchStudents
+              .flatMap((student) => [student?.studentId, student?.id])
+              .map((value) => String(value || '').trim().toLowerCase())
+              .filter(Boolean),
+          )
+          const hasBranchStudentSnapshot = !isBranchStudentsLoading
           const storedProgressNotifications = storedNotifications.filter(
             (notification) =>
               String(notification.kind || '').trim() === 'branch-progress-status' &&
+              !importedCompletedStudentIds.has(String(notification.studentId || '').trim().toLowerCase()) &&
+              (!hasBranchStudentSnapshot || activeBranchStudentIds.has(String(notification.studentId || '').trim().toLowerCase())) &&
               doesBranchNotificationBelongToBranch(notification, activeBranchScope),
           )
           const preservedNotifications = storedNotifications.filter((notification) => {
@@ -5229,10 +5275,27 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
             branchId: String(branchProfile?.branchId || branchData?.branchId || branchProfile?.id || branchData?.id || '').trim(),
             branchEmail: String(branchProfile?.branchEmail || branchData?.branchEmail || user?.email || '').trim().toLowerCase(),
           }
+          const importedCompletedStudentIds = new Set(
+            branchStudents
+              .filter((student) => isUploadedCompletedStudentReportRecord(student))
+              .flatMap((student) => [student?.studentId, student?.id])
+              .map((value) => String(value || '').trim().toLowerCase())
+              .filter(Boolean),
+          )
+          const activeBranchStudentIds = new Set(
+            branchStudents
+              .flatMap((student) => [student?.studentId, student?.id])
+              .map((value) => String(value || '').trim().toLowerCase())
+              .filter(Boolean),
+          )
+          const hasBranchStudentSnapshot = !isBranchStudentsLoading
           const fallbackNotifications = mergeNotificationsWithStoredState(loadNotifications()).filter((notification) => {
             const kind = String(notification.kind || '').trim()
             if (['lead-follow-up-scheduled', 'lead-follow-up-due', 'lead-follow-up-overdue'].includes(kind)) return false
-            return kind !== 'branch-progress-status' || doesBranchNotificationBelongToBranch(notification, activeBranchScope)
+            return kind !== 'branch-progress-status'
+              || (!importedCompletedStudentIds.has(String(notification.studentId || '').trim().toLowerCase())
+                && (!hasBranchStudentSnapshot || activeBranchStudentIds.has(String(notification.studentId || '').trim().toLowerCase()))
+                && doesBranchNotificationBelongToBranch(notification, activeBranchScope))
           })
           setBranchNotificationRecords(fallbackNotifications)
         } finally {
@@ -5246,12 +5309,15 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     })
   }, [
     admissionOnlyMode,
+    activeSection,
     branchData?.branchEmail,
     branchData?.branchId,
     branchData?.id,
     branchProfile?.branchEmail,
     branchProfile?.branchId,
     branchProfile?.id,
+    branchStudents,
+    isBranchStudentsLoading,
     embeddedMode,
     loadApprovedDiscontinuationRequests,
     user?.email,
@@ -5523,9 +5589,25 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         branchId: String(branchProfile?.branchId || branchData?.branchId || branchProfile?.id || branchData?.id || '').trim(),
         branchEmail: String(branchProfile?.branchEmail || user?.email || '').trim().toLowerCase(),
       }
+      const importedCompletedStudentIds = new Set(
+        branchStudents
+          .filter((student) => isUploadedCompletedStudentReportRecord(student))
+          .flatMap((student) => [student?.studentId, student?.id])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const activeBranchStudentIds = new Set(
+        branchStudents
+          .flatMap((student) => [student?.studentId, student?.id])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const hasBranchStudentSnapshot = !isBranchStudentsLoading
       const localProgressNotifications = loadNotifications().filter(
         (notification) =>
           String(notification.kind || '').trim() === 'branch-progress-status' &&
+          !importedCompletedStudentIds.has(String(notification.studentId || '').trim().toLowerCase()) &&
+          (!hasBranchStudentSnapshot || activeBranchStudentIds.has(String(notification.studentId || '').trim().toLowerCase())) &&
           doesBranchNotificationBelongToBranch(notification, activeBranchScope),
       )
       setBranchNotificationRecords((current) => [
@@ -5535,7 +5617,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     })
 
     return unsubscribe
-  }, [branchData?.branchId, branchData?.id, branchProfile?.branchEmail, branchProfile?.branchId, branchProfile?.id, user?.email])
+  }, [branchData?.branchId, branchData?.id, branchProfile?.branchEmail, branchProfile?.branchId, branchProfile?.id, branchStudents, isBranchStudentsLoading, user?.email])
 
   useEffect(() => {
     const unsubscribe = subscribeBranchCourseSnapshot(() => {
@@ -5966,10 +6048,29 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     () => {
       const seenCourseEditNotifications = new Set()
       const seenFacultyLoginNotifications = new Set()
+      const importedCompletedStudentIds = new Set(
+        branchStudents
+          .filter((student) => isUploadedCompletedStudentReportRecord(student))
+          .flatMap((student) => [student?.studentId, student?.id])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const activeBranchStudentIds = new Set(
+        branchStudents
+          .flatMap((student) => [student?.studentId, student?.id])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const hasBranchStudentSnapshot = !isBranchStudentsLoading
       return branchNotificationRecords
         .map(normalizeBranchNotification)
         .filter(
           (notification) =>
+            !(String(notification.kind || '').trim().toLowerCase() === 'branch-progress-status'
+              && importedCompletedStudentIds.has(String(notification.studentId || '').trim().toLowerCase())) &&
+            !(String(notification.kind || '').trim().toLowerCase() === 'branch-progress-status'
+              && hasBranchStudentSnapshot
+              && !activeBranchStudentIds.has(String(notification.studentId || '').trim().toLowerCase())) &&
             !isProgressGeneratedCourseModuleNotification(notification) &&
             String(notification.kind || '').trim() !== 'branch-login' && (
               String(notification.kind || '').startsWith('branch-') ||
@@ -6047,8 +6148,42 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         })
         .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     },
-    [branchNotificationRecords, branchScope, hasLeadManagementAccess, user?.id],
+    [branchNotificationRecords, branchScope, branchStudents, hasLeadManagementAccess, isBranchStudentsLoading, user?.id],
   )
+
+  useEffect(() => {
+    if (isBranchStudentsLoading) return
+
+    const importedCompletedStudentIds = new Set(
+      branchStudents
+        .filter((student) => isUploadedCompletedStudentReportRecord(student))
+        .flatMap((student) => [student?.studentId, student?.id])
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
+    const activeBranchStudentIds = new Set(
+      branchStudents
+        .flatMap((student) => [student?.studentId, student?.id])
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
+
+    const isStaleBranchProgressNotification = (notification) => (
+      String(notification?.kind || '').trim().toLowerCase() === 'branch-progress-status' &&
+      (importedCompletedStudentIds.has(String(notification?.studentId || '').trim().toLowerCase()) ||
+        !activeBranchStudentIds.has(String(notification?.studentId || '').trim().toLowerCase()))
+    )
+    const storedNotifications = loadNotifications()
+    const cleanedNotifications = storedNotifications.filter((notification) => !isStaleBranchProgressNotification(notification))
+    if (cleanedNotifications.length !== storedNotifications.length) {
+      saveNotifications(cleanedNotifications, { emit: false })
+    }
+    setBranchNotificationRecords((current) => {
+      const next = current.filter((notification) => !isStaleBranchProgressNotification(notification))
+      return next.length === current.length ? current : next
+    })
+  }, [branchStudents, isBranchStudentsLoading])
+
   const branchNotificationSections = useMemo(
     () => {
       const searchTerm = branchNotificationSearch.trim().toLowerCase()
@@ -8165,7 +8300,8 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
       // Course Completion is derived from the backend's academic/project
       // progress snapshot. Do not omit that snapshot on the main Students
       // table, otherwise a 100% course is rendered as In Progress.
-      const freshRecords = await refreshBranchStudents(branchStudentScope, { includeProgress: true })
+      const shouldIncludeProgress = activeSection === 'students' || activeSection === 'completed-students'
+      const freshRecords = await refreshBranchStudents(branchStudentScope, { includeProgress: shouldIncludeProgress })
       if (requestId === branchStudentReloadRequestRef.current) {
         setBranchStudents(freshRecords)
       }
@@ -8182,7 +8318,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         setLoadedBranchStudentScopeKey(branchStudentScopeKey)
       }
     }
-  }, [admissionOnlyMode, branchStudentScope, branchStudentScopeKey])
+  }, [activeSection, admissionOnlyMode, branchStudentScope, branchStudentScopeKey])
 
   const refreshBranchDashboard = useCallback(async () => {
     if (isDashboardRefreshing) return
@@ -8523,12 +8659,31 @@ const studentCourseOptions = useMemo(() => {
     return hasAnyCourse && hasAnyFaculty && hasAnyBatch
   }, [branchBatchGroups, branchFacultyRecords, studentCourseOptions])
 
+  useEffect(() => {
+    if (!isStudentFormOpen || studentFormMode === 'view') return undefined
+    void loadBranchInstallmentPlanOptions()
+    return undefined
+  }, [isStudentFormOpen, loadBranchInstallmentPlanOptions, studentFormMode])
+
   const selectedStudentCoursePaymentPlans = useMemo(
-    () =>
-      Array.isArray(selectedStudentCourse?.paymentPlans)
+    () => {
+      const coursePlans = Array.isArray(selectedStudentCourse?.paymentPlans)
         ? selectedStudentCourse.paymentPlans
-        : [],
-    [selectedStudentCourse],
+        : []
+      const mergedPlans = normalizeBranchCoursePaymentPlanSelections([
+        ...coursePlans,
+        ...(Array.isArray(branchInstallmentTemplates) ? branchInstallmentTemplates : []),
+      ])
+      const seenNames = new Set()
+
+      return mergedPlans.filter((plan) => {
+        const name = String(plan?.templateName || '').trim().replace(/\s+/g, ' ').toLowerCase()
+        if (name && seenNames.has(name)) return false
+        if (name) seenNames.add(name)
+        return true
+      })
+    },
+    [branchInstallmentTemplates, selectedStudentCourse],
   )
 
   const selectedStudentPaymentPlan = useMemo(
@@ -9093,14 +9248,32 @@ const studentCourseOptions = useMemo(() => {
     )
   }, [isStudentFormOpen, studentFormMode, studentForm.courseStartDate])
 
+  // Completed Student Excel imports are historical/report records. They must
+  // remain available to the Completed Students page, but must not participate
+  // in operational views such as Payments, Students, batches, or dashboard
+  // totals.
+  const operationalBranchStudents = useMemo(
+    () => branchStudents.filter((student) => !isUploadedCompletedStudentReportRecord(student)),
+    [branchStudents],
+  )
+
   const branchPaymentRows = useMemo(
-  () => branchStudents.flatMap((stu) => getBranchStudentCourseRows(stu)),
-  [branchStudents],
+  () => operationalBranchStudents.flatMap((stu) => getBranchStudentCourseRows(stu)),
+  [operationalBranchStudents],
 )
 
   const allPaymentHistoryRecords = useMemo(() => {
     const records = new Map()
+    const importedStudentKeys = new Set(
+      branchStudents
+        .filter((student) => isUploadedCompletedStudentReportRecord(student))
+        .flatMap((student) => [student.studentId, student.id, student._id, student.recordId])
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
     const addRecord = (record = {}) => {
+      const recordStudentKey = String(record.studentId || record.studentRecordId || record.branchStudentId || '').trim().toLowerCase()
+      if (recordStudentKey && importedStudentKeys.has(recordStudentKey)) return
       const id = String(
         record.id ||
         record.receiptNumber ||
@@ -9149,7 +9322,7 @@ const studentCourseOptions = useMemo(() => {
       })
     })
 
-    branchStudents.forEach((stu) => {
+    operationalBranchStudents.forEach((stu) => {
       // Stored payment history is authoritative. The installment schedule is
       // only a fallback for students without recorded payment transactions;
       // otherwise a due/updated schedule row can appear as a fake payment.
@@ -9204,7 +9377,7 @@ const studentCourseOptions = useMemo(() => {
       })
     })
 
-    const studentById = new Map(branchStudents.flatMap((student) => [
+    const studentById = new Map(operationalBranchStudents.flatMap((student) => [
       [String(student.studentId || '').trim().toLowerCase(), student],
       [String(student.id || '').trim().toLowerCase(), student],
     ].filter(([key]) => key)))
@@ -9214,7 +9387,7 @@ const studentCourseOptions = useMemo(() => {
         studentById.get(String(record.studentId || '').trim().toLowerCase()) || {},
       ))
       .sort((a, b) => new Date(b.dateRaw || 0) - new Date(a.dateRaw || 0))
-  }, [branchStudents, storedPaymentHistoryRecords])
+  }, [branchStudents, operationalBranchStudents, storedPaymentHistoryRecords])
 
   const dashboardFilterOptions = useMemo(() => {
     const coursesById = new Map()
@@ -9225,7 +9398,7 @@ const studentCourseOptions = useMemo(() => {
     }
 
     branchCourseCards.forEach((course) => addCourse(course))
-    branchStudents.forEach((student) => addCourse(student, student.courseName || student.courseInterested, student.courseName || student.courseInterested))
+    operationalBranchStudents.forEach((student) => addCourse(student, student.courseName || student.courseInterested, student.courseName || student.courseInterested))
 
     const batchesById = new Map()
     const addBatch = (batch = {}, fallback = {}) => {
@@ -9249,7 +9422,7 @@ const studentCourseOptions = useMemo(() => {
       if (!batches.length) addBatch(group, { courseId: groupCourseId, courseName: groupCourseName })
     })
     if (!branchBatchGroups.length) {
-      branchStudents.forEach((student) => addBatch(student, {
+      operationalBranchStudents.forEach((student) => addBatch(student, {
         courseId: student.courseId || student.courseName || student.courseInterested,
         batchId: student.batchId || student.batchName || student.batch,
         batchName: student.batchName || student.batch,
@@ -9290,7 +9463,7 @@ const studentCourseOptions = useMemo(() => {
       courses: [...uniqueCoursesByName.values()].sort((left, right) => left.label.localeCompare(right.label)),
       batches,
     }
-  }, [branchBatchGroups, branchCourseCards, branchStudents, dashboardCourseDraft])
+  }, [branchBatchGroups, branchCourseCards, dashboardCourseDraft, operationalBranchStudents])
 
   const dashboardData = useMemo(() => {
     const selectedDate = dashboardDateTo || dashboardDateFrom || ''
@@ -9336,7 +9509,7 @@ const studentCourseOptions = useMemo(() => {
     )
     const matchesStudentFilters = (student) => matchesBaseStudentFilters(student) && inSelectedDateRange(studentAdmissionDate(student))
 
-    const students = branchStudents.filter(matchesStudentFilters)
+    const students = operationalBranchStudents.filter(matchesStudentFilters)
     const studentIds = new Set(students.flatMap((student) => [student.id, student.studentId].map((id) => String(id || '').trim()).filter(Boolean)))
     const currentBranchIds = new Set(
       [branchStudentScope.id, branchStudentScope.branchId, branchStudentScope.branchCode]
@@ -9376,7 +9549,7 @@ const studentCourseOptions = useMemo(() => {
     })
     const dueSoon = dueThisWeek.filter((item) => getDashboardDateValue(item.dueDate) > todayValue)
     const overdue = dueItems.filter((item) => getDashboardDateValue(item.dueDate) < todayValue)
-    const currentMonthStudents = students.length
+    const currentMonthStudents = students.filter((student) => !isUploadedCompletedStudentReportRecord(student)).length
     const totalFee = rows.reduce((sum, row) => sum + row.totalFee, 0)
     const totalCollected = rows.reduce((sum, row) => sum + row.paidAmount, 0)
     const startOfWeek = (date) => {
@@ -9442,7 +9615,7 @@ const studentCourseOptions = useMemo(() => {
       trendMax,
       statusValues: [totalCollected, Math.max(totalFee - totalCollected - overdue.reduce((sum, item) => sum + Math.max(item.amount - item.paidAmount, 0), 0), 0), overdue.reduce((sum, item) => sum + Math.max(item.amount - item.paidAmount, 0), 0)],
     }
-  }, [allPaymentHistoryRecords, branchStudentScope, branchStudents, dashboardBatchFilter, dashboardCourseFilter, dashboardDateFrom, dashboardDateTo, dashboardFilterOptions, dashboardTrendMode, discontinuedFinancialSummary])
+  }, [allPaymentHistoryRecords, branchStudentScope, dashboardBatchFilter, dashboardCourseFilter, dashboardDateFrom, dashboardDateTo, dashboardFilterOptions, dashboardTrendMode, discontinuedFinancialSummary, operationalBranchStudents])
 
   const trendingCourses = useMemo(() => {
     const courseMap = new Map()
@@ -10157,7 +10330,6 @@ useEffect(() => {
           Number.isFinite(workProgress) ? workProgress : 0,
         )
         return isCourseCompletionComplete(student, courseId, courseName, progress, branchAcademicProgressByStudent, catalogCourse)
-          || Boolean(entry?.courseCompletedAt || entry?.completedAt)
       })
       if (isCompleted) completedKeys.add(String(student?.studentId || student?.id || '').trim().toLowerCase())
     })
@@ -10167,8 +10339,7 @@ useEffect(() => {
   const filteredBranchStudents = useMemo(() => {
     if (!isBranchAcademicProgressLoaded) return []
     const q = appliedStudentSearchTerm.trim().toLowerCase()
-    return branchStudentsForDisplay
-      .filter((student) => isBatchFreezeActiveForStudent(student, branchBatchGroups) || !isCompletedStudentReportRecord(student))
+    return operationalBranchStudents
       .filter((student) => {
         if (!q) return true
         return [student?.studentId, student?.studentName, student?.email, student?.phone]
@@ -10212,7 +10383,7 @@ useEffect(() => {
         const comparison = String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' })
         return studentSortOrder === 'asc' ? comparison : -comparison
       })
-  }, [appliedStudentSearchTerm, branchBatchGroups, branchStudentsForDisplay, courseCompletedStudentKeys, isBranchAcademicProgressLoaded, isCourseCompletedFilter, studentCourseFilter, studentSortBy, studentSortOrder, studentStatusFilter])
+  }, [appliedStudentSearchTerm, courseCompletedStudentKeys, isBranchAcademicProgressLoaded, isCourseCompletedFilter, operationalBranchStudents, studentCourseFilter, studentSortBy, studentSortOrder, studentStatusFilter])
 
   const totalStudentPages = isCourseCompletedFilter
     ? 1
@@ -10520,6 +10691,10 @@ useEffect(() => {
 
   const branchProgressComparisonNotifications = useMemo(() => {
     return branchStudentsForDisplay
+      // Historical/completed students uploaded through the Excel import are
+      // report records. They must not participate in the live progress-alert
+      // workflow, otherwise an import of N rows creates N payment alerts.
+      .filter((student) => !isUploadedCompletedStudentReportRecord(student))
       .map((stu) => {
         const studentIdLabel = String(stu.studentId || stu.id || '-').trim()
         const studentName = String(stu.studentName || '-').trim()
@@ -11645,18 +11820,19 @@ useEffect(() => {
 
   const renderTopbar = () => (
     <header className="super-admin-topbar">
-      <div className="branch-dashboard-topbar-title">
-        <button
-          type="button"
-          className={`branch-dashboard-mobile-menu ${isSidebarCollapsed ? 'is-desktop-expand-toggle' : ''}`.trim()}
-          aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Open navigation menu'}
-          onClick={() => isSidebarCollapsed ? setIsSidebarCollapsed(false) : setIsMobileSidebarOpen(true)}
-        >
-          {isSidebarCollapsed ? <PanelLeftOpen size={18} strokeWidth={2.3} /> : <Menu size={20} strokeWidth={2.2} />}
-        </button>
-        <h1>{activeSection === 'course-import' ? 'Course Management' : 'Branch Dashboard'}</h1>
-      </div>
-      <div className="super-admin-topbar-right">
+      <div className="branch-dashboard-topbar-row">
+        <div className="branch-dashboard-topbar-title">
+          <button
+            type="button"
+            className={`branch-dashboard-mobile-menu ${isSidebarCollapsed ? 'is-desktop-expand-toggle' : ''}`.trim()}
+            aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Open navigation menu'}
+            onClick={() => isSidebarCollapsed ? setIsSidebarCollapsed(false) : setIsMobileSidebarOpen(true)}
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen size={18} strokeWidth={2.3} /> : <Menu size={20} strokeWidth={2.2} />}
+          </button>
+          <h1>{activeSection === 'course-import' ? 'Course Management' : 'Branch Dashboard'}</h1>
+        </div>
+        <div className="super-admin-topbar-right">
         <>
           <div ref={notificationMenuRef} className="notification-menu branch-dashboard-notification-menu">
             <button
@@ -11856,6 +12032,7 @@ useEffect(() => {
             ) : null}
           </div>
         )}
+        </div>
       </div>
     </header>
   )
@@ -11950,14 +12127,14 @@ useEffect(() => {
                 <Student360Page
                   key={student360Id}
                   studentId={decodeURIComponent(student360Id)}
-                  student={branchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(student360Id)).trim().toLowerCase()))}
+                  student={operationalBranchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(student360Id)).trim().toLowerCase()))}
                   facultyTodayWorkEntries={facultyTodayWorkEntries}
                   branchCourseCards={branchCourseCards}
                   branchBatchGroups={branchBatchGroups}
                   isAssignmentBatchFull={(batch) => {
                     const targetStudentId = String(decodeURIComponent(student360Id)).trim().toLowerCase()
-                    const targetStudent = branchStudents.find((record) => [record?.studentId, record?.studentCode, record?.id, record?._id].some((value) => String(value || '').trim().toLowerCase() === targetStudentId))
-                    return getBatchSeatSummary(batch, branchStudents, getStudentSeatKeys(targetStudent || {})).isFull
+                    const targetStudent = operationalBranchStudents.find((record) => [record?.studentId, record?.studentCode, record?.id, record?._id].some((value) => String(value || '').trim().toLowerCase() === targetStudentId))
+                    return getBatchSeatSummary(batch, operationalBranchStudents, getStudentSeatKeys(targetStudent || {})).isFull
                   }}
                   resolveCourseEndDate={(startDate, batch, course) => calculateBatchCourseEndDate(startDate, batch.weekType, batch.mode, course?.hours || course?.duration, batch, instituteLeaves)}
                   branch={branchProfile || branchData}
@@ -11986,9 +12163,9 @@ useEffect(() => {
               {activeSection === 'student-calendar' ? (
                 <StudentCalendarPage
                   studentId={decodeURIComponent(studentCalendarId)}
-                  student={branchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(studentCalendarId)).trim().toLowerCase()))}
+                  student={operationalBranchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(studentCalendarId)).trim().toLowerCase()))}
                   facultyProfile={getBranchStudentCalendarFaculty(
-                    branchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(studentCalendarId)).trim().toLowerCase())),
+                    operationalBranchStudents.find((student) => [student?.studentId, student?.studentCode, student?.id, student?._id].map((value) => String(value || '').trim().toLowerCase()).includes(String(decodeURIComponent(studentCalendarId)).trim().toLowerCase())),
                     branchFacultyRecords,
                     branchBatchGroups,
                   )}
@@ -12683,42 +12860,11 @@ useEffect(() => {
 // -----------------------------
 let paymentStatus
 
-const allInstallmentsPaid =
-  installments.length > 0 &&
-  installments.every((inst) => {
-    const amount = Number(
-      inst.amount ??
-      inst.installmentAmount ??
-      0
-    )
-
-    const paid = Number(
-      inst.paidAmount ??
-      inst.amountPaid ??
-      0
-    )
-
-    return paid >= amount
-  })
-
-// Check if any installment is partially paid
-const hasPartialInstallment =
-  installments.length > 0 &&
-  installments.some((inst) => {
-    const amount = Number(
-      inst.amount ??
-      inst.installmentAmount ??
-      0
-    )
-
-    const paid = Number(
-      inst.paidAmount ??
-      inst.amountPaid ??
-      0
-    )
-
-    return paid > 0 && paid < amount
-  })
+const hasPartialInstallment = installments.some((inst) => {
+  const amount = Number(inst.amount ?? inst.installmentAmount ?? 0)
+  const paid = Number(inst.paidAmount ?? inst.amountPaid ?? 0)
+  return amount > 0 && paid > 0 && paid < amount
+})
 
 // Get today's date
 const today = new Date()
@@ -12733,43 +12879,26 @@ if (dueDate) {
   dueDate.setHours(0, 0, 0, 0)
 }
 
-// -------------------------------------------------
-// 1. COMPLETED
-// -------------------------------------------------
-if (
-  allInstallmentsPaid ||
-  (totalFee > 0 && paidAmount >= totalFee)
-) {
-  paymentStatus = 'Completed'
-}
+const paidProgress = Number(installmentProgress.paidInstallmentPercentage) || 0
 
+// Completed is based only on the displayed paid progress.
+if (paidProgress >= 100) {
+  paymentStatus = 'Completed'
+} else if (
 // -------------------------------------------------
-// 2. OVERDUE
+// 1. OVERDUE
 // Pending amount + due date passed
 // -------------------------------------------------
-else if (
   nextDueDate &&
   dueDate &&
   !Number.isNaN(dueDate.getTime()) &&
   dueDate < today
 ) {
   paymentStatus = 'Overdue'
-}
-
-// -------------------------------------------------
-// 3. PARTIAL
-// Some amount paid, but full installment not paid
-// -------------------------------------------------
-else if (hasPartialInstallment) {
-  paymentStatus = 'Partial'
-}
-
-// -------------------------------------------------
-// 4. UPCOMING
-// Pending payment + due date is today/future
-// -------------------------------------------------
-else {
-  paymentStatus = 'Upcoming'
+} else if (hasPartialInstallment) {
+  paymentStatus = 'Partially Paid'
+} else {
+  paymentStatus = 'Pending'
 }
 
           const isStudentDiscontinued = Boolean(
@@ -13035,19 +13164,16 @@ else {
               const nextCourseDueDate = nextCourseInstallment?.dueDate || nextCourseInstallment?.date || ''
               const coursePaidAmount = Math.min(item.amount, paidByCourse[index])
               const paidPercentage = item.amount > 0 ? Math.min(100, (coursePaidAmount / item.amount) * 100) : 0
-              const courseStartDate = item.entry.courseStartDate || item.entry.startDate || ''
-              const parsedCourseStartDate = courseStartDate
-                ? new Date(`${String(courseStartDate).slice(0, 10)}T00:00:00`)
-                : null
-              const isSequentialCourseNotStarted = isSequentialArrangement
-                && parsedCourseStartDate
-                && !Number.isNaN(parsedCourseStartDate.getTime())
-                && parsedCourseStartDate >= today
               // A fully paid course is completed even when the next
               // sequential course is still pending or has not started.
               const isCoursePaymentCompleted = item.amount > 0 && (
                 paidPercentage >= 100 || coursePaidAmount >= item.amount
               )
+              const hasPartialPaidInstallment = courseInstallments.some((installment) => {
+                const amount = Number(installment.amount ?? installment.installmentAmount ?? 0)
+                const paid = Number(installment.paidAmount ?? installment.amountPaid ?? 0)
+                return amount > 0 && paid > 0 && paid < amount
+              })
               const isCourseDiscontinued = Boolean(
                 isStudentDiscontinued
                 || item.entry?.isDiscontinued
@@ -13067,15 +13193,11 @@ else {
                   : 'IN_PROGRESS'
               const courseStatus = isCoursePaymentCompleted
                 ? 'Completed'
-                : item.isPendingSequentialCourse
-                ? 'Upcoming'
-                : isSequentialCourseNotStarted
-                ? 'Upcoming'
                 : nextCourseDueDate && new Date(`${String(nextCourseDueDate).slice(0, 10)}T00:00:00`) < today
                   ? 'Overdue'
-                  : coursePaidAmount > 0
-                    ? 'Partial'
-                    : 'Upcoming'
+                  : hasPartialPaidInstallment
+                    ? 'Partially Paid'
+                    : 'Pending'
               return { ...item, coursePaidAmount, paidPercentage, progressValue, courseCompletionStatus, courseIsDiscontinued: isCourseDiscontinued, nextCourseInstallment, nextCourseDueDate, courseStatus, rowInstallments: courseInstallments }
             })
             const completedCourseRows = courseRows.filter((courseRow) => courseRow.courseCompletionStatus === 'COMPLETED')
@@ -13115,8 +13237,8 @@ else {
               : displayCourseRows.some((courseRow) => courseRow.courseStatus === 'Overdue')
                 ? 'Overdue'
                 : hasPartiallyPaidInstallment
-                  ? 'Partial'
-                  : 'Upcoming'
+                  ? 'Partially Paid'
+                  : 'Pending'
 
             return (
               <Fragment key={stu.studentId || stu.id}>
@@ -13947,7 +14069,7 @@ else {
     branchCourses={branchCourseCards}
     branchFacultyRecords={branchFacultyRecords}
     facultyList={facultyList}
-    branchStudents={branchStudents}
+    branchStudents={operationalBranchStudents}
     facultyTodayWorkEntries={facultyTodayWorkEntries}
     onDownloadAttendance={(batch) => setAttendanceReportTarget({ mode: 'batch', record: batch })}
   />
@@ -13982,7 +14104,7 @@ else {
       <RecordPayment
         key={`${recordPaymentStudent?.id || ''}-${recordPaymentStudent?.studentId || ''}-${recordPaymentStudent?.studentName || recordPaymentStudent?.name || ''}`}
         student={recordPaymentStudent}
-        students={branchStudents}
+        students={operationalBranchStudents}
         branchProfile={branchProfile}
         branchAdminName={branchAdminDisplay}
         onClose={() => {

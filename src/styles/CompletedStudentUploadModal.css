@@ -601,6 +601,9 @@
   padding: 0 26px 24px;
 }
 .completed-upload-result { max-width: 640px; }
+.completed-upload-result.is-cancelled { border-color: #f5d8a8; background: #fffaf0; color: #bb750b; }
+.completed-upload-result.is-cancelled h3 { color: #92400e; }
+.completed-upload-result.is-cancelled p { color: #8a5a17; }
 
 @keyframes completed-upload-page-enter {
   from { opacity: 0; }

@@ -2085,6 +2085,38 @@ aside.branch-course-view-drawer .branch-course-view-edit {
   margin-top: 2px;
 }
 
+.branch-course-view-header-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.branch-course-view-attendance-button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid #0f8f88;
+  border-radius: 10px;
+  background: #0f8f88;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 7px 16px rgba(15, 143, 136, 0.18);
+}
+
+.branch-course-view-attendance-button:hover {
+  background: #0b7772;
+  border-color: #0b7772;
+}
+
+@media (max-width: 640px) {
+  .branch-course-view-header-buttons {
+    flex-wrap: wrap;
+  }
+}
+
 /* Keep the Faculty View drawer compact without affecting its content. */
 .branch-course-drawer-backdrop aside.branch-course-view-drawer {
   width: min(600px, 92vw);
@@ -2156,6 +2188,10 @@ aside.branch-course-view-drawer .branch-course-view-edit {
   margin-top: 6px;
 }
 
+.branch-faculty-attendance-metrics.has-resume-login {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .branch-faculty-attendance-metrics > div,
 .branch-faculty-attendance-interruption {
   display: flex;
@@ -2197,6 +2233,10 @@ aside.branch-course-view-drawer .branch-course-view-edit {
 }
 
 @media (max-width: 640px) {
+  .branch-faculty-attendance-metrics.has-resume-login {
+    grid-template-columns: 1fr;
+  }
+
   .branch-faculty-attendance-status { margin-inline: 16px; }
   .branch-faculty-attendance-metrics { grid-template-columns: 1fr; }
 }
