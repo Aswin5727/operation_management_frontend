@@ -302,6 +302,317 @@
   color: #2d6bd8;
 }
 
+/* Branch Helpdesk & Support refinement. Keep the shared panel styles intact for other workspaces. */
+.branch-dashboard-app-shell .helpdesk-support-panel {
+  width: min(100%, 1080px);
+  gap: 24px;
+  padding: clamp(22px, 3vw, 34px);
+  border-color: #d7e5f5;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(21, 74, 132, 0.055);
+}
+
+.branch-dashboard-app-shell .helpdesk-support-header {
+  align-items: center;
+  gap: 24px;
+  padding-bottom: 2px;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-kicker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-bottom: 10px;
+  padding: 0 9px;
+  border: 1px solid #d6e7fb;
+  border-radius: 6px;
+  background: #f3f8ff;
+  color: #2770c9;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-header h2 {
+  color: #102a4a;
+  font-size: clamp(1.45rem, 2.5vw, 2rem);
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-header p:not(.helpdesk-support-kicker) {
+  max-width: 620px;
+  margin-top: 9px;
+  color: #647b96;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-header-icon {
+  width: 50px;
+  height: 50px;
+  border-color: #c9def7;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #246fc7;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-grid {
+  gap: 16px;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-card {
+  min-height: 214px;
+  gap: 11px;
+  padding: 22px;
+  border-color: #dce7f2;
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(20, 67, 120, 0.025);
+}
+
+.branch-dashboard-app-shell .helpdesk-support-card:hover,
+.branch-dashboard-app-shell .helpdesk-support-card.is-selected {
+  border-color: #9dc4ee;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.09);
+  transform: translateY(-2px);
+}
+
+.branch-dashboard-app-shell .helpdesk-support-card-icon {
+  width: 40px;
+  height: 40px;
+  border: 1px solid #d9e9fb;
+  border-radius: 10px;
+  background: #f1f7ff;
+  color: #2874cc;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-card h3 {
+  margin-top: 3px;
+  color: #17385f;
+  font-size: 1rem;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-card p {
+  min-height: 50px;
+  color: #6b7f97;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-card-action {
+  gap: 6px;
+  color: #216ac4;
+  font-size: 0.79rem;
+  font-weight: 750;
+}
+
+.branch-dashboard-app-shell .helpdesk-support-note {
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-color: #d9e9fb;
+  border-radius: 10px;
+  background: #f2f8ff;
+  color: #5f7692;
+  font-size: 0.79rem;
+}
+
+@media (max-width: 760px) {
+  .branch-dashboard-app-shell .helpdesk-support-panel {
+    gap: 20px;
+    padding: 20px;
+  }
+
+  .branch-dashboard-app-shell .helpdesk-support-header {
+    align-items: flex-start;
+  }
+
+  .branch-dashboard-app-shell .helpdesk-support-card {
+    min-height: 0;
+  }
+}
+
+/* Account Settings refinement for branch and Super Admin workspaces. */
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-panel {
+  width: 100%;
+  max-width: none;
+  gap: 24px;
+  padding: clamp(22px, 3vw, 34px);
+  border-color: #d7e5f5;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(21, 74, 132, 0.055);
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-header {
+  align-items: flex-start;
+  gap: 24px;
+  padding-bottom: 2px;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-kicker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-bottom: 10px;
+  padding: 0 9px;
+  border: 1px solid #d6e7fb;
+  border-radius: 6px;
+  background: #f3f8ff;
+  color: #2770c9;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-header h2 {
+  color: #102a4a;
+  font-size: clamp(1.45rem, 2.5vw, 2rem);
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-header p:not(.account-settings-kicker) {
+  max-width: 620px;
+  margin-top: 9px;
+  color: #647b96;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-header-icon {
+  width: 50px;
+  height: 50px;
+  border-color: #c9def7;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #246fc7;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-card {
+  border-color: #dce7f2;
+  border-radius: 12px;
+  box-shadow: 0 3px 10px rgba(20, 67, 120, 0.025);
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-identity {
+  gap: 13px;
+  padding: 20px 22px;
+  border-bottom-color: #e7eef7;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-avatar {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid #c8def7;
+  border-radius: 50%;
+  background: #eaf4ff;
+  color: #216ac4;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-identity strong {
+  display: block;
+  color: #17385f;
+  font-size: 0.96rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-identity span:last-child {
+  display: block;
+  margin-top: 3px;
+  color: #7a8da4;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-row {
+  min-height: 68px;
+  gap: 20px;
+  padding: 16px 22px;
+  border-bottom-color: #edf2f7;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-row:last-child {
+  border-bottom: 0;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-row-label {
+  gap: 10px;
+  color: #60758f;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-row-label svg {
+  color: #2874cc;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-value {
+  max-width: 64%;
+  color: #294565;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-reset-button {
+  min-height: 36px;
+  padding: 0 13px;
+  border-color: #c1d9f4;
+  border-radius: 8px;
+  background: #f7fbff;
+  color: #216ac4;
+  font-size: 0.77rem;
+  font-weight: 750;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-reset-button:hover,
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-reset-button:focus-visible {
+  border-color: #82b1e8;
+  background: #edf6ff;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.08);
+  outline: none;
+}
+
+:is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-help {
+  align-items: center;
+  padding: 12px 14px;
+  border-color: #d9e9fb;
+  border-radius: 10px;
+  background: #f2f8ff;
+  color: #5f7692;
+  font-size: 0.79rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  :is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-panel {
+    gap: 20px;
+    padding: 20px;
+  }
+
+  :is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  :is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-value,
+  :is(.branch-dashboard-app-shell, .super-admin-page) .account-settings-reset-button {
+    max-width: 100%;
+    margin-left: 27px;
+  }
+}
+
 .account-settings-card {
   overflow: hidden;
   border: 1px solid #dce7f3;
