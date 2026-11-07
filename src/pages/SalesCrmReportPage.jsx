@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, ArrowUpRight, BarChart3, CheckCheck, ChevronDown, CircleDot, Clock3, FileSpreadsheet, Flame, RefreshCw, Search, TrendingUp, Users, X } from 'lucide-react'
 import { request, requestBlob } from '../services/apiClient'
-import { SalesCrmReportSubmissionModal } from '../components/SalesCrmReportSubmissionModal'
 import { listReportBranches } from '../services/reportService'
 
 const REPORT_TIMEZONE = 'Asia/Kolkata'
@@ -114,7 +113,6 @@ export function SalesCrmReportPage() {
   const [downloadNotice, setDownloadNotice] = useState('')
   const [downloading, setDownloading] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
-  const [sendOpen, setSendOpen] = useState(false)
   const [reportDownloadFilters, setReportDownloadFilters] = useState({ ...defaultExportFilters })
   const [loading, setLoading] = useState(true)
   const [reloadKey, setReloadKey] = useState(0)
@@ -344,12 +342,9 @@ export function SalesCrmReportPage() {
   </div> : null}
 </div>
         <button type="button" className="sales-crm-report-download-button" onClick={openDownloadReport} disabled={downloading} aria-label="Open download report"><FileSpreadsheet size={16} />Download Report</button>
-        <button type="button" className="sales-crm-report-send-button" onClick={() => setSendOpen(true)} disabled={downloading} aria-label="Send report"><FileSpreadsheet size={16} />Send Report</button>
         <button type="button" className="sales-crm-report-icon-button" onClick={refreshReport} disabled={loading || downloading} aria-label="Refresh report" title="Refresh report"><RefreshCw size={17} className={loading ? 'is-spinning' : ''} /></button>
       </div>
     </header>
-
-    <SalesCrmReportSubmissionModal isOpen={sendOpen} onClose={() => setSendOpen(false)} initialFromDate={appliedFilters.fromDate} initialToDate={appliedFilters.toDate} onSubmitted={() => setDownloadNotice('Report generated and sent to Super Admin successfully.')} />
 
     {downloadOpen ? <div className="sales-crm-report-download-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDownloadReport() }}><form className="sales-crm-report-download-modal" onSubmit={downloadReport} role="dialog" aria-modal="true" aria-labelledby="sales-crm-download-title">
       <header className="sales-crm-report-download-modal-header"><div><p className="eyebrow">REPORT DOWNLOAD</p><h2 id="sales-crm-download-title">Download Report</h2><p>Choose the branch and period for the Excel export.</p></div><button type="button" className="sales-crm-report-download-close" onClick={closeDownloadReport} disabled={downloading} aria-label="Close"><X size={17} /></button></header>

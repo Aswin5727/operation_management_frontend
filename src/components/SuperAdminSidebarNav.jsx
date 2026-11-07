@@ -45,7 +45,7 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
   const activeView = getView(location.search)
   const isNotifications = location.pathname.endsWith('/notifications')
   const activeBranches = useMemo(() => branches.filter(isActiveBranch), [branches])
-  const [expandedGroups, setExpandedGroups] = useState({ salesCrm: true, userRole: true, academic: true, reports: true, helpdesk: false })
+  const [expandedGroups, setExpandedGroups] = useState({ salesCrm: true, userRole: true, academic: true, leaveManagement: true, reports: true, helpdesk: false })
   const [isBranchExpanded, setIsBranchExpanded] = useState(false)
   const [isFlyoutDismissed, setIsFlyoutDismissed] = useState(false)
 
@@ -94,9 +94,14 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
       children: [
         { id: 'students', label: 'Student Management', icon: Users, section: 'students' },
         { id: 'exams-results', label: 'Exams and Result', icon: FileText, section: 'exams-results' },
-        { id: 'institute-leave', label: 'Institute Leave', icon: CalendarDays, section: 'leave-management', view: 'institute' },
-        { id: 'faculty-leave', label: 'Faculty Leave', icon: CalendarDays, section: 'faculty-leave' },
-        { id: 'discontinuations', label: 'Student Discontinuation', icon: FileText, section: 'discontinuations' },
+        {
+          id: 'leaveManagement', label: 'Leave Management', icon: CalendarDays,
+          children: [
+            { id: 'faculty-leave', label: 'Faculty Leave', icon: CalendarDays, section: 'faculty-leave' },
+            { id: 'institute-leave', label: 'Institute Leave', icon: CalendarDays, section: 'leave-management', view: 'institute' },
+            { id: 'discontinuations', label: 'Student Discontinuation', icon: FileText, section: 'discontinuations' },
+          ],
+        },
       ],
     },
     {
@@ -112,6 +117,10 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
     },
   ]
 
+  const isEntryActive = (entry) => entry.children?.length
+    ? entry.children.some(isEntryActive)
+    : !isNotifications && isSelectedEntry(activeSection, activeView, entry)
+
   const renderEntry = (entry, mode = 'inline') => {
     const Icon = entry.icon
     const selected = !isNotifications && isSelectedEntry(activeSection, activeView, entry)
@@ -122,6 +131,24 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
       </button>
     )
   }
+
+  const renderNestedEntry = (entry, mode = 'inline') => {
+    const Icon = entry.icon
+    const active = isEntryActive(entry)
+    const expanded = Boolean(expandedGroups[entry.id]) || active
+    return (
+      <div key={entry.id} className={`super-admin-sidebar-nested-group ${active ? 'is-active' : ''}`.trim()}>
+        <button type="button" role={mode === 'flyout' ? 'menuitem' : undefined} className={`super-admin-sidebar-subitem super-admin-sidebar-nested-toggle ${active ? 'is-active' : ''}`.trim()} aria-expanded={expanded} onClick={() => setExpandedGroups((current) => ({ ...current, [entry.id]: !current[entry.id] }))}>
+          <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><Icon size={15} strokeWidth={2.1} /></span>
+          <span>{entry.label}</span>
+          <ChevronDown size={14} strokeWidth={2.2} className={expanded ? 'is-expanded' : ''} aria-hidden="true" />
+        </button>
+        {expanded ? <div className="super-admin-sidebar-nested-submenu">{entry.children.map((child) => renderEntry(child, mode))}</div> : null}
+      </div>
+    )
+  }
+
+  const renderChild = (entry, mode = 'inline') => entry.children?.length ? renderNestedEntry(entry, mode) : renderEntry(entry, mode)
 
   const renderGroup = (group) => {
     const Icon = group.icon
@@ -136,7 +163,7 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
         </div>
       )
     }
-    const groupActive = !isNotifications && group.children.some((entry) => isSelectedEntry(activeSection, activeView, entry))
+    const groupActive = group.children.some(isEntryActive)
     const expanded = Boolean(expandedGroups[group.id]) || groupActive
     return (
       <div key={group.id} className={`super-admin-sidebar-section super-admin-sidebar-group ${groupActive ? 'is-active' : ''}`.trim()}>
@@ -144,14 +171,14 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
           <button type="button" className="super-admin-sidebar-collapsed-group-trigger" data-tooltip={group.label} aria-label={group.label} onClick={() => setExpandedGroups((current) => ({ ...current, [group.id]: !current[group.id] }))}><Icon size={18} strokeWidth={2.2} aria-hidden="true" /></button>
           <div className="super-admin-sidebar-collapsed-group-flyout" role="menu" aria-label={`${group.label} submenu`}>
             <div className="super-admin-sidebar-collapsed-group-title">{group.label}</div>
-            {group.children.map((entry) => renderEntry(entry, 'flyout'))}
+            {group.children.map((entry) => renderChild(entry, 'flyout'))}
           </div>
         </div>
         <button type="button" className={`super-admin-sidebar-section-toggle ${groupActive ? 'is-active' : ''}`.trim()} aria-expanded={expanded || isSidebarCollapsed} onClick={() => setExpandedGroups((current) => ({ ...current, [group.id]: !current[group.id] }))}>
           <span className="super-admin-sidebar-section-toggle-label"><Icon size={16} strokeWidth={2.2} aria-hidden="true" /><span>{group.label}</span></span>
           <ChevronDown size={15} strokeWidth={2.4} className={expanded ? 'is-expanded' : ''} aria-hidden="true" />
         </button>
-        {(expanded || isSidebarCollapsed) ? <div className="super-admin-sidebar-submenu">{group.children.map((entry) => renderEntry(entry))}</div> : null}
+        {(expanded || isSidebarCollapsed) ? <div className="super-admin-sidebar-submenu">{group.children.map((entry) => renderChild(entry))}</div> : null}
       </div>
     )
   }

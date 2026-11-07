@@ -463,6 +463,9 @@
 .super-admin-sales-crm-pagination > div { display: flex; gap: 8px; }
 .super-admin-sales-crm-pagination button { padding: 8px 12px; border: 1px solid #cad8e8; border-radius: 8px; background: #fff; color: #345475; font: inherit; cursor: pointer; }
 .super-admin-sales-crm-pagination button:disabled { cursor: not-allowed; opacity: .5; }
+.super-admin-institute-leave-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.super-admin-institute-leave-toolbar input, .super-admin-institute-leave-toolbar select { min-height: 40px; padding: 0 11px; border: 1px solid #cbd9ea; border-radius: 9px; background: #fff; color: #173d6c; font: inherit; font-size: .8rem; outline: none; }
+.super-admin-institute-leave-toolbar input { width: min(360px, 100%); }
 .super-admin-sales-crm-modal-backdrop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 20px; background: rgba(15, 23, 42, .42); }
 .super-admin-sales-crm-download-modal { width: min(460px, 100%); padding: 24px; border: 1px solid #dbe6f2; border-radius: 16px; background: #fff; box-shadow: 0 24px 70px rgba(15, 23, 42, .2); }
 .super-admin-sales-crm-download-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
@@ -691,6 +694,23 @@
   display: grid;
   place-items: center;
   color: currentColor;
+}
+
+.super-admin-sidebar-nested-toggle > svg:last-child {
+  margin-left: auto;
+  transition: transform 180ms ease;
+}
+
+.super-admin-sidebar-nested-toggle > svg.is-expanded {
+  transform: rotate(180deg);
+}
+
+.super-admin-sidebar-nested-submenu {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 2px 16px;
+  padding-left: 12px;
+  border-left: 1px solid #e1e8f2;
 }
 
 .super-admin-sidebar-branch-nav {

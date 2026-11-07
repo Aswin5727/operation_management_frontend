@@ -54,6 +54,7 @@ import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
 import { BranchReportsAnalyticsPage } from './BranchReportsAnalyticsPage'
 import { SalesCrmReportPage } from './SalesCrmReportPage'
 import { SuperAdminSalesCrmPanel } from '../components/SuperAdminSalesCrmPanel'
+import { SuperAdminInstituteLeavePanel } from '../components/SuperAdminInstituteLeavePanel'
 import { loadBranchStudents } from '../lib/branchStudentStore'
 import { loadBranchPaymentHistoryEntries } from '../lib/branchPaymentHistoryStore'
 import { buildModernPaymentReceiptHtml } from '../components/payments/RecordPayment'
@@ -588,6 +589,7 @@ export function SuperAdminDashboardPage() {
   const [allBranchFaculty, setAllBranchFaculty] = useState([])
   const [allBranchBatches, setAllBranchBatches] = useState([])
   const [allBranchLeaves, setAllBranchLeaves] = useState([])
+  const [allInstituteLeaves, setAllInstituteLeaves] = useState([])
   const [globalFacultyPage, setGlobalFacultyPage] = useState(1)
   const [globalStudentPage, setGlobalStudentPage] = useState(1)
   const [globalLeavePage, setGlobalLeavePage] = useState(1)
@@ -765,7 +767,8 @@ export function SuperAdminDashboardPage() {
 
   useEffect(() => {
     const isAdmissionsView = activeSection === 'sales-admin' && new URLSearchParams(location.search).get('view') === 'admissions'
-    if ((activeSection !== 'students' && !isAdmissionsView) || !branches.length) {
+    const isReportDownloadsView = activeSection === 'reports' && new URLSearchParams(location.search).get('view') === 'downloads'
+    if ((activeSection !== 'students' && !isAdmissionsView && !isReportDownloadsView) || !branches.length) {
       setIsGlobalStudentsLoading(false)
       setAllBranchStudents([])
       return undefined
@@ -839,6 +842,7 @@ export function SuperAdminDashboardPage() {
       setAllBranchFaculty([])
       setAllBranchBatches([])
       setAllBranchLeaves([])
+      setAllInstituteLeaves([])
       setIsGlobalManagementLoading(false)
       return undefined
     }
@@ -865,6 +869,17 @@ export function SuperAdminDashboardPage() {
             return []
           }
         }))
+        const instituteLeaveResults = await Promise.all(branches.map(async (branch) => {
+          const branchId = branch.id || branch.branchId
+          if (!branchId) return []
+          try {
+            const response = await request('/institute-leaves', { impersonateBranchId: branchId })
+            const payload = response?.data ?? response
+            return (Array.isArray(payload?.leaves) ? payload.leaves : []).map((item) => ({ ...item, branchId, branchRecord: branch }))
+          } catch {
+            return []
+          }
+        }))
         const batchResults = await Promise.all(branches.map(async (branch) => {
           const branchId = branch.id || branch.branchId
           if (!branchId) return []
@@ -885,12 +900,14 @@ export function SuperAdminDashboardPage() {
           })))
           setAllBranchBatches(batchResults.flat())
           setAllBranchLeaves(leaveResults.flat())
+          setAllInstituteLeaves(instituteLeaveResults.flat())
         }
       } catch (error) {
         if (!cancelled) {
           setAllBranchFaculty([])
           setAllBranchBatches([])
           setAllBranchLeaves([])
+          setAllInstituteLeaves([])
           setGlobalManagementError(error?.message || 'Unable to load global management data.')
         }
       } finally {
@@ -3031,6 +3048,8 @@ const filteredBranches = useMemo(() => {
                </section>
             ) : activeSection === 'discontinuations' ? (
               <SuperAdminDiscontinuationPage />
+            ) : activeSection === 'leave-management' && new URLSearchParams(location.search).get('view') === 'institute' ? (
+              <SuperAdminInstituteLeavePanel leaves={allInstituteLeaves} branches={globalBranchFilterOptions} loading={isGlobalManagementLoading} />
             ) : ['leave-management', 'faculty-leave'].includes(activeSection) ? (
               <section className="super-admin-global-panel">
                 <div className="super-admin-global-header"><div><p className="branch-management-kicker">Academic Operations</p><h1>Faculty Leave Management</h1><p>Faculty leave requests across every active branch.</p></div><div className="super-admin-global-header-actions"><label className="super-admin-student-search"><input type="search" value={globalLeaveSearch} onChange={(event) => setGlobalLeaveSearch(event.target.value)} placeholder="Search faculty, reason or branch" aria-label="Search faculty leave requests" /></label><SuperAdminOptionSelect value={globalLeaveSort} onChange={setGlobalLeaveSort} ariaLabel="Sort faculty leave requests" options={[{ value: 'createdAt', label: 'Newest' }, { value: 'oldest', label: 'Oldest' }, { value: 'person', label: 'Faculty' }, { value: 'status', label: 'Status' }]} width={116} /><SuperAdminOptionSelect value={globalLeaveStatusFilter} onChange={setGlobalLeaveStatusFilter} ariaLabel="Filter faculty leave request status" options={[{ value: 'all', label: 'All status' }, { value: 'pending', label: 'Pending' }, { value: 'approved', label: 'Approved' }, { value: 'rejected', label: 'Rejected' }]} width={128} /><span className="super-admin-global-count">{filteredGlobalLeaves.length} requests</span></div></div>
