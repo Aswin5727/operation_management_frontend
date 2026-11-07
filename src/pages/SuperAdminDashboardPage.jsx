@@ -49,6 +49,11 @@ import { SuperAdminMetricDetailPage } from '../components/SuperAdminMetricDetail
 import { SuperAdminSidebarNav } from '../components/SuperAdminSidebarNav'
 import { SuperAdminDiscontinuationPage } from './SuperAdminDiscontinuationPage'
 import { SalesAdminManagementPage } from './SalesAdminManagementPage'
+import { HelpdeskSupportPanel } from '../components/HelpdeskSupportPanel'
+import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
+import { BranchReportsAnalyticsPage } from './BranchReportsAnalyticsPage'
+import { SalesCrmReportPage } from './SalesCrmReportPage'
+import { SuperAdminSalesCrmPanel } from '../components/SuperAdminSalesCrmPanel'
 import { loadBranchStudents } from '../lib/branchStudentStore'
 import { loadBranchPaymentHistoryEntries } from '../lib/branchPaymentHistoryStore'
 import { buildModernPaymentReceiptHtml } from '../components/payments/RecordPayment'
@@ -564,7 +569,7 @@ function validateBranchForm(form, existingBranches = [], ignoreBranchId = null) 
 function getInitialSuperAdminSection(search = '') {
   const params = new URLSearchParams(search)
   const section = params.get('section')
-  return ['branches', 'branch-admin', 'faculty', 'sales-admin', 'students', 'leave-management', 'faculty-leave', 'discontinuations', 'metric-branches', 'metric-students', 'metric-admissions', 'metric-total-payment', 'metric-month-payment', 'metric-outstanding', 'metric-month-due', 'metric-today-due', 'metric-overdue', 'metric-due-students', 'metric-today-collection'].includes(section) ? section : 'dashboard'
+  return ['branches', 'branch-admin', 'faculty', 'sales-admin', 'students', 'exams-results', 'academic-tests', 'leave-management', 'faculty-leave', 'discontinuations', 'helpdesk', 'settings', 'profile', 'reports', 'metric-branches', 'metric-students', 'metric-admissions', 'metric-total-payment', 'metric-month-payment', 'metric-outstanding', 'metric-month-due', 'metric-today-due', 'metric-overdue', 'metric-due-students', 'metric-today-collection'].includes(section) ? section : 'dashboard'
 }
 
 export function SuperAdminDashboardPage() {
@@ -636,6 +641,7 @@ export function SuperAdminDashboardPage() {
   const [deleteTargetBranch, setDeleteTargetBranch] = useState(null)
   const [resendTargetBranch, setResendTargetBranch] = useState(null)
   const [actionMenuBranchId, setActionMenuBranchId] = useState(null)
+  const [actionMenuPosition, setActionMenuPosition] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [successMessage, setSuccessMessage] = useState('')
   const [successTitle, setSuccessTitle] = useState('Action completed successfully')
@@ -1216,6 +1222,7 @@ useEffect(() => {
       if (!(target instanceof Element)) return
       if (target.closest('.branch-actions-wrap')) return
       setActionMenuBranchId(null)
+      setActionMenuPosition(null)
     }
 
     window.addEventListener('pointerdown', onPointerDown)
@@ -1365,6 +1372,35 @@ const filteredBranches = useMemo(() => {
     const startIndex = (safeCurrentPage - 1) * rowsPerPage
     return filteredBranches.slice(startIndex, startIndex + rowsPerPage)
   }, [filteredBranches, rowsPerPage, safeCurrentPage])
+
+  const openActionMenu = (branchId, target) => {
+    if (actionMenuCloseTimerRef.current) {
+      clearTimeout(actionMenuCloseTimerRef.current)
+    }
+
+    const triggerRect = target?.getBoundingClientRect?.()
+    const menuWidth = 132
+    const menuHeight = 160
+    const gap = 8
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const rect = triggerRect || {
+      top: viewportHeight / 2,
+      bottom: viewportHeight / 2,
+      right: viewportWidth - 16,
+    }
+    const fitsBelow = rect.bottom + menuHeight + gap <= viewportHeight - 8
+    const top = fitsBelow
+      ? Math.min(viewportHeight - menuHeight - 8, rect.bottom + gap)
+      : Math.max(8, rect.top - menuHeight - gap)
+    const left = Math.min(
+      Math.max(8, rect.right - menuWidth),
+      Math.max(8, viewportWidth - menuWidth - 8),
+    )
+
+    setActionMenuPosition({ top, left })
+    setActionMenuBranchId(branchId)
+  }
 
   const openAddBranch = () => {
     setBranchErrors({})
@@ -1817,6 +1853,11 @@ const filteredBranches = useMemo(() => {
   const profileEmail = user?.email || 'superadmin.manager@cispro.com'
   const selectedBranch = viewTargetBranch
   const closeMobileSidebar = () => setIsMobileSidebarOpen(false)
+  const openSuperAdminForgotPassword = () => {
+    setIsSuperAdminProfileOpen(false)
+    const suffix = profileEmail ? `?email=${encodeURIComponent(profileEmail)}` : ''
+    navigate(`/forgot-password${suffix}`)
+  }
 
   useEffect(() => {
     try { window.localStorage.setItem('cispro.super-admin-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* ignore storage failures */ }
@@ -2642,7 +2683,7 @@ const filteredBranches = useMemo(() => {
                         return (
                           <tr
                             key={branch.id}
-                            className="branch-table-row"
+                            className={`branch-table-row ${actionMenuBranchId === branch.id ? 'is-actions-open' : ''}`.trim()}
                             role="button"
                             tabIndex={0}
                             aria-label={`View details for branch ${branch.branchName || branch.branchId || ''}`.trim()}
@@ -2709,12 +2750,7 @@ const filteredBranches = useMemo(() => {
                             >
                               <div
                                 className={`branch-actions branch-actions-wrap ${isUpwardMenu ? 'is-upward' : ''} ${actionMenuBranchId === branch.id ? 'is-open' : ''}`.trim()}
-                                onMouseEnter={() => {
-                                  if (actionMenuCloseTimerRef.current) {
-                                    clearTimeout(actionMenuCloseTimerRef.current)
-                                  }
-                                  setActionMenuBranchId(branch.id)
-                                }}
+                                onMouseEnter={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 onMouseLeave={() => {
                                   actionMenuCloseTimerRef.current = setTimeout(() => {
                                     setActionMenuBranchId(null)
@@ -2727,7 +2763,7 @@ const filteredBranches = useMemo(() => {
                                   aria-label={`Open actions for ${branch.branchName}`}
                                   aria-haspopup="menu"
                                   aria-expanded={actionMenuBranchId === branch.id}
-                                  onClick={() => setActionMenuBranchId(branch.id)}
+                                  onClick={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 >
                                   <MoreVertical size={18} strokeWidth={2.3} />
                                 </button>
@@ -2736,6 +2772,14 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
+                                  style={actionMenuPosition ? {
+                                    position: 'fixed',
+                                    top: String(actionMenuPosition.top) + 'px',
+                                    left: String(actionMenuPosition.left) + 'px',
+                                    right: 'auto',
+                                    bottom: 'auto',
+                                    zIndex: 1000,
+                                  } : undefined}
                                 >
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
@@ -2779,12 +2823,7 @@ const filteredBranches = useMemo(() => {
 
                               <div
                                 className={`branch-actions branch-actions-wrap ${isUpwardMenu ? 'is-upward' : ''} ${actionMenuBranchId === branch.id ? 'is-open' : ''}`.trim()}
-                                onMouseEnter={() => {
-                                  if (actionMenuCloseTimerRef.current) {
-                                    clearTimeout(actionMenuCloseTimerRef.current)
-                                  }
-                                  setActionMenuBranchId(branch.id)
-                                }}
+                                onMouseEnter={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 onMouseLeave={() => {
                                   actionMenuCloseTimerRef.current = setTimeout(() => {
                                     setActionMenuBranchId(null)
@@ -2797,7 +2836,7 @@ const filteredBranches = useMemo(() => {
                                   aria-label={`Open actions for ${branch.branchName}`}
                                   aria-haspopup="menu"
                                   aria-expanded={actionMenuBranchId === branch.id}
-                                  onClick={() => setActionMenuBranchId(branch.id)}
+                                  onClick={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 >
                                   <MoreVertical size={18} strokeWidth={2.3} />
                                 </button>
@@ -2806,6 +2845,14 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
+                                  style={actionMenuPosition ? {
+                                    position: 'fixed',
+                                    top: String(actionMenuPosition.top) + 'px',
+                                    left: String(actionMenuPosition.left) + 'px',
+                                    right: 'auto',
+                                    bottom: 'auto',
+                                    zIndex: 1000,
+                                  } : undefined}
                                 >
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
@@ -2912,6 +2959,8 @@ const filteredBranches = useMemo(() => {
                   </div>
                 </div>
               </section>
+            ) : activeSection === 'sales-admin' && ['leads', 'admissions'].includes(new URLSearchParams(location.search).get('view')) ? (
+              <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} />
             ) : activeSection === 'sales-admin' ? (
               <SalesAdminManagementPage />
             ) : activeSection === 'branch-admin' ? (
@@ -2945,6 +2994,31 @@ const filteredBranches = useMemo(() => {
                   {filteredGlobalFaculty.length > globalFacultyRowsPerPage ? <PaginationBar className="super-admin-pagination" currentPage={safeGlobalFacultyPage} totalPages={globalFacultyTotalPages} onPageChange={setGlobalFacultyPage} label="Faculty pagination" previousLabel="Prev" nextLabel="Next" visiblePageCount={3} /> : null}</>
                 )}
               </section>
+            ) : activeSection === 'reports' ? (
+              new URLSearchParams(location.search).get('view') === 'lead-monthly' ? <SalesCrmReportPage /> : <BranchReportsAnalyticsPage
+                students={allBranchStudents}
+                batchGroups={[{ batches: allBranchBatches }]}
+                branchId=""
+              />
+            ) : activeSection === 'helpdesk' ? (
+              <HelpdeskSupportPanel
+                roleLabel="your Super Admin workspace"
+                activeView={new URLSearchParams(location.search).get('view') || 'helpdesk'}
+              />
+            ) : activeSection === 'settings' ? (
+              <AccountSettingsPanel
+                displayName="Super Admin"
+                email={profileEmail}
+                roleLabel="Super Admin"
+                onForgotPassword={openSuperAdminForgotPassword}
+              />
+            ) : activeSection === 'profile' ? (
+              <AccountSettingsPanel
+                displayName="Super Admin"
+                email={profileEmail}
+                roleLabel="Super Admin"
+                onForgotPassword={openSuperAdminForgotPassword}
+              />
              ) : activeSection === 'students' ? (
                <section className="super-admin-global-panel">
                  <div className="super-admin-global-header"><div><p className="branch-management-kicker">Academic Operations</p><h1>Student Management</h1><p>All students registered across every active branch.</p></div><div className="super-admin-global-header-actions"><label className="super-admin-student-search"><input type="search" value={globalStudentSearch} onChange={(event) => { setGlobalStudentSearch(event.target.value); setGlobalStudentPage(1) }} placeholder="Search student or ID" aria-label="Search students" /></label><SuperAdminOptionSelect value={globalStudentSort} onChange={setGlobalStudentSort} ariaLabel="Sort students" options={[{ value: 'createdAt', label: 'Newest' }, { value: 'name', label: 'Name' }, { value: 'branch', label: 'Branch' }]} width={116} /><div className="super-admin-global-filter-field"><BranchFilterSelect value={globalStudentBranchFilter} branches={globalBranchFilterOptions} onChange={(nextValue) => setGlobalStudentBranchFilter(nextValue)} ariaLabel="Filter students by branch" /></div><span className="super-admin-global-count">{filteredGlobalStudents.length} students</span></div></div>

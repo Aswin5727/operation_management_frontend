@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, ArrowUpRight, BarChart3, CheckCheck, ChevronDown, CircleDot, Clock3, FileSpreadsheet, Flame, RefreshCw, Search, TrendingUp, Users, X } from 'lucide-react'
 import { request, requestBlob } from '../services/apiClient'
 import { SalesCrmReportSubmissionModal } from '../components/SalesCrmReportSubmissionModal'
+import { listReportBranches } from '../services/reportService'
 
 const REPORT_TIMEZONE = 'Asia/Kolkata'
 const currentReportParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: REPORT_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]))
@@ -123,6 +124,7 @@ export function SalesCrmReportPage() {
   const [search, setSearch] = useState('')
   const [selectedMetric, setSelectedMetric] = useState('')
   const [tablePage, setTablePage] = useState(1)
+  const [reportBranches, setReportBranches] = useState([])
 
   const reportQuery = buildQuery(appliedFilters).toString()
 
@@ -134,6 +136,12 @@ export function SalesCrmReportPage() {
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [reportQuery, reloadKey])
+
+  useEffect(() => {
+    let active = true
+    listReportBranches().then((items) => { if (active) setReportBranches(Array.isArray(items) ? items : []) }).catch(() => {})
+    return () => { active = false }
+  }, [])
 
   const updateDraft = (key, value) => {
     setDraftFilters((current) => ({ ...current, [key]: value }))
@@ -343,10 +351,23 @@ export function SalesCrmReportPage() {
 
     <SalesCrmReportSubmissionModal isOpen={sendOpen} onClose={() => setSendOpen(false)} initialFromDate={appliedFilters.fromDate} initialToDate={appliedFilters.toDate} onSubmitted={() => setDownloadNotice('Report generated and sent to Super Admin successfully.')} />
 
+    {downloadOpen ? <div className="sales-crm-report-download-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDownloadReport() }}><form className="sales-crm-report-download-modal" onSubmit={downloadReport} role="dialog" aria-modal="true" aria-labelledby="sales-crm-download-title">
+      <header className="sales-crm-report-download-modal-header"><div><p className="eyebrow">REPORT DOWNLOAD</p><h2 id="sales-crm-download-title">Download Report</h2><p>Choose the branch and period for the Excel export.</p></div><button type="button" className="sales-crm-report-download-close" onClick={closeDownloadReport} disabled={downloading} aria-label="Close"><X size={17} /></button></header>
+      <div className="sales-crm-report-download-form">
+        <div className="sales-crm-report-download-controls"><label className="sales-crm-report-download-field">Report Type<ReportDownloadSelect value={reportDownloadFilters.scope} ariaLabel="Download report type" options={[{ value: 'all', label: 'ALL LEADS' }, { value: 'admissions', label: 'ADMISSION STUDENTS' }]} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, scope: value }))} /></label><label className="sales-crm-report-download-field">Branch<ReportDownloadSelect value={reportDownloadFilters.branchId} ariaLabel="Download branch" options={[{ value: '', label: 'ALL BRANCHES' }, ...reportBranches.map((branch) => ({ value: branch.id, label: branch.branchName || branch.branchId }))]} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, branchId: value }))} /></label></div>
+        <div className="sales-crm-report-download-controls"><label className="sales-crm-report-download-field">Period type<ReportDownloadSelect value={reportDownloadFilters.period} ariaLabel="Download period type" options={[{ value: 'month', label: 'Month' }, { value: 'year', label: 'Year' }, { value: 'custom', label: 'Custom date range' }]} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, period: value }))} /></label></div>
+        {reportDownloadFilters.period === 'month' ? <div className="sales-crm-report-download-period-card"><label>Month<ReportDownloadSelect value={reportDownloadFilters.month} ariaLabel="Download month" options={reportMonthOptions.map(([value, name]) => ({ value, label: name }))} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, month: value }))} /></label><label>Year<ReportDownloadSelect value={reportDownloadFilters.year} ariaLabel="Download year" options={reportYearOptions.map((year) => ({ value: year, label: year }))} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, year: value }))} /></label></div> : reportDownloadFilters.period === 'year' ? <div className="sales-crm-report-download-period-card sales-crm-report-download-year-card"><label>Year<ReportDownloadSelect value={reportDownloadFilters.year} ariaLabel="Download year" options={reportYearOptions.map((year) => ({ value: year, label: year }))} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, year: value }))} /></label></div> : <div className="sales-crm-report-download-period-card"><label>From date<input type="date" value={reportDownloadFilters.fromDate} onChange={(event) => setReportDownloadFilters((current) => ({ ...current, fromDate: event.target.value }))} /></label><label>To date<input type="date" min={reportDownloadFilters.fromDate || undefined} value={reportDownloadFilters.toDate} onChange={(event) => setReportDownloadFilters((current) => ({ ...current, toDate: event.target.value }))} /></label></div>}
+        <div className="sales-crm-report-download-summary"><span>Selected scope</span><strong>{reportDownloadFilters.branchId ? reportBranches.find((branch) => String(branch.id) === String(reportDownloadFilters.branchId))?.branchName || 'Selected branch' : 'All branches'}</strong><small>{scopeLabel(reportDownloadFilters.scope)} · {exportPeriodLabel()}</small></div>
+        {downloadError ? <div className="sales-crm-report-download-inline-error" role="alert"><AlertCircle size={15} />{downloadError}</div> : null}
+      </div>
+      <footer className="sales-crm-report-download-actions"><button type="button" className="sales-crm-report-download-cancel" onClick={closeDownloadReport} disabled={downloading}>Cancel</button><button type="submit" className="sales-crm-report-download-submit" disabled={downloading}>{downloading ? 'Generating…' : <><FileSpreadsheet size={15} />Download Excel</>}</button></footer>
+    </form></div> : null}
+
     <section className="sales-crm-report-filter-card" aria-label="Report filters">
       <div className="sales-crm-report-filter-heading"><div><span className="sales-crm-report-filter-icon"><FileSpreadsheet size={18} /></span><div><h2>Report filters</h2><p>Choose the report scope and optional stage or status filters.</p></div></div><span className="sales-crm-report-scope-pill">{scopeLabel(appliedFilters.scope)}</span></div>
             <div className="sales-crm-report-filter-grid sales-crm-report-compact-filters">
         <label>Report Type<ReportDownloadSelect value={draftFilters.scope} ariaLabel="Report Type" options={[{ value: 'all', label: 'ALL LEADS' }, { value: 'admissions', label: 'ADMISSION STUDENTS' }]} onChange={(value) => updateDraft('scope', value)} /></label>
+        <label>Branch<ReportDownloadSelect value={draftFilters.branchId} ariaLabel="Branch" options={[{ value: '', label: 'ALL BRANCHES' }, ...reportBranches.map((branch) => ({ value: branch.id, label: branch.branchName || branch.branchId }))]} onChange={(value) => updateDraft('branchId', value)} /></label>
         <label>Stage<ReportDownloadSelect value={draftFilters.stage} ariaLabel="Stage" options={[{ value: '', label: 'All stages' }, ...STAGES.map(([key, label]) => ({ value: key, label }))]} onChange={(value) => updateDraft('stage', value)} /></label>
         <label>Status<ReportDownloadSelect value={draftFilters.status} ariaLabel="Status" options={STATUSES.map(([value, label]) => ({ value, label }))} onChange={(value) => updateDraft('status', value)} /></label>
         <div className="sales-crm-report-filter-actions"><button type="button" className="sales-crm-report-reset-button" onClick={resetFilters}>Reset</button><button type="button" className="sales-crm-report-apply-button" onClick={applyFilters}>Apply filters</button></div>
