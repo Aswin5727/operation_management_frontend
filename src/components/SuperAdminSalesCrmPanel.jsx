@@ -19,6 +19,11 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
   const [currentPage, setCurrentPage] = useState(1)
   const [reloadKey, setReloadKey] = useState(0)
   const [downloading, setDownloading] = useState(false)
+  const [isDownloadOpen, setIsDownloadOpen] = useState(false)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [downloadBranchFilter, setDownloadBranchFilter] = useState('all')
+  const [downloadError, setDownloadError] = useState('')
   const admissionRows = useMemo(() => students.filter((student) => student?.admissionDate || student?.sourceLeadId || student?.admissionSource), [students])
 
   useEffect(() => {
@@ -65,11 +70,21 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
   const paginatedRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   const downloadReport = async () => {
+    if (!fromDate || !toDate) {
+      setDownloadError('Please select both From Date and To Date.')
+      return
+    }
+    if (fromDate > toDate) {
+      setDownloadError('From Date cannot be later than To Date.')
+      return
+    }
     setDownloading(true)
     setError('')
+    setDownloadError('')
     try {
       const scope = isAdmissions ? 'admissions' : 'all'
-      const result = await requestBlob(`/leads/report/export?scope=${scope}&period=custom&fromDate=2000-01-01&toDate=2100-12-31`)
+      const branchQuery = downloadBranchFilter === 'all' ? '' : `&branchId=${encodeURIComponent(downloadBranchFilter)}`
+      const result = await requestBlob(`/leads/report/export?scope=${scope}&period=custom&fromDate=${fromDate}&toDate=${toDate}${branchQuery}`)
       if (!result?.blob) throw new Error('The report file could not be created.')
       const url = URL.createObjectURL(result.blob)
       const link = document.createElement('a')
@@ -79,8 +94,9 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
       link.click()
       link.remove()
       URL.revokeObjectURL(url)
+      setIsDownloadOpen(false)
     } catch (reason) {
-      setError(reason?.message || 'Unable to download the report.')
+      setDownloadError(reason?.message || 'Unable to download the report.')
     } finally {
       setDownloading(false)
     }
@@ -94,7 +110,7 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
         <div><p className="branch-management-kicker">Sales &amp; CRM</p><h1 id="super-admin-sales-crm-title">{title}</h1><p>{description}</p></div>
         <div className="super-admin-sales-crm-actions">
           <button type="button" className="super-admin-outline-action" onClick={() => { setError(''); setLoading(true); setReloadKey((value) => value + 1) }} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} /> Refresh</button>
-          <button type="button" className="super-admin-primary-action" onClick={() => void downloadReport()} disabled={downloading}><Download size={16} /> {downloading ? 'Preparing...' : 'Download Excel'}</button>
+          <button type="button" className="super-admin-primary-action" onClick={() => { setDownloadError(''); setDownloadBranchFilter(branchFilter); setIsDownloadOpen(true) }} disabled={downloading}><Download size={16} /> Download Excel</button>
         </div>
       </header>
       <div className="super-admin-sales-crm-toolbar"><div className="super-admin-sales-crm-filters"><label className="super-admin-sales-crm-search"><Search size={17} /><input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1) }} placeholder={isAdmissions ? 'Search admission student, branch, course...' : 'Search lead, student, branch, course...'} aria-label={`Search ${title}`} /></label><label className="super-admin-sales-crm-branch-filter"><span className="sr-only">Filter by branch</span><select value={branchFilter} onChange={(event) => { setBranchFilter(event.target.value); setCurrentPage(1) }} aria-label="Filter leads by branch"><option value="all">All branches</option>{branches.map((branch) => { const value = branch.id || branch.branchId; return <option key={value} value={value}>{branch.branchName || branch.branchId || 'Unnamed branch'}</option> })}</select></label></div><span>{filteredRows.length} records</span></div>
@@ -114,6 +130,7 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
         </div>
       )}
       {!(isAdmissions ? studentsLoading : loading) && !error && filteredRows.length > pageSize ? <div className="super-admin-sales-crm-pagination"><span>Page {safePage} of {totalPages}</span><div><button type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={safePage === 1}>Previous</button><button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={safePage === totalPages}>Next</button></div></div> : null}
+      {isDownloadOpen ? <div className="super-admin-sales-crm-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !downloading) setIsDownloadOpen(false) }}><section className="super-admin-sales-crm-download-modal" role="dialog" aria-modal="true" aria-labelledby="sales-crm-download-title"><div className="super-admin-sales-crm-download-heading"><div><p>DOWNLOAD REPORT</p><h2 id="sales-crm-download-title">{isAdmissions ? 'Admission Students Excel' : 'Lead Management Excel'}</h2></div><button type="button" onClick={() => setIsDownloadOpen(false)} disabled={downloading} aria-label="Close">×</button></div><div className="super-admin-sales-crm-date-fields"><label>From Date<input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label><label>To Date<input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label><label className="super-admin-sales-crm-download-branch">Branch<select value={downloadBranchFilter} onChange={(event) => setDownloadBranchFilter(event.target.value)}><option value="all">All branches</option>{branches.map((branch) => { const value = branch.id || branch.branchId; return <option key={value} value={value}>{branch.branchName || branch.branchId || 'Unnamed branch'}</option> })}</select></label></div>{downloadError ? <p className="super-admin-sales-crm-download-error" role="alert">{downloadError}</p> : null}<div className="super-admin-sales-crm-download-actions"><button type="button" onClick={() => setIsDownloadOpen(false)} disabled={downloading}>Cancel</button><button type="button" className="super-admin-primary-action" onClick={() => void downloadReport()} disabled={downloading}>{downloading ? 'Preparing...' : 'Download Excel'}</button></div></section></div> : null}
     </section>
   )
 }

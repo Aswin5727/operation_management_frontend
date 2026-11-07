@@ -4889,7 +4889,7 @@ const BRANCH_PAYMENT_HISTORY_PER_PAGE = 5
   const [isDiscontinuationReviewSaving, setIsDiscontinuationReviewSaving] = useState(false)
   const [branchNotificationRecords, setBranchNotificationRecords] = useState([])
   const [branchNotificationSearch, setBranchNotificationSearch] = useState('')
-  const [branchNotificationDatePreset, setBranchNotificationDatePreset] = useState('last7days')
+  const [branchNotificationDatePreset, setBranchNotificationDatePreset] = useState('all')
   const [branchNotificationFromDate, setBranchNotificationFromDate] = useState('')
   const [branchNotificationToDate, setBranchNotificationToDate] = useState('')
   const [branchNotificationSort, setBranchNotificationSort] = useState('newest')
@@ -6039,6 +6039,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     }),
     [branchProfile?.branchEmail, branchProfile?.branchId, branchProfile?.id, user?.email],
   )
+  const currentBranchUserId = String(user?.id || user?.userId || session?.user?.id || session?.user?.userId || '').trim()
   const branchLocation = branchProfile?.branchAddress || 'Assigned location'
   const mustResetPassword = Boolean(
     session?.user?.mustResetPassword ??
@@ -6096,20 +6097,20 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
             'sales-crm-batch-request-update',
           ])
           const kind = String(notification.kind || '').trim()
-          return !salesNotificationKinds.has(kind) || String(notification.targetUserId || '').trim() === String(user?.id || '').trim()
+          return !salesNotificationKinds.has(kind) || String(notification.targetUserId || '').trim() === currentBranchUserId
         })
         .filter((notification) => {
           const kind = String(notification.kind || '').trim()
           const followUpKinds = ['lead-follow-up-scheduled', 'lead-follow-up-due', 'lead-follow-up-overdue']
           if (!followUpKinds.includes(kind)) return true
-          return String(notification.targetUserId || '').trim() === String(user?.id || '').trim()
+          return String(notification.targetUserId || '').trim() === currentBranchUserId
         })
         // The API is already tenant-scoped. Keep sequential scheduling alerts
         // visible even for legacy rows that were saved before branch IDs were
         // normalized to the canonical branch primary key.
         .filter((notification) => (
           String(notification.kind || '').trim() === 'sequential-course-scheduling-required' ||
-          String(notification.targetUserId || '').trim() === String(user?.id || '').trim() ||
+          String(notification.targetUserId || '').trim() === currentBranchUserId ||
           doesBranchNotificationBelongToBranch(notification, branchScope)
         ))
         .filter((notification) => {
@@ -6149,7 +6150,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         })
         .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     },
-    [branchNotificationRecords, branchScope, branchStudents, hasLeadManagementAccess, isBranchStudentsLoading, user?.id],
+    [branchNotificationRecords, branchScope, branchStudents, currentBranchUserId, hasLeadManagementAccess, isBranchStudentsLoading],
   )
 
   useEffect(() => {
@@ -12558,7 +12559,7 @@ useEffect(() => {
 
                   <div className="branch-notification-date-toolbar" aria-label="Filter notifications by date">
                     <div className="branch-notification-date-filters">
-                      {[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7days', 'Last 7 Days'], ['thismonth', 'This Month'], ['custom', 'Custom Range']].map(([value, label]) => (
+                      {[['all', 'All'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['last7days', 'Last 7 Days'], ['thismonth', 'This Month'], ['custom', 'Custom Range']].map(([value, label]) => (
                         <button type="button" key={value} className={branchNotificationDatePreset === value ? 'is-active' : ''} onClick={() => { setBranchNotificationPage(1); setBranchNotificationDatePreset(value) }}>{label}</button>
                       ))}
                     </div>

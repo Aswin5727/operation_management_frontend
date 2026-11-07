@@ -764,7 +764,8 @@ export function SuperAdminDashboardPage() {
   }, [superAdminStudentView])
 
   useEffect(() => {
-    if (activeSection !== 'students' || !branches.length) {
+    const isAdmissionsView = activeSection === 'sales-admin' && new URLSearchParams(location.search).get('view') === 'admissions'
+    if ((activeSection !== 'students' && !isAdmissionsView) || !branches.length) {
       setIsGlobalStudentsLoading(false)
       setAllBranchStudents([])
       return undefined
@@ -821,7 +822,7 @@ export function SuperAdminDashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [activeSection, branches, globalStudentRefreshKey])
+  }, [activeSection, branches, globalStudentRefreshKey, location.search])
 
   useEffect(() => {
     const refreshStudents = () => setGlobalStudentRefreshKey((current) => current + 1)

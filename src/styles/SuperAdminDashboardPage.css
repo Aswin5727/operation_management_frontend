@@ -463,6 +463,21 @@
 .super-admin-sales-crm-pagination > div { display: flex; gap: 8px; }
 .super-admin-sales-crm-pagination button { padding: 8px 12px; border: 1px solid #cad8e8; border-radius: 8px; background: #fff; color: #345475; font: inherit; cursor: pointer; }
 .super-admin-sales-crm-pagination button:disabled { cursor: not-allowed; opacity: .5; }
+.super-admin-sales-crm-modal-backdrop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 20px; background: rgba(15, 23, 42, .42); }
+.super-admin-sales-crm-download-modal { width: min(460px, 100%); padding: 24px; border: 1px solid #dbe6f2; border-radius: 16px; background: #fff; box-shadow: 0 24px 70px rgba(15, 23, 42, .2); }
+.super-admin-sales-crm-download-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.super-admin-sales-crm-download-heading p { margin: 0 0 5px; color: #6b86a3; font-size: .68rem; font-weight: 900; letter-spacing: .12em; }
+.super-admin-sales-crm-download-heading h2 { margin: 0; color: #173d6c; font-size: 1.2rem; }
+.super-admin-sales-crm-download-heading > button { border: 0; background: transparent; color: #6d829b; font-size: 26px; line-height: 1; cursor: pointer; }
+.super-admin-sales-crm-download-heading > button:disabled { cursor: not-allowed; opacity: .5; }
+.super-admin-sales-crm-date-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.super-admin-sales-crm-date-fields label { display: grid; gap: 7px; color: #526b87; font-size: .78rem; font-weight: 800; }
+.super-admin-sales-crm-date-fields input, .super-admin-sales-crm-date-fields select { width: 100%; min-height: 42px; padding: 0 10px; border: 1px solid #d4e0ee; border-radius: 9px; outline: 0; background: #fff; color: #17345f; font: inherit; }
+.super-admin-sales-crm-download-branch { grid-column: 1 / -1; }
+.super-admin-sales-crm-download-scope { margin: 16px 0 0; color: #71839c; font-size: .78rem; }
+.super-admin-sales-crm-download-error { margin: 12px 0 0; color: #b42318; font-size: .78rem; font-weight: 700; }
+.super-admin-sales-crm-download-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.super-admin-sales-crm-download-actions > button:first-child { min-height: 40px; padding: 0 14px; border: 1px solid #cad8e8; border-radius: 10px; background: #fff; color: #345475; font: inherit; font-size: .8rem; font-weight: 800; cursor: pointer; }
 
 @media (max-width: 760px) {
   .super-admin-sales-crm-panel { padding: 18px; }
@@ -471,6 +486,7 @@
   .super-admin-outline-action, .super-admin-primary-action { flex: 1; }
   .super-admin-sales-crm-filters { align-items: stretch; flex-direction: column; }
   .super-admin-sales-crm-search, .super-admin-sales-crm-branch-filter select { width: 100%; max-width: none; }
+  .super-admin-sales-crm-date-fields { grid-template-columns: 1fr; }
 }
 .super-admin-reports-selected { display: flex; align-items: center; gap: 11px; padding: 14px 16px; border: 1px solid #d9e8fb; border-radius: 12px; background: #f4f8ff; }
 .super-admin-reports-selected-icon { display: grid; flex: 0 0 auto; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: #e5f0ff; color: #2d6bd8; }
