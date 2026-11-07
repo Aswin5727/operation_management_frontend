@@ -29,6 +29,7 @@ import {
   Code2,
   CircleDot,
   CalendarDays,
+  CheckCheck,
   Monitor,
   Clock3,
   ArrowUpRight,
@@ -4877,10 +4878,10 @@ const BRANCH_PAYMENT_HISTORY_PER_PAGE = 5
   const [isDiscontinuationReviewSaving, setIsDiscontinuationReviewSaving] = useState(false)
   const [branchNotificationRecords, setBranchNotificationRecords] = useState([])
   const [branchNotificationSearch, setBranchNotificationSearch] = useState('')
-  const [branchNotificationMonthFilter, setBranchNotificationMonthFilter] = useState(() => {
-    const today = new Date()
-    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
-  })
+  const [branchNotificationDatePreset, setBranchNotificationDatePreset] = useState('last7days')
+  const [branchNotificationFromDate, setBranchNotificationFromDate] = useState('')
+  const [branchNotificationToDate, setBranchNotificationToDate] = useState('')
+  const [branchNotificationSort, setBranchNotificationSort] = useState('newest')
   const [branchNotificationStatusFilter, setBranchNotificationStatusFilter] = useState('all')
   const [branchNotificationPage, setBranchNotificationPage] = useState(1)
   const [facultyTodayWorkEntries, setFacultyTodayWorkEntries] = useState([])
@@ -6177,17 +6178,24 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     () => {
       const searchTerm = branchNotificationSearch.trim().toLowerCase()
       const now = new Date()
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-      const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000
-      const daysSinceMonday = (now.getDay() + 6) % 7
-      const startOfWeek = startOfToday - daysSinceMonday * 24 * 60 * 60 * 1000
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const shiftDateKey = (dateKey, days) => {
+        const date = new Date(`${dateKey}T00:00:00`)
+        date.setDate(date.getDate() + days)
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+      }
+      const dateRange = branchNotificationDatePreset === 'custom'
+        ? { from: branchNotificationFromDate, to: branchNotificationToDate }
+        : branchNotificationDatePreset === 'today'
+          ? { from: todayKey, to: todayKey }
+          : branchNotificationDatePreset === 'yesterday'
+            ? { from: shiftDateKey(todayKey, -1), to: shiftDateKey(todayKey, -1) }
+            : branchNotificationDatePreset === 'last7days'
+              ? { from: shiftDateKey(todayKey, -6), to: todayKey }
+              : { from: `${todayKey.slice(0, 7)}-01`, to: todayKey }
 
       const filteredNotifications = normalizedBranchNotifications.filter((item) => {
         const notificationDate = new Date(item.createdAt)
-        const notificationTimestamp = notificationDate.getTime()
-        const notificationMonth = Number.isNaN(notificationDate.getTime())
-          ? ''
-          : `${notificationDate.getFullYear()}-${String(notificationDate.getMonth() + 1).padStart(2, '0')}`
         const matchesSearch = !searchTerm || [
           item.title,
           item.message,
@@ -6207,28 +6215,32 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
           item.summary,
         ].some((value) => String(value || '').toLowerCase().includes(searchTerm))
 
-        const matchesMonth =
-          branchNotificationMonthFilter === 'all' ||
-          (branchNotificationMonthFilter === 'today'
-            ? notificationTimestamp >= startOfToday
-            : branchNotificationMonthFilter === 'yesterday'
-              ? notificationTimestamp >= startOfYesterday && notificationTimestamp < startOfToday
-              : branchNotificationMonthFilter === 'week'
-                ? notificationTimestamp >= startOfWeek
-                : notificationMonth === branchNotificationMonthFilter)
+        const notificationKey = Number.isNaN(notificationDate.getTime()) ? '' : `${notificationDate.getFullYear()}-${String(notificationDate.getMonth() + 1).padStart(2, '0')}-${String(notificationDate.getDate()).padStart(2, '0')}`
+        const matchesDate = branchNotificationDatePreset === 'all' || (
+          dateRange.from && dateRange.to && notificationKey >= dateRange.from && notificationKey <= dateRange.to
+        )
 
         const matchesStatus =
           branchNotificationStatusFilter === 'all' ||
           (branchNotificationStatusFilter === 'unread' ? item.unread : !item.unread)
 
-        return matchesSearch && matchesMonth && matchesStatus
+        return matchesSearch && matchesDate && matchesStatus
+      })
+
+      filteredNotifications.sort((left, right) => {
+        const leftTime = Date.parse(left.createdAt || '') || 0
+        const rightTime = Date.parse(right.createdAt || '') || 0
+        return branchNotificationSort === 'oldest' ? leftTime - rightTime : rightTime - leftTime
       })
 
       return groupByDate(filteredNotifications)
     },
     [
-      branchNotificationMonthFilter,
+      branchNotificationDatePreset,
+      branchNotificationFromDate,
+      branchNotificationToDate,
       branchNotificationSearch,
+      branchNotificationSort,
       branchNotificationStatusFilter,
       normalizedBranchNotifications,
     ],
@@ -6260,29 +6272,6 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
   }, [paginatedBranchNotificationRows])
 
 
-  const branchNotificationMonthOptions = useMemo(() => {
-    const currentMonth = new Date()
-    const monthKeys = new Set([
-      `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`,
-      ...normalizedBranchNotifications.map((item) => {
-        const date = new Date(item.createdAt)
-        return Number.isNaN(date.getTime())
-          ? ''
-          : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-      }),
-    ])
-
-    return [...monthKeys]
-      .filter(Boolean)
-      .sort((left, right) => right.localeCompare(left))
-      .map((monthKey) => {
-        const [year, month] = monthKey.split('-').map(Number)
-        return {
-          value: monthKey,
-          label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)),
-        }
-      })
-  }, [normalizedBranchNotifications])
   const branchNotificationItems = normalizedBranchNotifications
   const branchUnreadNotificationCount = useMemo(
     () => normalizedBranchNotifications.filter((item) => item.unread && !item.dropdownViewed).length,
@@ -12541,56 +12530,28 @@ useEffect(() => {
                         Back to dashboard
                       </button>
 
-                      <button type="button" className="notifications-mark-read" onClick={markAllBranchNotificationsAsRead} disabled={!branchPageUnreadNotificationCount}>
-                        <CheckCircle2 size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                        Mark all as read
-                      </button>
                     </div>
                   </header>
 
-                  <div className="branch-notifications-filters" aria-label="Notification filters">
-                    <label className="branch-notifications-search">
-                      <Search size={22} strokeWidth={2.1} aria-hidden="true" focusable="false" />
-                      <input
-                        type="search"
-                        value={branchNotificationSearch}
-                        onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationSearch(event.target.value) }}
-                        placeholder="Search notifications"
-                        aria-label="Search notifications"
-                      />
-                    </label>
-
-                    <label className="branch-notifications-select">
-                      <CalendarDays size={19} strokeWidth={2.1} aria-hidden="true" focusable="false" />
-                      <select
-                        value={branchNotificationMonthFilter}
-                        onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationMonthFilter(event.target.value) }}
-                        aria-label="Filter notifications by date or month"
-                      >
-                        <option value="all">All dates</option>
-                        <option value="today">Today</option>
-                        <option value="yesterday">Yesterday</option>
-                        <option value="week">This week</option>
-                        {branchNotificationMonthOptions.map((month) => (
-                          <option key={month.value} value={month.value}>{month.label}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                    </label>
-
-                    <label className="branch-notifications-select">
-                      <span className="branch-notifications-status-dot" aria-hidden="true" />
-                      <select
-                        value={branchNotificationStatusFilter}
-                        onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationStatusFilter(event.target.value) }}
-                        aria-label="Filter notifications by status"
-                      >
-                        <option value="all">All status</option>
-                        <option value="read">Read</option>
-                        <option value="unread">Unread</option>
-                      </select>
-                      <ChevronDown size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                    </label>
+                  <div className="branch-notification-date-toolbar" aria-label="Filter notifications by date">
+                    <div className="branch-notification-date-filters">
+                      {[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7days', 'Last 7 Days'], ['thismonth', 'This Month'], ['custom', 'Custom Range']].map(([value, label]) => (
+                        <button type="button" key={value} className={branchNotificationDatePreset === value ? 'is-active' : ''} onClick={() => { setBranchNotificationPage(1); setBranchNotificationDatePreset(value) }}>{label}</button>
+                      ))}
+                    </div>
+                    {branchNotificationDatePreset === 'custom' ? <div className="branch-notification-date-range">
+                      <label>From Date<input type="date" value={branchNotificationFromDate} max={branchNotificationToDate || undefined} onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationFromDate(event.target.value) }} /></label>
+                      <label>To Date<input type="date" value={branchNotificationToDate} min={branchNotificationFromDate || undefined} onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationToDate(event.target.value) }} /></label>
+                    </div> : null}
+                  </div>
+                  <div className="branch-notification-toolbar">
+                    <div className="branch-notification-status-filters" aria-label="Filter by read status">
+                      {[['all', 'All'], ['unread', 'Unread'], ['read', 'Read']].map(([value, label]) => <button type="button" key={value} className={branchNotificationStatusFilter === value ? 'is-active' : ''} onClick={() => { setBranchNotificationPage(1); setBranchNotificationStatusFilter(value) }}>{label}</button>)}
+                    </div>
+                    <div className="branch-notification-toolbar-actions">
+                      <label>Sort<select value={branchNotificationSort} onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationSort(event.target.value) }}><option value="newest">Newest First</option><option value="oldest">Oldest First</option></select></label>
+                      <button type="button" className="notifications-mark-read" onClick={markAllBranchNotificationsAsRead} disabled={!branchPageUnreadNotificationCount}><CheckCheck size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />Mark all as read</button>
+                    </div>
                   </div>
 
                   <div className="notifications-feed">

@@ -9,6 +9,7 @@ import {
   Check,
   CalendarDays,
   CheckCircle2,
+  CheckCheck,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -1712,10 +1713,19 @@ function isWithinSelectedDateRange(createdAt, range) {
 
   if (range === 'today') return diffDays === 0
   if (range === 'yesterday') return diffDays === 1
-  if (range === '7d') return diffDays >= 0 && diffDays < 7
+  if (range === '7d' || range === 'last7days') return diffDays >= 0 && diffDays < 7
   if (range === '30d') return diffDays >= 0 && diffDays < 30
+  if (range === 'thismonth') return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()
 
   return true
+}
+
+function isWithinCustomDateRange(createdAt, fromDate, toDate) {
+  if (!fromDate || !toDate || fromDate > toDate) return false
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) return false
+  const itemKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  return itemKey >= fromDate && itemKey <= toDate
 }
 
 function getFacultyNotificationIcon(notification = {}) {
@@ -2455,8 +2465,12 @@ export function FacultyDashboardPage() {
   const [notificationStoreVersion, setNotificationStoreVersion] = useState(0)
   const [todayWorkEntries, setTodayWorkEntries] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [dateFilter, setDateFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState('last7days')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [notificationSort, setNotificationSort] = useState('newest')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [notificationPage, setNotificationPage] = useState(1)
   const [facultyProfile, setFacultyProfile] = useState(null)
   const [facultyWeekOffRequests, setFacultyWeekOffRequests] = useState([])
   const [weekOffValidationMessage, setWeekOffValidationMessage] = useState('')
@@ -2891,6 +2905,23 @@ export function FacultyDashboardPage() {
   const totalNotificationCount = normalizedNotifications.length
   const isFacultyProgressNotification = (notification = {}) =>
     String(notification.kind || '').trim().startsWith('faculty-progress-status')
+  const markAllFacultyNotificationsAsRead = async () => {
+    const unreadItems = unreadNotifications
+    const unreadIds = unreadItems.map((item) => item.id)
+    if (!unreadIds.length) return
+    try {
+      const localUnreadIds = unreadItems.filter((item) => isFacultyProgressNotification(item)).map((item) => item.id)
+      const remoteUnreadIds = unreadItems.filter((item) => !isFacultyProgressNotification(item)).map((item) => item.id)
+      if (localUnreadIds.length) markNotificationsAsRead(localUnreadIds)
+      if (remoteUnreadIds.length) await markFacultyNotificationsAsRead(remoteUnreadIds)
+      setFacultyNotifications((current) => current.map((item) => ({
+        ...item,
+        read: remoteUnreadIds.includes(item.id) ? true : item.read,
+      })))
+    } catch (error) {
+      console.error('Failed to mark all notifications as read', error)
+    }
+  }
 
   const assignedCourseIds = useMemo(() => {
     const summary = dashboardSummary || {}
@@ -6016,14 +6047,15 @@ const nextName = trimmedValue
 
   const visibleNotifications = useMemo(() => {
     const query = searchTerm.trim().toLowerCase()
-
-    return normalizedNotifications.filter((notification) => {
+    const filtered = normalizedNotifications.filter((notification) => {
       const matchesStatus =
         statusFilter === 'all' ||
         (statusFilter === 'read' && notification.read) ||
         (statusFilter === 'unread' && !notification.read)
 
-      const matchesDate = isWithinSelectedDateRange(notification.createdAt, dateFilter)
+      const matchesDate = dateFilter === 'custom'
+        ? isWithinCustomDateRange(notification.createdAt, fromDate, toDate)
+        : isWithinSelectedDateRange(notification.createdAt, dateFilter)
 
       const searchableText = [
         notification.title,
@@ -6040,10 +6072,22 @@ const nextName = trimmedValue
 
       return matchesStatus && matchesDate && matchesSearch
     })
-  }, [dateFilter, normalizedNotifications, searchTerm, statusFilter])
+    return filtered.sort((left, right) => {
+      const leftTime = Date.parse(left.createdAt || '') || 0
+      const rightTime = Date.parse(right.createdAt || '') || 0
+      return notificationSort === 'oldest' ? leftTime - rightTime : rightTime - leftTime
+    })
+  }, [dateFilter, fromDate, normalizedNotifications, notificationSort, searchTerm, statusFilter, toDate])
+  const notificationPageSize = 10
+  const notificationTotalPages = Math.max(1, Math.ceil(visibleNotifications.length / notificationPageSize))
+  const safeNotificationPage = Math.min(notificationPage, notificationTotalPages)
+  const paginatedNotifications = useMemo(
+    () => visibleNotifications.slice((safeNotificationPage - 1) * notificationPageSize, safeNotificationPage * notificationPageSize),
+    [safeNotificationPage, visibleNotifications],
+  )
   const groupedNotifications = useMemo(
-    () => groupFacultyNotifications(visibleNotifications),
-    [visibleNotifications],
+    () => groupFacultyNotifications(paginatedNotifications),
+    [paginatedNotifications],
   )
 
   const summaryCardsLoading = dashboardOverviewLoading || dashboardSummaryLoading
@@ -7949,46 +7993,6 @@ const nextName = trimmedValue
                     <div className="faculty-notifications-page-actions">
                       <button
                         type="button"
-                        className="faculty-mark-all-btn"
-                        onClick={async () => {
-                          const unreadItems = unreadNotifications
-                          const unreadIds = unreadItems.map((item) => item.id)
-
-                          if (!unreadIds.length) return
-
-                          try {
-                            const localUnreadIds = unreadItems
-                              .filter((item) => isFacultyProgressNotification(item))
-                              .map((item) => item.id)
-                            const remoteUnreadIds = unreadItems
-                              .filter((item) => !isFacultyProgressNotification(item))
-                              .map((item) => item.id)
-
-                            if (localUnreadIds.length) {
-                              markNotificationsAsRead(localUnreadIds)
-                            }
-
-                            if (remoteUnreadIds.length) {
-                              await markFacultyNotificationsAsRead(remoteUnreadIds)
-                            }
-
-                            setFacultyNotifications((current) =>
-                              current.map((item) => ({
-                                ...item,
-                                read: remoteUnreadIds.includes(item.id) ? true : item.read,
-                              })),
-                            )
-                          } catch (error) {
-                            console.error('Failed to mark all notifications as read', error)
-                          }
-                        }}
-                      >
-                        <Bell size={18} strokeWidth={2.2} />
-                        Mark all as read
-                      </button>
-
-                      <button
-                        type="button"
                         className="faculty-back-dashboard-btn"
                         onClick={() => setActiveSection('dashboard')}
                       >
@@ -7998,47 +8002,25 @@ const nextName = trimmedValue
                     </div>
                   </header>
 
-                  <div className="faculty-notifications-toolbar">
-                    <label className="faculty-notification-search">
-                      <input
-                        type="search"
-                        placeholder="Search notifications"
-                        value={searchTerm}
-                        onChange={(event) => setSearchTerm(event.target.value)}
-                        aria-label="Search notifications"
-                      />
-                      <button
-                        type="button"
-                        className="faculty-notification-search-button"
-                        aria-label="Search notifications"
-                      >
-                        <Search size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                      </button>
-                    </label>
-
-                    <label className="faculty-notification-filter">
-                      <CalendarDays size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                      <select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)}>
-                        <option value="all">All dates</option>
-                        <option value="today">Today</option>
-                        <option value="yesterday">Yesterday</option>
-                        <option value="7d">Last 7 days</option>
-                        <option value="30d">Last 30 days</option>
-                      </select>
-                      <ChevronDown size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                    </label>
-
-                    <label className="faculty-notification-filter">
-                      <span className="faculty-notification-filter-dot" aria-hidden="true">
-                        <Dot size={18} strokeWidth={2.4} />
-                      </span>
-                      <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-                        <option value="all">All status</option>
-                        <option value="unread">Unread only</option>
-                        <option value="read">Read only</option>
-                      </select>
-                      <ChevronDown size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                    </label>
+                  <div className="faculty-notification-date-toolbar" aria-label="Filter notifications by date">
+                    <div className="faculty-notification-date-filters">
+                      {[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7days', 'Last 7 Days'], ['thismonth', 'This Month'], ['custom', 'Custom Range']].map(([value, label]) => (
+                        <button type="button" key={value} className={dateFilter === value ? 'is-active' : ''} onClick={() => { setNotificationPage(1); setDateFilter(value) }}>{label}</button>
+                      ))}
+                    </div>
+                    {dateFilter === 'custom' ? <div className="faculty-notification-date-range">
+                      <label>From Date<input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => { setNotificationPage(1); setFromDate(event.target.value) }} /></label>
+                      <label>To Date<input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => { setNotificationPage(1); setToDate(event.target.value) }} /></label>
+                    </div> : null}
+                  </div>
+                  <div className="faculty-notification-toolbar-row">
+                    <div className="faculty-notification-status-filters" aria-label="Filter by read status">
+                      {[['all', 'All'], ['unread', 'Unread'], ['read', 'Read']].map(([value, label]) => <button type="button" key={value} className={statusFilter === value ? 'is-active' : ''} onClick={() => { setNotificationPage(1); setStatusFilter(value) }}>{label}</button>)}
+                    </div>
+                    <div className="faculty-notification-toolbar-actions">
+                      <label>Sort<select value={notificationSort} onChange={(event) => { setNotificationPage(1); setNotificationSort(event.target.value) }}><option value="newest">Newest First</option><option value="oldest">Oldest First</option></select></label>
+                      <button type="button" onClick={() => void markAllFacultyNotificationsAsRead()} disabled={!unreadNotificationCount}><CheckCheck size={16} strokeWidth={2.2} />Mark all as read</button>
+                    </div>
                   </div>
 
                   <div className="faculty-notifications-feed">
@@ -8083,6 +8065,14 @@ const nextName = trimmedValue
                       </div>
                     )}
                   </div>
+                  {notificationTotalPages > 1 ? (
+                    <PaginationBar
+                      currentPage={safeNotificationPage}
+                      totalPages={notificationTotalPages}
+                      onPageChange={setNotificationPage}
+                      summaryText={['Showing', (safeNotificationPage - 1) * notificationPageSize + 1, '–', Math.min(safeNotificationPage * notificationPageSize, visibleNotifications.length), 'of', visibleNotifications.length].join(' ')}
+                    />
+                  ) : null}
                 </section>
               ) : null}
 
