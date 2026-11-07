@@ -51,6 +51,7 @@ import { SuperAdminDiscontinuationPage } from './SuperAdminDiscontinuationPage'
 import { SalesAdminManagementPage } from './SalesAdminManagementPage'
 import { HelpdeskSupportPanel } from '../components/HelpdeskSupportPanel'
 import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
+import { SuperAdminProfilePanel } from '../components/SuperAdminProfilePanel'
 import { BranchReportsAnalyticsPage } from './BranchReportsAnalyticsPage'
 import { SalesCrmReportPage } from './SalesCrmReportPage'
 import { SuperAdminSalesCrmPanel } from '../components/SuperAdminSalesCrmPanel'
@@ -3031,7 +3032,7 @@ const filteredBranches = useMemo(() => {
                 onForgotPassword={openSuperAdminForgotPassword}
               />
             ) : activeSection === 'profile' ? (
-              <AccountSettingsPanel
+              <SuperAdminProfilePanel
                 displayName="Super Admin"
                 email={profileEmail}
                 roleLabel="Super Admin"
