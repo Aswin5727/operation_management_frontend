@@ -5743,9 +5743,13 @@ body.super-admin-sidebar-open {
 
 .sa-embedded-banner {
   position: fixed;
-  top: 16px;
+  top: 14px;
   right: 20px;
   z-index: 1100;
+}
+
+.sa-embedded-wrapper .super-admin-topbar-right {
+  padding-right: 190px;
 }
 
 .sa-embedded-exit-btn {

@@ -43,6 +43,7 @@ import { listAllBranchCourses } from '../services/branchCourseService'
 import { listBranchBatches } from '../services/branchBatchService'
 import { listFacultyTodayWorkEntries } from '../lib/facultyTodayWorkStore'
 import { BranchDashboardPage } from './BranchDashboardPage'
+import { SalesAdminDashboardPage } from './SalesAdminDashboardPage'
 import { Student360Page } from './Student360Page'
 import StudentCalendarPage from './StudentCalendarPage'
 import { request, setImpersonateBranchId } from '../services/apiClient'
@@ -633,8 +634,10 @@ export function SuperAdminDashboardPage() {
   
   // Immersive Dashboard viewing states
   const [viewDashboardBranch, setViewDashboardBranch] = useState(null)
+  const [viewDashboardMode, setViewDashboardMode] = useState('branch')
   const [isViewDashboardConfirmOpen, setIsViewDashboardConfirmOpen] = useState(false)
   const [embeddedBranch, setEmbeddedBranch] = useState(null)
+  const [embeddedSalesAdmin, setEmbeddedSalesAdmin] = useState(null)
   const [embeddedStudentEditId, setEmbeddedStudentEditId] = useState('')
   const [superAdminStudentView, setSuperAdminStudentView] = useState(null)
   const [superAdminStudentCourseData, setSuperAdminStudentCourseData] = useState({ courses: [], batches: [], facultyWork: [] })
@@ -1624,6 +1627,7 @@ const filteredBranches = useMemo(() => {
   // View Dashboard Handlers
   const openViewDashboardConfirm = (branch) => {
     setViewDashboardBranch(branch)
+    setViewDashboardMode(activeSection === 'sales-admin' ? 'sales' : 'branch')
     setIsViewDashboardConfirmOpen(true)
     setActionMenuBranchId(null)
   }
@@ -1635,7 +1639,8 @@ const filteredBranches = useMemo(() => {
   }
 
   const handleConfirmViewDashboard = () => {
-    setEmbeddedBranch(viewDashboardBranch)
+    if (viewDashboardMode === 'sales') setEmbeddedSalesAdmin(viewDashboardBranch)
+    else setEmbeddedBranch(viewDashboardBranch)
     setImpersonateBranchId(viewDashboardBranch?.id || viewDashboardBranch?.branchId || null)
     setIsViewDashboardConfirmOpen(false)
     setViewDashboardBranch(null)
@@ -1652,6 +1657,7 @@ const filteredBranches = useMemo(() => {
 
   const handleConfirmExitDashboard = () => {
     setEmbeddedBranch(null)
+    setEmbeddedSalesAdmin(null)
     setEmbeddedStudentEditId('')
     setImpersonateBranchId(null)
     setIsExitDashboardConfirmOpen(false)
@@ -2014,6 +2020,33 @@ const filteredBranches = useMemo(() => {
                   Exit Dashboard
                 </button>
               </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (embeddedSalesAdmin) {
+    return (
+      <div className="sa-embedded-wrapper">
+        <div className="sa-embedded-banner">
+          <button type="button" className="sa-embedded-exit-btn" onClick={handleExitDashboardClick}>
+            <LogOut size={16} strokeWidth={2.3} />
+            Exit Dashboard
+          </button>
+        </div>
+        <SalesAdminDashboardPage
+          embeddedSuperAdmin
+          salesBranchId={embeddedSalesAdmin.id || embeddedSalesAdmin.branchId || ''}
+          onSwitchDashboard={handleExitDashboardClick}
+        />
+        {isExitDashboardConfirmOpen ? (
+          <div className="branch-modal-backdrop" role="presentation" style={{ zIndex: 9999 }}>
+            <div className="branch-delete-modal" role="dialog" aria-modal="true" aria-labelledby="exit-sales-dashboard-title" onClick={(event) => event.stopPropagation()}>
+              <div className="branch-delete-header"><div className="branch-delete-icon" aria-hidden="true"><LogOut size={24} strokeWidth={2.1} /></div><h2 id="exit-sales-dashboard-title">Exit Dashboard</h2></div>
+              <p>Are you sure you want to leave the Sales Admin dashboard and return to the Super Admin panel?</p>
+              <div className="branch-delete-actions"><button type="button" className="branch-delete-cancel" onClick={closeExitDashboardConfirm}>Cancel</button><button type="button" className="sa-view-dashboard-btn" onClick={handleConfirmExitDashboard} style={{ background: '#0f4fb8', color: '#fff', border: 'none' }}>Exit Dashboard</button></div>
             </div>
           </div>
         ) : null}
@@ -3046,7 +3079,7 @@ const filteredBranches = useMemo(() => {
             ) : activeSection === 'sales-admin' && ['leads', 'admissions'].includes(new URLSearchParams(location.search).get('view')) ? (
               <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} branches={globalBranchFilterOptions} />
             ) : activeSection === 'sales-admin' ? (
-              <UserRoleManagementPage pageType="sales" onViewDashboard={openViewDashboardConfirm} />
+              <UserRoleManagementPage pageType="sales" onViewSalesDashboard={openViewDashboardConfirm} />
             ) : activeSection === 'branch-admin' ? (
               <UserRoleManagementPage pageType="branch" onViewDashboard={openViewDashboardConfirm} />
             ) : activeSection === 'faculty' ? (
@@ -3694,7 +3727,7 @@ const filteredBranches = useMemo(() => {
             </div>
             
             <p>
-              Are you sure you want to view <strong>{viewDashboardBranch.branchName}</strong>'s dashboard? You will be able to manage this branch's data.
+              Are you sure you want to view <strong>{viewDashboardBranch.branchName}</strong>'s {viewDashboardMode === 'sales' ? 'Sales Admin dashboard? You will be able to manage this branch\'s sales data.' : 'dashboard? You will be able to manage this branch\'s data.'}
             </p>
 
             <div className="branch-delete-actions">

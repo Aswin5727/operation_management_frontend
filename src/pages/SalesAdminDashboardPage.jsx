@@ -76,15 +76,16 @@ function formatChartDate(value) {
   return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(new Date(`${String(value).slice(0, 10)}T00:00:00.000Z`))
 }
 
-export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, onSwitchDashboard }) {
+export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, embeddedSuperAdmin = false, salesBranchId = '', onSwitchDashboard }) {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const isLeadManagement = location.pathname.endsWith('/leads')
-  const isReports = location.pathname.endsWith('/reports')
-  const isNotifications = location.pathname.endsWith('/notifications')
-  const isAdmissions = location.pathname.includes('/admissions')
-  const isProfile = location.pathname.endsWith('/profile')
+  const [embeddedSection, setEmbeddedSection] = useState('dashboard')
+  const isLeadManagement = embeddedSuperAdmin ? embeddedSection === 'leads' : location.pathname.endsWith('/leads')
+  const isReports = embeddedSuperAdmin ? embeddedSection === 'reports' : location.pathname.endsWith('/reports')
+  const isNotifications = embeddedSuperAdmin ? embeddedSection === 'notifications' : location.pathname.endsWith('/notifications')
+  const isAdmissions = embeddedSuperAdmin ? embeddedSection === 'admissions' : location.pathname.includes('/admissions')
+  const isProfile = embeddedSuperAdmin ? embeddedSection === 'profile' : location.pathname.endsWith('/profile')
   const isDashboard = !isLeadManagement && !isReports && !isNotifications && !isAdmissions && !isProfile
   const [dashboard, setDashboard] = useState(null)
   const [dashboardLoading, setDashboardLoading] = useState(true)
@@ -114,15 +115,16 @@ export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, onSwitchD
     })
     const params = new URLSearchParams({ from: dateRange.from, to: dateRange.to })
     if (selectedBranchId) params.set('branchId', selectedBranchId)
+    if (salesBranchId) params.set('salesBranchId', salesBranchId)
     request(`/sales-admins/dashboard?${params.toString()}`)
       .then((response) => { if (active) setDashboard(response?.data || null) })
       .catch((reason) => { if (active) setError(reason?.message || 'Unable to load dashboard') })
       .finally(() => { if (active) setDashboardLoading(false) })
     return () => { active = false }
-  }, [isDashboard, dashboardReloadKey, dateRange.from, dateRange.to, selectedBranchId])
+  }, [isDashboard, dashboardReloadKey, dateRange.from, dateRange.to, selectedBranchId, salesBranchId])
 
   useEffect(() => {
-    if (!isDashboard) return undefined
+    if (!isDashboard || salesBranchId) return undefined
     let active = true
     request('/sales-admins/admissions/pending-reminder')
       .then((response) => {
@@ -130,7 +132,7 @@ export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, onSwitchD
       })
       .catch((reason) => console.warn('Unable to refresh the pending HOT admission reminder:', reason?.message || reason))
     return () => { active = false }
-  }, [isDashboard])
+  }, [isDashboard, salesBranchId])
 
   const cards = dashboard?.cards || {}
   const assignedBranches = dashboard?.profile?.branches || []
@@ -153,6 +155,11 @@ export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, onSwitchD
   }, { total: 0, parts: [] })
   const customRangeInvalid = !dateRange.from || !dateRange.to || dateRange.from > dateRange.to
   const closeMobileSidebar = () => setIsMobileSidebarOpen(false)
+  const openSalesSection = (section, path) => {
+    if (embeddedSuperAdmin) setEmbeddedSection(section)
+    else navigate(path)
+    closeMobileSidebar()
+  }
   const refreshDashboard = () => setDashboardReloadKey((current) => current + 1)
   const chooseDatePreset = (preset) => { setDatePreset(preset); if (preset !== 'CUSTOM') setDateRange(dateRangeForPreset(preset)) }
   const updateChartTooltip = (event, row) => {
@@ -166,7 +173,7 @@ export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, onSwitchD
   }
 
   return (
-    <section className={`super-admin-page ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${embeddedBranchAdmin ? 'is-embedded-branch-admin' : ''}`}>
+    <section className={`super-admin-page ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${embeddedBranchAdmin ? 'is-embedded-branch-admin' : ''} ${embeddedSuperAdmin ? 'is-embedded-super-admin' : ''}`}>
       <div className="super-admin-shell">
         {isMobileSidebarOpen ? <button type="button" className="super-admin-sidebar-backdrop" aria-label="Close navigation menu" onClick={closeMobileSidebar} /> : null}
         <aside className={`super-admin-sidebar ${isSidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${isMobileSidebarOpen ? 'is-open' : ''}`} aria-label="Sales admin navigation">
@@ -178,13 +185,13 @@ export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, onSwitchD
             <button type="button" className="super-admin-sidebar-close" aria-label="Close navigation menu" onClick={closeMobileSidebar}><X size={18} /></button>
           </div>
           <nav className="super-admin-sidebar-nav">
-            <div className="super-admin-sidebar-section"><button type="button" className="super-admin-sidebar-item is-active" data-tooltip="Dashboard" onClick={() => { if (!embeddedBranchAdmin) navigate('/dashboard/sales-admin'); closeMobileSidebar() }}><span className="super-admin-sidebar-icon"><Home size={18} /></span><span>Dashboard</span></button></div>
+            <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isDashboard ? 'is-active' : ''}`} data-tooltip="Dashboard" onClick={() => { if (!embeddedBranchAdmin) openSalesSection('dashboard', '/dashboard/sales-admin') }}><span className="super-admin-sidebar-icon"><Home size={18} /></span><span>Dashboard</span></button></div>
             {!embeddedBranchAdmin ? <>
-              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isLeadManagement ? 'is-active' : ''}`} data-tooltip="Lead Management" onClick={() => { navigate('/dashboard/sales-admin/leads'); closeMobileSidebar() }}><span className="super-admin-sidebar-icon"><LayoutGrid size={18} /></span><span>Lead Management</span></button></div>
-              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isAdmissions ? 'is-active' : ''}`} data-tooltip="Student Admission" onClick={() => { navigate('/dashboard/sales-admin/admissions'); closeMobileSidebar() }}><span className="super-admin-sidebar-icon"><GraduationCap size={18} /></span><span>Student Admission</span></button></div>
-              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isReports ? 'is-active' : ''}`} data-tooltip="Monthly Reports" onClick={() => { navigate('/dashboard/sales-admin/reports'); closeMobileSidebar() }}><span className="super-admin-sidebar-icon"><LayoutGrid size={18} /></span><span>Monthly Reports</span></button></div>
-              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isNotifications ? 'is-active' : ''}`} data-tooltip="Notifications" onClick={() => { navigate('/dashboard/sales-admin/notifications'); closeMobileSidebar() }}><span className="super-admin-sidebar-icon"><Bell size={18} /></span><span>Notifications</span></button></div>
-              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isProfile ? 'is-active' : ''}`} data-tooltip="My Profile" onClick={() => { navigate('/dashboard/sales-admin/profile'); closeMobileSidebar() }}><span className="super-admin-sidebar-icon"><UserRound size={18} /></span><span>My Profile</span></button></div>
+              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isLeadManagement ? 'is-active' : ''}`} data-tooltip="Lead Management" onClick={() => openSalesSection('leads', '/dashboard/sales-admin/leads')}><span className="super-admin-sidebar-icon"><LayoutGrid size={18} /></span><span>Lead Management</span></button></div>
+              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isAdmissions ? 'is-active' : ''}`} data-tooltip="Student Admission" onClick={() => openSalesSection('admissions', '/dashboard/sales-admin/admissions')}><span className="super-admin-sidebar-icon"><GraduationCap size={18} /></span><span>Student Admission</span></button></div>
+              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isReports ? 'is-active' : ''}`} data-tooltip="Monthly Reports" onClick={() => openSalesSection('reports', '/dashboard/sales-admin/reports')}><span className="super-admin-sidebar-icon"><LayoutGrid size={18} /></span><span>Monthly Reports</span></button></div>
+              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isNotifications ? 'is-active' : ''}`} data-tooltip="Notifications" onClick={() => openSalesSection('notifications', '/dashboard/sales-admin/notifications')}><span className="super-admin-sidebar-icon"><Bell size={18} /></span><span>Notifications</span></button></div>
+              <div className="super-admin-sidebar-section"><button type="button" className={`super-admin-sidebar-item ${isProfile ? 'is-active' : ''}`} data-tooltip="My Profile" onClick={() => openSalesSection('profile', '/dashboard/sales-admin/profile')}><span className="super-admin-sidebar-icon"><UserRound size={18} /></span><span>My Profile</span></button></div>
             </> : null}
           </nav>
           <div className="sales-admin-sidebar-account"><span className="sales-admin-sidebar-account-avatar"><UserRound size={18} /></span><span className="sales-admin-sidebar-account-copy"><strong>{user?.name || 'Sales Admin'}</strong><small>{user?.email || 'salesadmin@cispro.com'}</small></span>{!embeddedBranchAdmin ? <button type="button" className="sales-admin-sidebar-account-logout" aria-label="Logout" onClick={() => setIsLogoutConfirmOpen(true)}><LogOut size={20} /></button> : null}</div>

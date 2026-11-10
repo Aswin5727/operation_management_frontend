@@ -164,8 +164,9 @@ function BranchMultiSelect({ value = [], branches = [], onToggle, loading = fals
   )
 }
 
-export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard }) {
+export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: branchDashboardHandler, onViewSalesDashboard }) {
   const isSalesPage = pageType === 'sales'
+  const onViewDashboard = isSalesPage ? onViewSalesDashboard : branchDashboardHandler
   const pageTitle = isSalesPage ? 'Sales Admin' : 'Branch Admin'
   const [users, setUsers] = useState([])
   const [usersLoading, setUsersLoading] = useState(true)
