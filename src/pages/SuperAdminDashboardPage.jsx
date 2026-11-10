@@ -3077,13 +3077,13 @@ const filteredBranches = useMemo(() => {
                 </div>
               </section>
             ) : activeSection === 'user-role' ? (
-              <UserRoleManagementPage pageType="branch" />
+              <UserRoleManagementPage pageType="branch" onViewDashboard={openViewDashboardConfirm} />
             ) : activeSection === 'sales-admin' && ['leads', 'admissions'].includes(new URLSearchParams(location.search).get('view')) ? (
               <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} branches={globalBranchFilterOptions} />
             ) : activeSection === 'sales-admin' ? (
-              <UserRoleManagementPage pageType="sales" />
+              <UserRoleManagementPage pageType="sales" onViewDashboard={openViewDashboardConfirm} />
             ) : activeSection === 'branch-admin' ? (
-              <UserRoleManagementPage pageType="branch" />
+              <UserRoleManagementPage pageType="branch" onViewDashboard={openViewDashboardConfirm} />
             ) : activeSection === 'faculty' ? (
               <section className="super-admin-global-panel">
                 <div className="super-admin-global-header">
