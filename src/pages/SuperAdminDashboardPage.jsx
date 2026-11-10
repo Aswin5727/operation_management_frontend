@@ -2760,7 +2760,6 @@ const filteredBranches = useMemo(() => {
                         <th className="branch-table-col-id">Branch ID</th>
                         <th className="branch-table-col-name">Branch Name</th>
                         <th className="branch-table-col-admin">Branch Admin Name</th>
-                        <th className="branch-table-col-access">Branch Access</th>
                         <th style={{ textAlign: 'center' }}>Students</th>
                         <th className="branch-table-col-dashboard" style={{ textAlign: 'center' }}>Branch View</th>
                         <th className="branch-table-col-actions" style={{ textAlign: 'center' }}>Actions</th>
@@ -2815,13 +2814,6 @@ const filteredBranches = useMemo(() => {
                             <td className="branch-table-col-admin">
                               <div className="branch-table-detail-cell">
                                 <strong>{branch.branchAdminName || 'Branch admin not set'}</strong>
-                              </div>
-                            </td>
-                            <td className="branch-table-col-access" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
-                              <div className="branch-access-cell">
-                                <strong>{branch.roleAccessLabel || (branch.roleAccess === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch + Sales Admin' : 'Branch Admin')}</strong>
-                                <small>{branch.adminUserId ? 'Assigned' : 'Unassigned'}</small>
-                                <button type="button" className="branch-access-table-button" onClick={() => openBranchAccess(branch)}>Manage</button>
                               </div>
                             </td>
                             <td style={{ textAlign: 'center' }}>
@@ -2885,9 +2877,6 @@ const filteredBranches = useMemo(() => {
                                 >
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
-                                  </button>
-                                  <button type="button" role="menuitem" onClick={() => openBranchAccess(branch)}>
-                                    Branch Access
                                   </button>
                                   {!isResendMailActiveBranch ? (
                                     <button type="button" role="menuitem" className="is-warning" onClick={() => openResendMail(branch)}>
@@ -2956,9 +2945,6 @@ const filteredBranches = useMemo(() => {
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
                                   </button>
-                                  <button type="button" role="menuitem" onClick={() => openBranchAccess(branch)}>
-                                    Branch Access
-                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -2968,10 +2954,6 @@ const filteredBranches = useMemo(() => {
                             <div>
                               <dt>Admin</dt>
                               <dd>{branch.branchAdminName || 'Branch admin not set'}</dd>
-                            </div>
-                            <div>
-                              <dt>Branch Access</dt>
-                              <dd>{branch.roleAccessLabel || (branch.roleAccess === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch + Sales Admin' : 'Branch Admin')}</dd>
                             </div>
                             <div>
                               <dt>Location</dt>

@@ -6039,7 +6039,15 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     }),
     [branchProfile?.branchEmail, branchProfile?.branchId, branchProfile?.id, user?.email],
   )
-  const currentBranchUserId = String(user?.id || user?.userId || session?.user?.id || session?.user?.userId || '').trim()
+  const currentBranchUserId = String(
+    user?.id ||
+    user?.userId ||
+    session?.user?.id ||
+    session?.user?.userId ||
+    branchProfile?.adminUserId ||
+    branchData?.adminUserId ||
+    '',
+  ).trim()
   const branchLocation = branchProfile?.branchAddress || 'Assigned location'
   const mustResetPassword = Boolean(
     session?.user?.mustResetPassword ??
@@ -6080,6 +6088,8 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
               String(notification.kind || '').startsWith('course-edit-') ||
               String(notification.kind || '').trim() === 'sales-crm-admission' ||
               String(notification.kind || '').trim() === 'sales-crm-batch-request' ||
+              ['account-role-updated', 'email-changed', 'branch-admin-replaced'].includes(String(notification.kind || '').trim()) ||
+              String(notification.targetUserId || '').trim() === currentBranchUserId ||
               (['lead-follow-up-due', 'lead-follow-up-overdue', 'lead-follow-up-scheduled'].includes(String(notification.kind || '').trim())) ||
               (hasLeadManagementAccess && ['sales-crm-monthly-report', 'pending-student-admission-reminder', 'sales-crm-batch-request-update'].includes(String(notification.kind || '').trim())) ||
               (String(notification.kind || '') === 'sequential-course-scheduling-required' ||

@@ -8,7 +8,7 @@ export function PublicRoute() {
   const pathname = location.pathname || ''
 
   const allowsAuthenticatedAccess =
-    pathname === '/forgot-password' || pathname === '/reset-password'
+    pathname === '/forgot-password' || pathname === '/reset-password' || pathname === '/verify-email-change'
 
   if (isAuthenticated && !allowsAuthenticatedAccess) {
     return <Navigate to={dashboardPathByRole[role] || '/dashboard'} replace />

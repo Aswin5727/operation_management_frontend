@@ -55,6 +55,7 @@ const StudentManagementPage = lazyNamed(
 const NotificationsPage = lazyNamed(() => import('../pages/NotificationsPage'), 'NotificationsPage')
 const StudentNotificationsPage = lazyNamed(() => import('../pages/StudentNotificationsPage'), 'StudentNotificationsPage')
 const ResetPasswordPage = lazyNamed(() => import('../pages/ResetPasswordPage'), 'ResetPasswordPage')
+const EmailChangeVerificationPage = lazyNamed(() => import('../pages/EmailChangeVerificationPage'), 'EmailChangeVerificationPage')
 const SessionExpiredPage = lazyNamed(() => import('../pages/SessionExpiredPage'), 'SessionExpiredPage')
 const UnauthorizedPage = lazyNamed(() => import('../pages/UnauthorizedPage'), 'UnauthorizedPage')
 const FacultyMyBatchesPage = lazyNamed(
@@ -373,6 +374,7 @@ export function AppRouter() {
               <Route path="/login" element={<LoginScreen />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/verify-email-change" element={<EmailChangeVerificationPage />} />
             </Route>
           </Route>
 

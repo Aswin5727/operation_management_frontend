@@ -169,6 +169,8 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
   const [actionUser, setActionUser] = useState(null)
   const [viewUser, setViewUser] = useState(null)
   const [editingUser, setEditingUser] = useState(null)
+  const [replacementUser, setReplacementUser] = useState(null)
+  const [replacementConfirmOpen, setReplacementConfirmOpen] = useState(false)
   const [deleteUser, setDeleteUser] = useState(null)
   const [updatePopup, setUpdatePopup] = useState('')
   const [deleteSaving, setDeleteSaving] = useState(false)
@@ -196,6 +198,20 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadUsers() }, 0)
     return () => window.clearTimeout(timer)
+  }, [loadUsers])
+
+  useEffect(() => {
+    const refreshUsers = () => {
+      if (document.visibilityState === 'visible') void loadUsers()
+    }
+    const refreshInterval = window.setInterval(refreshUsers, 10000)
+    window.addEventListener('focus', refreshUsers)
+    document.addEventListener('visibilitychange', refreshUsers)
+    return () => {
+      window.clearInterval(refreshInterval)
+      window.removeEventListener('focus', refreshUsers)
+      document.removeEventListener('visibilitychange', refreshUsers)
+    }
   }, [loadUsers])
 
   const filteredUsers = useMemo(() => {
@@ -253,6 +269,29 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
       branchIds: user.assignedBranchIds || [], salesAdminId: user.role === 'SALES_ADMIN' ? user.userCode || '' : '',
       fullName: branch?.branchAdminName || user.fullName || '', email: branch?.branchEmail || user.email || '', phone: branch?.branchPhone || user.phone || '',
       country: branch?.branchCountry || user.country || '', state: branch?.branchState || user.state || '', city: branch?.branchCity || user.city || '', address: branch?.branchAddress || user.address || '', status: String(branch?.status || 'ACTIVE').toUpperCase(),
+    })
+    setIsCreateOpen(true)
+  }
+
+  function openReplace(user) {
+    const branch = user.managedBranch
+    if (!branch) return
+    setEditingUser(null)
+    setReplacementUser(user)
+    setActionUser(null)
+    setError('')
+    setSuccess('')
+    setForm({
+      ...initialForm,
+      accountType: user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? user.accountType : 'BRANCH_ADMIN',
+      branchId: branch.branchId || '',
+      branchName: branch.branchName || '',
+      fullName: '', email: '', phone: '',
+      country: branch.branchCountry || 'India',
+      state: branch.branchState || 'Tamil Nadu',
+      city: branch.branchCity || '',
+      address: branch.branchAddress || '',
+      status: 'ACTIVE',
     })
     setIsCreateOpen(true)
   }
@@ -380,6 +419,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
 
   function openCreateForm() {
     setEditingUser(null)
+    setReplacementUser(null)
     resetForm()
     setIsCreateOpen(true)
   }
@@ -388,6 +428,8 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
     if (saving) return
     setIsCreateOpen(false)
     setEditingUser(null)
+    setReplacementUser(null)
+    setReplacementConfirmOpen(false)
     resetForm()
   }
 
@@ -430,25 +472,51 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
     return validateBasicDetails()
   }
 
-  async function submit(event) {
+  async function submit(event, bypassReplacementConfirm = false) {
     event.preventDefault()
     const validationErrors = validate()
     if (validationErrors.length) { setError(validationErrors[0]); return }
+    if (replacementUser && !bypassReplacementConfirm) { setReplacementConfirmOpen(true); return }
     setSaving(true)
     setError('')
     setSuccess('')
     try {
       if (editingUser) {
+        const originalEmail = editingUser.managedBranch?.branchEmail || editingUser.email || ''
+        const emailChanged = form.email.trim().toLowerCase() !== originalEmail.trim().toLowerCase()
+        if (emailChanged) await request(`/user-role-accounts/${editingUser.id}/email-change`, { method: 'POST', body: JSON.stringify({ email: form.email.trim() }) })
+        const persistedEmail = emailChanged ? originalEmail : form.email.trim()
         if (editingUser.role === 'SALES_ADMIN') {
-          await request(`/sales-admins/${editingUser.id}`, { method: 'PATCH', body: JSON.stringify({ fullName: form.fullName.trim(), email: form.email.trim(), phone: form.phone.trim(), country: form.country, state: form.state, city: form.city, address: form.address, status: form.status, branchIds: form.branchIds }) })
+          await request(`/sales-admins/${editingUser.id}`, { method: 'PATCH', body: JSON.stringify({ fullName: form.fullName.trim(), email: persistedEmail, phone: form.phone.trim(), country: form.country, state: form.state, city: form.city, address: form.address, status: form.status, branchIds: form.branchIds }) })
         } else {
-          await updateBranch(editingUser.managedBranch.id, { branchId: form.branchId.trim().toUpperCase(), branchName: form.branchName.trim(), branchAdminName: form.fullName.trim(), branchEmail: form.email.trim(), branchPhone: form.phone.trim(), branchCountryCode: selectedCountryCode, branchCountry: form.country, branchStateCode: selectedStateCode, branchState: form.state, branchCity: form.city.trim(), branchAddress: form.address.trim(), status: form.status, roleAccess: form.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'BRANCH_ADMIN_SALES_ADMIN' : 'BRANCH_ADMIN_ONLY' })
+          await updateBranch(editingUser.managedBranch.id, { branchId: form.branchId.trim().toUpperCase(), branchName: form.branchName.trim(), branchAdminName: form.fullName.trim(), branchEmail: persistedEmail, branchPhone: form.phone.trim(), branchCountryCode: selectedCountryCode, branchCountry: form.country, branchStateCode: selectedStateCode, branchState: form.state, branchCity: form.city.trim(), branchAddress: form.address.trim(), status: form.status, roleAccess: form.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'BRANCH_ADMIN_SALES_ADMIN' : 'BRANCH_ADMIN_ONLY' })
         }
         await loadUsers()
         setEditingUser(null)
         setIsCreateOpen(false)
         setForm(initialForm)
-        setUpdatePopup(`${selectedType.label} successfully updated`)
+        setUpdatePopup(emailChanged ? `${selectedType.label} updated. Verify the new email address to finish the email change.` : `${selectedType.label} successfully updated`)
+        return
+      }
+      if (replacementUser?.managedBranch?.id) {
+        await request(`/user-role-accounts/branches/${replacementUser.managedBranch.id}/replace-admin`, {
+          method: 'POST',
+          body: JSON.stringify({
+            accountType: form.accountType,
+            fullName: form.fullName.trim(),
+            email: form.email.trim(),
+            phone: form.phone.trim(),
+            country: form.country,
+            state: form.state,
+            city: form.city.trim(),
+            address: form.address.trim(),
+          }),
+        })
+        await loadUsers()
+        setReplacementUser(null)
+        setIsCreateOpen(false)
+        setForm(initialForm)
+        setUpdatePopup('Branch Admin replaced successfully')
         return
       }
       let payload
@@ -499,12 +567,12 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
 
       <div className="user-role-external-table-tools"><div className="user-role-table-tools"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${pageTitle.toLowerCase()} accounts`} aria-label={`Search ${pageTitle} accounts`} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter accounts by status"><option value="all">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select><span>{filteredUsers.length} account{filteredUsers.length === 1 ? '' : 's'}</span></div></div>
       <section className="user-role-table-card" aria-label={`${pageTitle} accounts`}>
-        {usersLoading ? <p className="user-role-table-state">Loading accounts...</p> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchRecords = user.managedBranch ? [user.managedBranch] : (user.assignedBranches || []); const branchNames = branchRecords.map((branch) => branch.branchName).filter(Boolean); const statusLabel = branchRecords.some((branch) => String(branch.status || '').toUpperCase() === 'INACTIVE') ? 'Inactive' : 'Active'; const dashboardBranch = branchRecords[0]; return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.email || '-'}</small></td><td><span className="user-role-status-indicator"><i className={`user-role-status-dot ${statusLabel === 'Active' ? 'is-active' : 'is-inactive'}`} /><span className="user-role-status-tooltip">{statusLabel}</span></span><strong>{user.userCode || '-'}</strong></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button user-role-dashboard-button" disabled={!dashboardBranch || String(dashboardBranch.status || '').toUpperCase() === 'INACTIVE'} onClick={(event) => { event.stopPropagation(); setViewUser(null); if (dashboardBranch) onViewDashboard?.(dashboardBranch) }}><LayoutDashboard size={14} />View</button></td><td><div className="user-role-actions"><button type="button" className="user-role-actions-trigger" aria-label={`Actions for ${user.fullName || 'account'}`} onClick={() => setActionUser(actionUser?.id === user.id ? null : user)}>&#8942;</button>{actionUser?.id === user.id ? <div className="user-role-actions-menu"><button type="button" onClick={() => { setViewUser(user); setActionUser(null) }}>View</button><button type="button" onClick={() => openEdit(user)}>Edit</button><button type="button" className="is-danger" onClick={() => { setDeleteUser(user); setActionUser(null) }}>Delete</button></div> : null}</div></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="7" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
+        {usersLoading ? <p className="user-role-table-state">Loading accounts...</p> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchRecords = user.managedBranch ? [user.managedBranch] : (user.assignedBranches || []); const branchNames = branchRecords.map((branch) => branch.branchName).filter(Boolean); const statusLabel = branchRecords.some((branch) => String(branch.status || '').toUpperCase() === 'INACTIVE') ? 'Inactive' : 'Active'; const dashboardBranch = branchRecords[0]; return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.email || '-'}</small></td><td><span className="user-role-status-indicator"><i className={`user-role-status-dot ${statusLabel === 'Active' ? 'is-active' : 'is-inactive'}`} /><span className="user-role-status-tooltip">{statusLabel}</span></span><strong>{user.userCode || '-'}</strong></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button user-role-dashboard-button" disabled={!dashboardBranch || String(dashboardBranch.status || '').toUpperCase() === 'INACTIVE'} onClick={(event) => { event.stopPropagation(); setViewUser(null); if (dashboardBranch) onViewDashboard?.(dashboardBranch) }}><LayoutDashboard size={14} />View</button></td><td><div className="user-role-actions"><button type="button" className="user-role-actions-trigger" aria-label={`Actions for ${user.fullName || 'account'}`} onClick={() => setActionUser(actionUser?.id === user.id ? null : user)}>&#8942;</button>{actionUser?.id === user.id ? <div className="user-role-actions-menu"><button type="button" onClick={() => { setViewUser(user); setActionUser(null) }}>View</button><button type="button" onClick={() => openEdit(user)}>Edit</button>{!isSalesPage && user.managedBranch ? <button type="button" onClick={() => openReplace(user)}>Replace Admin</button> : null}<button type="button" className="is-danger" onClick={() => { setDeleteUser(user); setActionUser(null) }}>Delete</button></div> : null}</div></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="7" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
       </section>
 
       {isCreateOpen ? <div className="user-role-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCreateForm() }}>
         <section className="user-role-modal" role="dialog" aria-modal="true" aria-labelledby="user-role-modal-title">
-      <header className="user-role-modal-header"><div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h2 id="user-role-modal-title">{editingUser ? 'Edit user account' : 'Create user account'}</h2><p>{roleConfig.requiresBranch ? 'Choose an account type, enter the branch profile, and complete the account details.' : 'Choose an account type and complete the account details. Sales Admin branch access is managed from the Branch Admin table.'}</p></div><button type="button" className="user-role-modal-close" onClick={closeCreateForm} aria-label="Close user form"><X size={20} /></button></header>
+      <header className="user-role-modal-header"><div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h2 id="user-role-modal-title">{replacementUser ? 'Replace Branch Admin' : editingUser ? 'Edit user account' : 'Create user account'}</h2><p>{replacementUser ? `Assign a new administrator to ${replacementUser.managedBranch?.branchName || 'this branch'} without creating a new branch.` : roleConfig.requiresBranch ? 'Choose an account type, enter the branch profile, and complete the account details.' : 'Choose an account type and complete the account details. Sales Admin branch access is managed from the Branch Admin table.'}</p></div><button type="button" className="user-role-modal-close" onClick={closeCreateForm} aria-label="Close user form"><X size={20} /></button></header>
           <form className="user-role-form" onSubmit={submit} noValidate>
         <section className="user-role-card user-role-details-step">
           <div className="user-role-card-heading"><div><span className="user-role-card-kicker">ACCOUNT DETAILS</span><h2>Personal information</h2><p>Enter the login and contact details for this account.</p></div></div>
@@ -528,12 +596,13 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
         </section>
         {error ? <div className="user-role-alert is-error" role="alert"><AlertCircle size={18} /><span>{error}</span></div> : null}
         {success ? <div className="user-role-alert is-success" role="status"><CheckCircle2 size={18} /><span>{success}</span></div> : null}
-        <footer className="user-role-form-footer"><button type="button" className="user-role-secondary-button" onClick={closeCreateForm} disabled={saving}>Cancel</button><button type="submit" className="user-role-primary-button" disabled={saving}>{saving ? (editingUser ? 'Saving changes...' : 'Creating account...') : editingUser ? <>Save changes</> : <>Create {selectedType.label}</>}</button></footer>
+        <footer className="user-role-form-footer"><button type="button" className="user-role-secondary-button" onClick={closeCreateForm} disabled={saving}>Cancel</button><button type="submit" className="user-role-primary-button" disabled={saving}>{saving ? (replacementUser ? 'Replacing admin...' : editingUser ? 'Saving changes...' : 'Creating account...') : replacementUser ? 'Replace Admin' : editingUser ? <>Save changes</> : <>Create {selectedType.label}</>}</button></footer>
       </form>
         </section>
       </div> : null}
+      {replacementConfirmOpen ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup" role="alertdialog" aria-modal="true"><button type="button" className="user-role-creation-popup-close" onClick={() => setReplacementConfirmOpen(false)} aria-label="Close replacement confirmation"><X size={18} /></button><div className="user-role-creation-popup-icon"><Shield size={28} /></div><h2>Replace Branch Admin?</h2><p>The current administrator will lose access, while the same branch and all existing branch data will remain unchanged.</p><div className="user-role-confirm-actions"><button type="button" className="user-role-secondary-button" onClick={() => setReplacementConfirmOpen(false)}>Cancel</button><button type="button" className="user-role-primary-button" onClick={() => { setReplacementConfirmOpen(false); void submit({ preventDefault() {} }, true) }}>Replace Admin</button></div></section></div> : null}
       {creationPopup ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup" role="alertdialog" aria-modal="true" aria-labelledby="user-role-creation-popup-title"><button type="button" className="user-role-creation-popup-close" onClick={() => setCreationPopup('')} aria-label="Close confirmation"><X size={18} /></button><div className="user-role-creation-popup-icon"><CheckCircle2 size={28} /></div><h2 id="user-role-creation-popup-title">{creationPopup}</h2><p>The login invitation has been sent successfully.</p><button type="button" className="user-role-primary-button" onClick={() => setCreationPopup('')}>OK</button></section></div> : null}
-      {updatePopup ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup" role="alertdialog" aria-modal="true"><button type="button" className="user-role-creation-popup-close" onClick={() => setUpdatePopup('')} aria-label="Close confirmation"><X size={18} /></button><div className="user-role-creation-popup-icon"><CheckCircle2 size={28} /></div><h2>{updatePopup}</h2><button type="button" className="user-role-primary-button" onClick={() => setUpdatePopup('')}>OK</button></section></div> : null}
+      {updatePopup ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup user-role-update-popup" role="alertdialog" aria-modal="true"><button type="button" className="user-role-creation-popup-close" onClick={() => setUpdatePopup('')} aria-label="Close confirmation"><X size={18} /></button><div className="user-role-creation-popup-icon"><CheckCircle2 size={28} /></div><h2>{updatePopup}</h2><button type="button" className="user-role-primary-button" onClick={() => setUpdatePopup('')}>OK</button></section></div> : null}
       {statusUser ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup" role="alertdialog" aria-modal="true"><button type="button" className="user-role-creation-popup-close" onClick={() => !statusSaving && setStatusUser(null)} aria-label="Close status confirmation"><X size={18} /></button><div className="user-role-creation-popup-icon"><Shield size={28} /></div><h2>{branchIsActive(statusUser) ? 'Make branch inactive?' : 'Activate branch?'}</h2><p>{branchIsActive(statusUser) ? `${statusUser.managedBranch?.branchName || 'This branch'} will become view-only. Branch Admin cannot create, edit, or delete data.` : `${statusUser.managedBranch?.branchName || 'This branch'} will be allowed to create, edit, and delete data again.`}</p><div className="user-role-confirm-actions"><button type="button" className="user-role-secondary-button" onClick={() => setStatusUser(null)} disabled={statusSaving}>Cancel</button><button type="button" className="user-role-primary-button" onClick={() => void updateBranchStatus()} disabled={statusSaving}>{statusSaving ? 'Updating...' : branchIsActive(statusUser) ? 'Make Inactive' : 'Activate'}</button></div></section></div> : null}
       {viewUser ? <aside className="user-role-view-drawer" aria-label="Account details"><header className="user-role-drawer-header"><div><h2>{viewUser.managedBranch ? 'Branch Details' : 'Sales Admin Details'}</h2><p>Complete information about this account</p></div>{viewUser.managedBranch ? <button type="button" className="user-role-drawer-status" onClick={() => setStatusUser(viewUser)} aria-label="Change branch status"><strong>{branchIsActive(viewUser) ? 'Active' : 'Inactive'}</strong><span className={`user-role-status-toggle${branchIsActive(viewUser) ? '' : ' is-inactive'}`} aria-hidden="true"><i /></span></button> : null}<button type="button" className="user-role-drawer-close" onClick={() => setViewUser(null)} aria-label="Close details"><X size={20} /></button></header><section className="user-role-drawer-section"><h3><span className="user-role-drawer-section-icon"><Building2 size={18} /></span>{viewUser.managedBranch ? 'Branch Information' : 'Account Information'}</h3><div className="user-role-drawer-fields">{[['Branch ID', viewUser.managedBranch?.branchId || (viewUser.assignedBranches || []).map((branch) => branch.branchId).join(', '), Shield], ['Branch Name', viewUser.managedBranch?.branchName || (viewUser.assignedBranches || []).map((branch) => branch.branchName).join(', '), Building2], ['Branch Admin', viewUser.fullName, Users], ['Email', viewUser.email, Mail], ['Phone', viewUser.phone, Phone], ['Address', viewUser.managedBranch?.branchAddress || viewUser.address, MapPin], ['City', viewUser.managedBranch?.branchCity || viewUser.city, MapPin], ['State', viewUser.managedBranch?.branchState || viewUser.state, MapPin], ['Country', viewUser.managedBranch?.branchCountry || viewUser.country, MapPin], ['Account Type', viewUser.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : viewUser.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin', Shield]].map(([label, value, Icon]) => <div key={label}><span className="user-role-drawer-field-icon"><Icon size={17} /></span><strong>{label}</strong><em>:</em><b>{value || '-'}</b></div>)}</div></section></aside> : null}
       {deleteUser ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup" role="alertdialog" aria-modal="true"><button type="button" className="user-role-creation-popup-close" onClick={() => setDeleteUser(null)} aria-label="Close delete confirmation"><X size={18} /></button><h2>Delete account?</h2><p>Are you sure you want to delete <strong>{deleteUser.fullName || 'this account'}</strong>?</p><div className="user-role-confirm-actions"><button type="button" className="user-role-secondary-button" onClick={() => setDeleteUser(null)} disabled={deleteSaving}>Cancel</button><button type="button" className="user-role-danger-button" onClick={() => void deleteSelectedUser()} disabled={deleteSaving}>{deleteSaving ? 'Deleting...' : 'Delete'}</button></div></section></div> : null}
