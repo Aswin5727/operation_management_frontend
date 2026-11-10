@@ -400,15 +400,10 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
         <section className="user-role-modal" role="dialog" aria-modal="true" aria-labelledby="user-role-modal-title">
       <header className="user-role-modal-header"><div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h2 id="user-role-modal-title">Create user account</h2><p>{roleConfig.requiresBranch ? 'Choose an account type, enter the branch profile, and complete the account details.' : 'Choose an account type and complete the account details. Sales Admin branch access is managed from the Branch Admin table.'}</p></div><button type="button" className="user-role-modal-close" onClick={closeCreateForm} aria-label="Close create user form"><X size={20} /></button></header>
           <form className="user-role-form" onSubmit={submit} noValidate>
-        <section className="user-role-card user-role-account-type-card">
-          <div className="user-role-card-heading"><div><span className="user-role-card-kicker">ACCOUNT TYPE</span><h2>Choose access</h2><p>Select the role that controls the dashboard and permissions.</p></div></div>
-          <div className="user-role-field"><span>Account type <b>*</b></span><AccountTypeSelect value={form.accountType} options={accountTypes} onChange={selectAccountType} /></div>
-          <p className="user-role-selected-type-description">{selectedType.description}</p>
-        </section>
-
         <section className="user-role-card user-role-details-step">
           <div className="user-role-card-heading"><div><span className="user-role-card-kicker">ACCOUNT DETAILS</span><h2>Personal information</h2><p>Enter the login and contact details for this account.</p></div></div>
           <div className="user-role-fields-grid">
+            <div className="user-role-field"><span>Account type <b>*</b></span><AccountTypeSelect value={form.accountType} options={accountTypes} onChange={selectAccountType} /><p className="user-role-selected-type-description">{selectedType.description}</p></div>
             {roleConfig.requiresBranch ? <>
               <label className="user-role-field"><span>Branch ID <b>*</b></span><div className="user-role-input-wrap"><Building2 size={17} /><input value={form.branchId} onChange={(event) => update('branchId', event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))} placeholder="CISTES001" maxLength={24} autoComplete="off" /></div></label>
               <label className="user-role-field"><span>Branch Name <b>*</b></span><div className="user-role-input-wrap"><Building2 size={17} /><input value={form.branchName} onChange={(event) => update('branchName', event.target.value.replace(/[^\p{L} .'-]/gu, ''))} placeholder="Enter branch name" maxLength={80} /></div></label>
