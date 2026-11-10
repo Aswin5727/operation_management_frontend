@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getCitiesOfState, getCountries, getStatesOfCountry } from '@countrystatecity/countries-browser'
 import { AlertCircle, BriefcaseBusiness, Building2, CheckCircle2, ChevronDown, Mail, MapPin, Phone, Shield, UserPlus, Users, X } from 'lucide-react'
 import { request } from '../services/apiClient'
-import { listBranches } from '../services/branchService'
+import { deleteBranch, listBranches, updateBranch } from '../services/branchService'
 import { listBranchAccessUsers } from '../services/userRoleManagementService'
 import '../styles/UserRoleManagementPage.css'
 
@@ -164,6 +164,13 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [creationPopup, setCreationPopup] = useState('')
+  const [actionUser, setActionUser] = useState(null)
+  const [viewUser, setViewUser] = useState(null)
+  const [editingUser, setEditingUser] = useState(null)
+  const [deleteUser, setDeleteUser] = useState(null)
+  const [updatePopup, setUpdatePopup] = useState('')
+  const [deleteSaving, setDeleteSaving] = useState(false)
   const [branches, setBranches] = useState([])
   const [branchesLoading, setBranchesLoading] = useState(false)
   const [branchesError, setBranchesError] = useState('')
@@ -197,7 +204,63 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
   const safeUserPage = Math.min(userPage, userPageCount)
   const paginatedUsers = filteredUsers.slice((safeUserPage - 1) * 5, safeUserPage * 5)
 
-  useEffect(() => { setUserPage(1) }, [search])
+  useEffect(() => {
+    const timer = window.setTimeout(() => setUserPage(1), 0)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!event.target?.closest?.('.user-role-actions')) setActionUser(null)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [])
+
+  useEffect(() => {
+    const table = document.querySelector('.user-role-table')
+    if (!table) return undefined
+    const handleRowClick = (event) => {
+      if (event.target?.closest?.('.user-role-actions')) return
+      const row = event.target?.closest?.('tbody tr')
+      if (!row || !row.parentElement) return
+      const rowIndex = Array.from(row.parentElement.children).indexOf(row)
+      const user = paginatedUsers[rowIndex]
+      if (user) setViewUser(user)
+    }
+    table.addEventListener('click', handleRowClick)
+    return () => table.removeEventListener('click', handleRowClick)
+  }, [paginatedUsers])
+
+  function openEdit(user) {
+    const branch = user.managedBranch
+    setEditingUser(user)
+    setActionUser(null)
+    setError('')
+    setSuccess('')
+    setForm({
+      ...initialForm,
+      accountType: user.accountType || (user.role === 'SALES_ADMIN' ? 'SALES_ADMIN' : 'BRANCH_ADMIN'),
+      branchId: branch?.branchId || '', branchName: branch?.branchName || '',
+      branchIds: user.assignedBranchIds || [], salesAdminId: user.role === 'SALES_ADMIN' ? user.userCode || '' : '',
+      fullName: branch?.branchAdminName || user.fullName || '', email: branch?.branchEmail || user.email || '', phone: branch?.branchPhone || user.phone || '',
+      country: branch?.branchCountry || user.country || '', state: branch?.branchState || user.state || '', city: branch?.branchCity || user.city || '', address: branch?.branchAddress || user.address || '', status: String(branch?.status || 'ACTIVE').toUpperCase(),
+    })
+    setIsCreateOpen(true)
+  }
+
+  async function deleteSelectedUser() {
+    if (!deleteUser) return
+    setDeleteSaving(true)
+    try {
+      if (deleteUser.role === 'SALES_ADMIN') await request(`/sales-admins/${deleteUser.id}`, { method: 'DELETE' })
+      else if (deleteUser.managedBranch?.id) await deleteBranch(deleteUser.managedBranch.id)
+      setDeleteUser(null)
+      await loadUsers()
+    } catch (reason) {
+      setUsersError(reason?.message || 'Unable to delete the account.')
+    } finally { setDeleteSaving(false) }
+  }
 
   useEffect(() => {
     if (!isCreateOpen) return undefined
@@ -290,6 +353,7 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
   }
 
   function openCreateForm() {
+    setEditingUser(null)
     resetForm()
     setIsCreateOpen(true)
   }
@@ -297,6 +361,7 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
   function closeCreateForm() {
     if (saving) return
     setIsCreateOpen(false)
+    setEditingUser(null)
     resetForm()
   }
 
@@ -347,6 +412,19 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
     setError('')
     setSuccess('')
     try {
+      if (editingUser) {
+        if (editingUser.role === 'SALES_ADMIN') {
+          await request(`/sales-admins/${editingUser.id}`, { method: 'PATCH', body: JSON.stringify({ fullName: form.fullName.trim(), email: form.email.trim(), phone: form.phone.trim(), country: form.country, state: form.state, city: form.city, address: form.address, status: form.status, branchIds: form.branchIds }) })
+        } else {
+          await updateBranch(editingUser.managedBranch.id, { branchId: form.branchId.trim().toUpperCase(), branchName: form.branchName.trim(), branchAdminName: form.fullName.trim(), branchEmail: form.email.trim(), branchPhone: form.phone.trim(), branchCountryCode: selectedCountryCode, branchCountry: form.country, branchStateCode: selectedStateCode, branchState: form.state, branchCity: form.city.trim(), branchAddress: form.address.trim(), status: form.status, roleAccess: form.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'BRANCH_ADMIN_SALES_ADMIN' : 'BRANCH_ADMIN_ONLY' })
+        }
+        await loadUsers()
+        setEditingUser(null)
+        setIsCreateOpen(false)
+        setForm(initialForm)
+        setUpdatePopup(`${selectedType.label} successfully updated`)
+        return
+      }
       let payload
       if (form.accountType === 'SALES_ADMIN') {
         payload = { ...form, fullName: form.fullName.trim(), email: form.email.trim(), phone: form.phone.trim(), salesAdminId: form.salesAdminId.trim().toUpperCase() }
@@ -376,6 +454,8 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
       if (form.accountType !== 'SALES_ADMIN') window.dispatchEvent(new CustomEvent('cispro:branches-changed'))
       await loadUsers()
       setSuccess(invitationSent ? selectedType.label + ' created successfully. ' + (accessAssigned ? 'Branch access assigned.' : 'Assign branch access from the Branch Admin table.') : selectedType.label + ' created successfully, but the invitation email could not be sent.')
+      setCreationPopup(`${selectedType.label} successfully created`)
+      setIsCreateOpen(false)
       setForm((current) => ({ ...initialForm, accountType: current.accountType }))
     } catch (reason) {
       setError(normalizeError(reason))
@@ -393,22 +473,22 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
 
       <section className="user-role-table-card" aria-label={`${pageTitle} accounts`}>
         <div className="user-role-table-header"><div><span className="user-role-card-kicker">{pageTitle.toUpperCase()} ACCOUNTS</span><h2>{pageTitle} accounts</h2></div><div className="user-role-table-tools"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${pageTitle.toLowerCase()} accounts`} aria-label={`Search ${pageTitle} accounts`} /><span>{filteredUsers.length} account{filteredUsers.length === 1 ? '' : 's'}</span></div></div>
-        {usersLoading ? <p className="user-role-table-state">Loading accounts...</p> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>Account Type</th><th>Phone</th><th>Branch access</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchNames = user.managedBranch ? [user.managedBranch.branchName] : (user.assignedBranches || []).map((branch) => branch.branchName).filter(Boolean); return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.userCode || '-'} · {user.email || '-'}</small></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{user.phone || '-'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button" onClick={() => setSearch(user.userCode || user.fullName || '')}>View</button></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="6" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
+        {usersLoading ? <p className="user-role-table-state">Loading accounts...</p> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>Account Type</th><th>Phone</th><th>Branch access</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchNames = user.managedBranch ? [user.managedBranch.branchName] : (user.assignedBranches || []).map((branch) => branch.branchName).filter(Boolean); return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.userCode || '-'} · {user.email || '-'}</small></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{user.phone || '-'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><div className="user-role-actions"><button type="button" className="user-role-actions-trigger" aria-label={`Actions for ${user.fullName || 'account'}`} onClick={() => setActionUser(actionUser?.id === user.id ? null : user)}>&#8942;</button>{actionUser?.id === user.id ? <div className="user-role-actions-menu"><button type="button" onClick={() => { setViewUser(user); setActionUser(null) }}>View</button><button type="button" onClick={() => openEdit(user)}>Edit</button><button type="button" className="is-danger" onClick={() => { setDeleteUser(user); setActionUser(null) }}>Delete</button></div> : null}</div></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="6" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
       </section>
 
       {isCreateOpen ? <div className="user-role-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCreateForm() }}>
         <section className="user-role-modal" role="dialog" aria-modal="true" aria-labelledby="user-role-modal-title">
-      <header className="user-role-modal-header"><div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h2 id="user-role-modal-title">Create user account</h2><p>{roleConfig.requiresBranch ? 'Choose an account type, enter the branch profile, and complete the account details.' : 'Choose an account type and complete the account details. Sales Admin branch access is managed from the Branch Admin table.'}</p></div><button type="button" className="user-role-modal-close" onClick={closeCreateForm} aria-label="Close create user form"><X size={20} /></button></header>
+      <header className="user-role-modal-header"><div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h2 id="user-role-modal-title">{editingUser ? 'Edit user account' : 'Create user account'}</h2><p>{roleConfig.requiresBranch ? 'Choose an account type, enter the branch profile, and complete the account details.' : 'Choose an account type and complete the account details. Sales Admin branch access is managed from the Branch Admin table.'}</p></div><button type="button" className="user-role-modal-close" onClick={closeCreateForm} aria-label="Close user form"><X size={20} /></button></header>
           <form className="user-role-form" onSubmit={submit} noValidate>
         <section className="user-role-card user-role-details-step">
           <div className="user-role-card-heading"><div><span className="user-role-card-kicker">ACCOUNT DETAILS</span><h2>Personal information</h2><p>Enter the login and contact details for this account.</p></div></div>
           <div className="user-role-fields-grid">
-            <div className="user-role-field"><span>Account type <b>*</b></span><AccountTypeSelect value={form.accountType} options={accountTypes} onChange={selectAccountType} /><p className="user-role-selected-type-description">{selectedType.description}</p></div>
+            <div className="user-role-field"><span>Account type <b>*</b></span><AccountTypeSelect value={form.accountType} options={accountTypes} onChange={selectAccountType} /></div>
             {roleConfig.requiresBranch ? <>
               <label className="user-role-field"><span>Branch ID <b>*</b></span><div className="user-role-input-wrap"><Building2 size={17} /><input value={form.branchId} onChange={(event) => update('branchId', event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))} placeholder="CISTES001" maxLength={24} autoComplete="off" /></div></label>
               <label className="user-role-field"><span>Branch Name <b>*</b></span><div className="user-role-input-wrap"><Building2 size={17} /><input value={form.branchName} onChange={(event) => update('branchName', event.target.value.replace(/[^\p{L} .'-]/gu, ''))} placeholder="Enter branch name" maxLength={80} /></div></label>
             </> : null}
-            {roleConfig.showSalesId ? <label className="user-role-field"><span>Sales Admin ID <b>*</b></span><div className="user-role-input-wrap"><Shield size={17} /><input value={form.salesAdminId} onChange={(event) => update('salesAdminId', event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="CISSALES001" maxLength={20} /></div></label> : null}
+            {roleConfig.showSalesId ? <label className="user-role-field user-role-sales-id-field"><span>Sales Admin ID <b>*</b></span><div className="user-role-input-wrap"><Shield size={17} /><input value={form.salesAdminId} onChange={(event) => update('salesAdminId', event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="CISSALES001" maxLength={20} /></div></label> : null}
             {roleConfig.showSalesId ? <div className="user-role-field user-role-field-wide"><span>Branch access <b>*</b></span><BranchMultiSelect value={form.branchIds} branches={branches} loading={branchesLoading} error={branchesError} onToggle={toggleBranchAccess} /></div> : null}
             <label className="user-role-field"><span>{roleConfig.nameLabel} <b>*</b></span><div className="user-role-input-wrap"><Users size={17} /><input value={form.fullName} onChange={(event) => update('fullName', event.target.value.replace(roleConfig.requiresBranch ? /[^A-Za-z ]/g : /[^\p{L} .'-]/gu, ''))} placeholder={`Enter ${roleConfig.nameLabel.toLowerCase()}`} autoComplete="name" /></div></label>
             <label className="user-role-field"><span>Email address <b>*</b></span><div className="user-role-input-wrap"><Mail size={17} /><input type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="name@example.com" autoComplete="email" /></div></label>
@@ -422,10 +502,14 @@ export function UserRoleManagementPage({ pageType = 'branch' }) {
         </section>
         {error ? <div className="user-role-alert is-error" role="alert"><AlertCircle size={18} /><span>{error}</span></div> : null}
         {success ? <div className="user-role-alert is-success" role="status"><CheckCircle2 size={18} /><span>{success}</span></div> : null}
-        <footer className="user-role-form-footer"><button type="button" className="user-role-secondary-button" onClick={closeCreateForm} disabled={saving}>Cancel</button><button type="submit" className="user-role-primary-button" disabled={saving}>{saving ? 'Creating account...' : <>Create {selectedType.label}</>}</button></footer>
+        <footer className="user-role-form-footer"><button type="button" className="user-role-secondary-button" onClick={closeCreateForm} disabled={saving}>Cancel</button><button type="submit" className="user-role-primary-button" disabled={saving}>{saving ? (editingUser ? 'Saving changes...' : 'Creating account...') : editingUser ? <>Save changes</> : <>Create {selectedType.label}</>}</button></footer>
       </form>
         </section>
       </div> : null}
+      {creationPopup ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup" role="alertdialog" aria-modal="true" aria-labelledby="user-role-creation-popup-title"><button type="button" className="user-role-creation-popup-close" onClick={() => setCreationPopup('')} aria-label="Close confirmation"><X size={18} /></button><div className="user-role-creation-popup-icon"><CheckCircle2 size={28} /></div><h2 id="user-role-creation-popup-title">{creationPopup}</h2><p>The login invitation has been sent successfully.</p><button type="button" className="user-role-primary-button" onClick={() => setCreationPopup('')}>OK</button></section></div> : null}
+      {updatePopup ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup" role="alertdialog" aria-modal="true"><button type="button" className="user-role-creation-popup-close" onClick={() => setUpdatePopup('')} aria-label="Close confirmation"><X size={18} /></button><div className="user-role-creation-popup-icon"><CheckCircle2 size={28} /></div><h2>{updatePopup}</h2><button type="button" className="user-role-primary-button" onClick={() => setUpdatePopup('')}>OK</button></section></div> : null}
+      {viewUser ? <aside className="user-role-view-drawer" aria-label="Account details"><header className="user-role-drawer-header"><div><h2>{viewUser.managedBranch ? 'Branch Details' : 'Sales Admin Details'}</h2><p>Complete information about this account</p></div><div className="user-role-drawer-status"><strong>Active</strong><span className="user-role-status-toggle" aria-hidden="true"><i /></span></div><button type="button" className="user-role-drawer-close" onClick={() => setViewUser(null)} aria-label="Close details"><X size={20} /></button></header><section className="user-role-drawer-section"><h3><span className="user-role-drawer-section-icon"><Building2 size={18} /></span>{viewUser.managedBranch ? 'Branch Information' : 'Account Information'}</h3><div className="user-role-drawer-fields">{[['Branch ID', viewUser.managedBranch?.branchId || (viewUser.assignedBranches || []).map((branch) => branch.branchId).join(', '), Shield], ['Branch Name', viewUser.managedBranch?.branchName || (viewUser.assignedBranches || []).map((branch) => branch.branchName).join(', '), Building2], ['Branch Admin', viewUser.fullName, Users], ['Email', viewUser.email, Mail], ['Phone', viewUser.phone, Phone], ['Address', viewUser.managedBranch?.branchAddress || viewUser.address, MapPin], ['City', viewUser.managedBranch?.branchCity || viewUser.city, MapPin], ['State', viewUser.managedBranch?.branchState || viewUser.state, MapPin], ['Country', viewUser.managedBranch?.branchCountry || viewUser.country, MapPin], ['Account Type', viewUser.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : viewUser.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin', Shield]].map(([label, value, Icon]) => <div key={label}><span className="user-role-drawer-field-icon"><Icon size={17} /></span><strong>{label}</strong><em>:</em><b>{value || '-'}</b></div>)}</div></section></aside> : null}
+      {deleteUser ? <div className="user-role-creation-popup-backdrop" role="presentation"><section className="user-role-creation-popup" role="alertdialog" aria-modal="true"><button type="button" className="user-role-creation-popup-close" onClick={() => setDeleteUser(null)} aria-label="Close delete confirmation"><X size={18} /></button><h2>Delete account?</h2><p>Are you sure you want to delete <strong>{deleteUser.fullName || 'this account'}</strong>?</p><div className="user-role-confirm-actions"><button type="button" className="user-role-secondary-button" onClick={() => setDeleteUser(null)} disabled={deleteSaving}>Cancel</button><button type="button" className="user-role-danger-button" onClick={() => void deleteSelectedUser()} disabled={deleteSaving}>{deleteSaving ? 'Deleting...' : 'Delete'}</button></div></section></div> : null}
     </main>
   )
 }
