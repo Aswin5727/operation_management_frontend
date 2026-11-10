@@ -5,6 +5,7 @@ import html2pdf from 'html2pdf.js'
 import {
   BadgeCheck,
   Bell,
+  BriefcaseBusiness,
   Building2,
   CalendarDays,
   CircleUserRound,
@@ -26,6 +27,7 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
   ShieldCheck,
+  UserPlus,
 } from 'lucide-react'
 
 import { useAuth } from '../auth/useAuth'
@@ -44,11 +46,12 @@ import { BranchDashboardPage } from './BranchDashboardPage'
 import { Student360Page } from './Student360Page'
 import StudentCalendarPage from './StudentCalendarPage'
 import { request, setImpersonateBranchId } from '../services/apiClient'
+import { assignBranchAccess, listBranchAccessUsers } from '../services/userRoleManagementService'
 import { SuperAdminOverallDashboard } from '../components/SuperAdminOverallDashboard'
 import { SuperAdminMetricDetailPage } from '../components/SuperAdminMetricDetailPage'
 import { SuperAdminSidebarNav } from '../components/SuperAdminSidebarNav'
 import { SuperAdminDiscontinuationPage } from './SuperAdminDiscontinuationPage'
-import { SalesAdminManagementPage } from './SalesAdminManagementPage'
+import { UserRoleManagementPage } from './UserRoleManagementPage'
 import { HelpdeskSupportPanel } from '../components/HelpdeskSupportPanel'
 import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
 import { SuperAdminProfilePanel } from '../components/SuperAdminProfilePanel'
@@ -571,7 +574,7 @@ function validateBranchForm(form, existingBranches = [], ignoreBranchId = null) 
 function getInitialSuperAdminSection(search = '') {
   const params = new URLSearchParams(search)
   const section = params.get('section')
-  return ['branches', 'branch-admin', 'faculty', 'sales-admin', 'students', 'exams-results', 'academic-tests', 'leave-management', 'faculty-leave', 'discontinuations', 'helpdesk', 'settings', 'profile', 'reports', 'metric-branches', 'metric-students', 'metric-admissions', 'metric-total-payment', 'metric-month-payment', 'metric-outstanding', 'metric-month-due', 'metric-today-due', 'metric-overdue', 'metric-due-students', 'metric-today-collection'].includes(section) ? section : 'dashboard'
+  return ['branches', 'branch-admin', 'faculty', 'sales-admin', 'user-role', 'students', 'exams-results', 'academic-tests', 'leave-management', 'faculty-leave', 'discontinuations', 'helpdesk', 'settings', 'profile', 'reports', 'metric-branches', 'metric-students', 'metric-admissions', 'metric-total-payment', 'metric-month-payment', 'metric-outstanding', 'metric-month-due', 'metric-today-due', 'metric-overdue', 'metric-due-students', 'metric-today-collection'].includes(section) ? section : 'dashboard'
 }
 
 export function SuperAdminDashboardPage() {
@@ -650,6 +653,13 @@ export function SuperAdminDashboardPage() {
   const [successTitle, setSuccessTitle] = useState('Action completed successfully')
   const [branchErrors, setBranchErrors] = useState({})
   const [actionError, setActionError] = useState('')
+  const [branchAccessTarget, setBranchAccessTarget] = useState(null)
+  const [branchAccessUsers, setBranchAccessUsers] = useState([])
+  const [branchAccessLoading, setBranchAccessLoading] = useState(false)
+  const [branchAccessSaving, setBranchAccessSaving] = useState(false)
+  const [branchAccessUserId, setBranchAccessUserId] = useState('')
+  const [branchAccessRole, setBranchAccessRole] = useState('BRANCH_ADMIN_ONLY')
+  const [branchAccessError, setBranchAccessError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const previousBranchSnapshotRef = useRef(null)
@@ -737,6 +747,12 @@ export function SuperAdminDashboardPage() {
     }, 0)
 
     return () => window.clearTimeout(timerId)
+  }, [loadBranches])
+
+  useEffect(() => {
+    const refreshBranches = () => { void loadBranches() }
+    window.addEventListener('cispro:branches-changed', refreshBranches)
+    return () => window.removeEventListener('cispro:branches-changed', refreshBranches)
   }, [loadBranches])
 
   useEffect(() => {
@@ -1476,6 +1492,57 @@ const filteredBranches = useMemo(() => {
     setViewTargetBranch(branch)
     setActionMenuBranchId(null)
     setIsMobileSidebarOpen(false)
+  }
+
+  const openBranchAccess = async (branch) => {
+    setActionMenuBranchId(null)
+    setIsMobileSidebarOpen(false)
+    setBranchAccessTarget(branch)
+    setBranchAccessUserId('')
+    setBranchAccessRole(branch.roleAccess || 'BRANCH_ADMIN_ONLY')
+    setBranchAccessError('')
+    setBranchAccessLoading(true)
+    try {
+      const users = await listBranchAccessUsers()
+      setBranchAccessUsers(users)
+    } catch (reason) {
+      setBranchAccessError(String(reason?.message || 'Unable to load user accounts.'))
+    } finally {
+      setBranchAccessLoading(false)
+    }
+  }
+
+  const closeBranchAccess = () => {
+    setBranchAccessTarget(null)
+    setBranchAccessUsers([])
+    setBranchAccessUserId('')
+    setBranchAccessError('')
+  }
+
+  const handleAssignBranchAccess = async () => {
+    if (!branchAccessTarget || !branchAccessUserId) {
+      setBranchAccessError('Select a user account before saving branch access.')
+      return
+    }
+    setBranchAccessSaving(true)
+    setBranchAccessError('')
+    try {
+      const result = await assignBranchAccess(branchAccessTarget.id, { userId: branchAccessUserId, roleAccess: branchAccessRole })
+      const updatedBranch = result?.branch
+      setBranches((current) => current.map((item) => {
+        if (item.id !== branchAccessTarget.id) return item
+        if (result?.accessType === 'SALES_ADMIN') return item
+        return { ...item, ...(updatedBranch || {}), branchAdminName: result?.user?.fullName || item.branchAdminName, adminUserId: updatedBranch?.adminUserId || item.adminUserId }
+      }))
+      setSuccessTitle('Branch access updated')
+      setSuccessMessage(`${result?.user?.fullName || 'The selected account'} can now access ${branchAccessTarget.branchName}.`)
+      closeBranchAccess()
+      setIsSuccessOpen(true)
+    } catch (reason) {
+      setBranchAccessError(String(reason?.message || 'Unable to update branch access.'))
+    } finally {
+      setBranchAccessSaving(false)
+    }
   }
 
   const closeBranchModal = () => {
@@ -2255,6 +2322,10 @@ const filteredBranches = useMemo(() => {
                     <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><Shield size={15} strokeWidth={2.1} /></span>
                     <span>Branch Admin</span>
                   </button>
+                  <button type="button" className="super-admin-sidebar-subitem" onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('sales-admin'); setIsMobileSidebarOpen(false) }}>
+                    <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><BriefcaseBusiness size={15} strokeWidth={2.1} /></span>
+                    <span>Sales Admin</span>
+                  </button>
                   <button type="button" className="super-admin-sidebar-subitem" onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('faculty'); setIsMobileSidebarOpen(false) }}>
                     <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><UserRound size={15} strokeWidth={2.1} /></span>
                     <span>Faculty Management</span>
@@ -2263,7 +2334,7 @@ const filteredBranches = useMemo(() => {
               </div>
               <button
                 type="button"
-                className={`super-admin-sidebar-section-toggle ${['branch-admin', 'faculty'].includes(activeSection) ? 'is-active' : ''}`.trim()}
+                className={`super-admin-sidebar-section-toggle ${['branch-admin', 'sales-admin', 'faculty'].includes(activeSection) ? 'is-active' : ''}`.trim()}
                 aria-expanded={isUserRoleManagementExpanded}
                 onClick={() => setIsUserRoleManagementExpanded((current) => !current)}
               >
@@ -2284,6 +2355,15 @@ const filteredBranches = useMemo(() => {
                   >
                     <span className="super-admin-sidebar-icon" aria-hidden="true"><Shield size={18} strokeWidth={2.2} /></span>
                     <span>Branch Admin</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`super-admin-sidebar-item ${activeSection === 'sales-admin' ? 'is-active' : ''}`.trim()}
+                    data-tooltip="Sales Admin"
+                    onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('sales-admin'); setIsMobileSidebarOpen(false) }}
+                  >
+                    <span className="super-admin-sidebar-icon" aria-hidden="true"><BriefcaseBusiness size={18} strokeWidth={2.2} /></span>
+                    <span>Sales Admin</span>
                   </button>
                   <button
                     type="button"
@@ -2685,6 +2765,7 @@ const filteredBranches = useMemo(() => {
                         <th className="branch-table-col-id">Branch ID</th>
                         <th className="branch-table-col-name">Branch Name</th>
                         <th className="branch-table-col-admin">Branch Admin Name</th>
+                        <th className="branch-table-col-access">Branch Access</th>
                         <th style={{ textAlign: 'center' }}>Students</th>
                         <th className="branch-table-col-dashboard" style={{ textAlign: 'center' }}>Branch View</th>
                         <th className="branch-table-col-actions" style={{ textAlign: 'center' }}>Actions</th>
@@ -2739,6 +2820,13 @@ const filteredBranches = useMemo(() => {
                             <td className="branch-table-col-admin">
                               <div className="branch-table-detail-cell">
                                 <strong>{branch.branchAdminName || 'Branch admin not set'}</strong>
+                              </div>
+                            </td>
+                            <td className="branch-table-col-access" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                              <div className="branch-access-cell">
+                                <strong>{branch.roleAccessLabel || (branch.roleAccess === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch + Sales Admin' : 'Branch Admin')}</strong>
+                                <small>{branch.adminUserId ? 'Assigned' : 'Unassigned'}</small>
+                                <button type="button" className="branch-access-table-button" onClick={() => openBranchAccess(branch)}>Manage</button>
                               </div>
                             </td>
                             <td style={{ textAlign: 'center' }}>
@@ -2802,6 +2890,9 @@ const filteredBranches = useMemo(() => {
                                 >
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
+                                  </button>
+                                  <button type="button" role="menuitem" onClick={() => openBranchAccess(branch)}>
+                                    Branch Access
                                   </button>
                                   <button type="button" role="menuitem" onClick={() => openEditBranch(branch)}>
                                     Edit
@@ -2876,6 +2967,9 @@ const filteredBranches = useMemo(() => {
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
                                   </button>
+                                  <button type="button" role="menuitem" onClick={() => openBranchAccess(branch)}>
+                                    Branch Access
+                                  </button>
                                   <button type="button" role="menuitem" onClick={() => openEditBranch(branch)}>
                                     Edit
                                   </button>
@@ -2891,6 +2985,10 @@ const filteredBranches = useMemo(() => {
                             <div>
                               <dt>Admin</dt>
                               <dd>{branch.branchAdminName || 'Branch admin not set'}</dd>
+                            </div>
+                            <div>
+                              <dt>Branch Access</dt>
+                              <dd>{branch.roleAccessLabel || (branch.roleAccess === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch + Sales Admin' : 'Branch Admin')}</dd>
                             </div>
                             <div>
                               <dt>Location</dt>
@@ -2978,27 +3076,14 @@ const filteredBranches = useMemo(() => {
                   </div>
                 </div>
               </section>
+            ) : activeSection === 'user-role' ? (
+              <UserRoleManagementPage pageType="branch" />
             ) : activeSection === 'sales-admin' && ['leads', 'admissions'].includes(new URLSearchParams(location.search).get('view')) ? (
               <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} branches={globalBranchFilterOptions} />
             ) : activeSection === 'sales-admin' ? (
-              <SalesAdminManagementPage />
+              <UserRoleManagementPage pageType="sales" />
             ) : activeSection === 'branch-admin' ? (
-              <section className="super-admin-global-panel">
-                <div className="super-admin-global-header">
-                  <div><p className="branch-management-kicker">User &amp; Role Management</p><h1>Branch Admin</h1></div>
-                  <span className="super-admin-global-count">{filteredBranches.length} branch admins</span>
-                </div>
-                <div className="super-admin-global-table-wrap">
-                  <table className="super-admin-global-table">
-                    <thead><tr><th>S.No</th><th>Branch ID</th><th>Admin Name</th><th>Mobile Number</th><th>Branch</th><th>Branch Address</th></tr></thead>
-                    <tbody>
-                      {paginatedBranches.map((branch, index) => <tr key={branch.id || branch.branchId} role="button" tabIndex={0} className="super-admin-global-table-row-action" aria-label={`View ${branch.branchName || branch.branchId || 'branch'} details`} onClick={() => openViewBranch(branch)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openViewBranch(branch) } }}><td>{(safeCurrentPage - 1) * rowsPerPage + index + 1}</td><td><strong>{branch.branchId || '-'}</strong></td><td><strong>{branch.branchAdminName || 'Branch admin not set'}</strong><small>{branch.branchAdminEmail || branch.branchEmail || '-'}</small></td><td>{branch.branchAdminPhone || branch.adminPhone || branch.branchPhone || '-'}</td><td><strong>{branch.branchName || '-'}</strong></td><td>{branch.branchAddress || '-'}</td></tr>)}
-                      {!filteredBranches.length ? <tr><td colSpan="6" className="super-admin-global-empty">No branch admin records found.</td></tr> : null}
-                    </tbody>
-                  </table>
-                </div>
-                {filteredBranches.length > rowsPerPage ? <PaginationBar className="super-admin-pagination" currentPage={safeCurrentPage} totalPages={totalPages} onPageChange={setCurrentPage} label="Branch admin pagination" previousLabel="Prev" nextLabel="Next" /> : null}
-              </section>
+              <UserRoleManagementPage pageType="branch" />
             ) : activeSection === 'faculty' ? (
               <section className="super-admin-global-panel">
                 <div className="super-admin-global-header">
@@ -3655,6 +3740,26 @@ const filteredBranches = useMemo(() => {
                 View Dashboard
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {branchAccessTarget ? (
+        <div className="branch-modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) closeBranchAccess() }}>
+          <div className="branch-access-modal" role="dialog" aria-modal="true" aria-labelledby="branch-access-title" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="branch-modal-close" aria-label="Close branch access" onClick={closeBranchAccess} disabled={branchAccessSaving}>
+              <X size={22} strokeWidth={2.5} />
+            </button>
+            <div className="branch-access-modal-heading">
+              <span className="branch-access-modal-icon"><UserPlus size={19} /></span>
+              <div><p className="branch-management-kicker">BRANCH ACCESS</p><h2 id="branch-access-title">Assign access</h2><p>{branchAccessTarget.branchName} · {branchAccessTarget.branchId}</p></div>
+            </div>
+            <label className="branch-access-field"><span>User account</span><select value={branchAccessUserId} onChange={(event) => setBranchAccessUserId(event.target.value)} disabled={branchAccessLoading || branchAccessSaving}><option value="">Select a Branch Admin or Sales Admin</option>{branchAccessUsers.map((user) => <option key={user.id} value={user.id}>{user.fullName} · {user.role === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}{user.managedBranch ? ` · Assigned to ${user.managedBranch.branchName}` : ''}</option>)}</select></label>
+            <label className="branch-access-field"><span>Branch admin access</span><select value={branchAccessRole} onChange={(event) => setBranchAccessRole(event.target.value)} disabled={branchAccessSaving}><option value="BRANCH_ADMIN_ONLY">Branch Admin</option><option value="BRANCH_ADMIN_SALES_ADMIN">Branch Admin + Sales Admin</option></select></label>
+            {branchAccessLoading ? <p className="branch-access-state">Loading active user accounts...</p> : null}
+            {!branchAccessLoading && !branchAccessUsers.length ? <p className="branch-access-state">No active Branch Admin or Sales Admin accounts found. Create the account first from Users.</p> : null}
+            {branchAccessError ? <p className="branch-access-error" role="alert">{branchAccessError}</p> : null}
+            <div className="branch-delete-actions"><button type="button" className="branch-delete-cancel" onClick={closeBranchAccess} disabled={branchAccessSaving}>Cancel</button><button type="button" className="branch-access-save" onClick={handleAssignBranchAccess} disabled={branchAccessLoading || branchAccessSaving || !branchAccessUserId}>{branchAccessSaving ? 'Saving...' : 'Save access'}</button></div>
           </div>
         </div>
       ) : null}
