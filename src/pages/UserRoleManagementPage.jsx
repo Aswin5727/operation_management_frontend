@@ -158,6 +158,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
   const [usersLoading, setUsersLoading] = useState(true)
   const [usersError, setUsersError] = useState('')
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [userPage, setUserPage] = useState(1)
   const [form, setForm] = useState(initialForm)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -199,9 +200,14 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
 
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase()
-    if (!query) return users
-    return users.filter((user) => [user.userCode, user.fullName, user.email, user.phone, user.managedBranch?.branchName, ...(user.assignedBranches || []).map((branch) => branch.branchName)].some((value) => String(value || '').toLowerCase().includes(query)))
-  }, [search, users])
+    return users.filter((user) => {
+      const branchRecords = user.managedBranch ? [user.managedBranch] : (user.assignedBranches || [])
+      const statusLabel = branchRecords.some((branch) => String(branch.status || '').toUpperCase() === 'INACTIVE') ? 'inactive' : 'active'
+      const matchesStatus = statusFilter === 'all' || statusLabel === statusFilter
+      const matchesSearch = !query || [user.userCode, user.fullName, user.email, user.phone, user.managedBranch?.branchName, ...(user.assignedBranches || []).map((branch) => branch.branchName)].some((value) => String(value || '').toLowerCase().includes(query))
+      return matchesStatus && matchesSearch
+    })
+  }, [search, statusFilter, users])
   const userPageCount = Math.max(1, Math.ceil(filteredUsers.length / 5))
   const safeUserPage = Math.min(userPage, userPageCount)
   const paginatedUsers = filteredUsers.slice((safeUserPage - 1) * 5, safeUserPage * 5)
@@ -209,7 +215,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
   useEffect(() => {
     const timer = window.setTimeout(() => setUserPage(1), 0)
     return () => window.clearTimeout(timer)
-  }, [search])
+  }, [search, statusFilter])
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -223,7 +229,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
     const table = document.querySelector('.user-role-table')
     if (!table) return undefined
     const handleRowClick = (event) => {
-      if (event.target?.closest?.('.user-role-actions')) return
+      if (event.target?.closest?.('.user-role-actions, .user-role-dashboard-button')) return
       const row = event.target?.closest?.('tbody tr')
       if (!row || !row.parentElement) return
       const rowIndex = Array.from(row.parentElement.children).indexOf(row)
@@ -491,9 +497,9 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard })
         <div className="user-role-page-header-actions"><div className="user-role-header-badge"><Users size={18} /><span>Super Admin only</span></div><button type="button" className="user-role-create-button" onClick={openCreateForm}><UserPlus size={17} />Create User</button></div>
       </header>
 
+      <div className="user-role-external-table-tools"><div className="user-role-table-tools"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${pageTitle.toLowerCase()} accounts`} aria-label={`Search ${pageTitle} accounts`} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter accounts by status"><option value="all">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select><span>{filteredUsers.length} account{filteredUsers.length === 1 ? '' : 's'}</span></div></div>
       <section className="user-role-table-card" aria-label={`${pageTitle} accounts`}>
-        <div className="user-role-table-header"><div><span className="user-role-card-kicker">{pageTitle.toUpperCase()} ACCOUNTS</span><h2>{pageTitle} accounts</h2></div><div className="user-role-table-tools"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${pageTitle.toLowerCase()} accounts`} aria-label={`Search ${pageTitle} accounts`} /><span>{filteredUsers.length} account{filteredUsers.length === 1 ? '' : 's'}</span></div></div>
-        {usersLoading ? <p className="user-role-table-state">Loading accounts...</p> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchRecords = user.managedBranch ? [user.managedBranch] : (user.assignedBranches || []); const branchNames = branchRecords.map((branch) => branch.branchName).filter(Boolean); const statusLabel = branchRecords.some((branch) => String(branch.status || '').toUpperCase() === 'INACTIVE') ? 'Inactive' : 'Active'; const dashboardBranch = branchRecords[0]; return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.email || '-'}</small></td><td><span className="user-role-status-indicator"><i className={`user-role-status-dot ${statusLabel === 'Active' ? 'is-active' : 'is-inactive'}`} /><span className="user-role-status-tooltip">{statusLabel}</span></span><strong>{user.userCode || '-'}</strong></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button user-role-dashboard-button" disabled={!dashboardBranch || String(dashboardBranch.status || '').toUpperCase() === 'INACTIVE'} onClick={(event) => { event.stopPropagation(); if (dashboardBranch) onViewDashboard?.(dashboardBranch) }}><LayoutDashboard size={14} />View</button></td><td><div className="user-role-actions"><button type="button" className="user-role-actions-trigger" aria-label={`Actions for ${user.fullName || 'account'}`} onClick={() => setActionUser(actionUser?.id === user.id ? null : user)}>&#8942;</button>{actionUser?.id === user.id ? <div className="user-role-actions-menu"><button type="button" onClick={() => { setViewUser(user); setActionUser(null) }}>View</button><button type="button" onClick={() => openEdit(user)}>Edit</button><button type="button" className="is-danger" onClick={() => { setDeleteUser(user); setActionUser(null) }}>Delete</button></div> : null}</div></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="7" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
+        {usersLoading ? <p className="user-role-table-state">Loading accounts...</p> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchRecords = user.managedBranch ? [user.managedBranch] : (user.assignedBranches || []); const branchNames = branchRecords.map((branch) => branch.branchName).filter(Boolean); const statusLabel = branchRecords.some((branch) => String(branch.status || '').toUpperCase() === 'INACTIVE') ? 'Inactive' : 'Active'; const dashboardBranch = branchRecords[0]; return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.email || '-'}</small></td><td><span className="user-role-status-indicator"><i className={`user-role-status-dot ${statusLabel === 'Active' ? 'is-active' : 'is-inactive'}`} /><span className="user-role-status-tooltip">{statusLabel}</span></span><strong>{user.userCode || '-'}</strong></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button user-role-dashboard-button" disabled={!dashboardBranch || String(dashboardBranch.status || '').toUpperCase() === 'INACTIVE'} onClick={(event) => { event.stopPropagation(); setViewUser(null); if (dashboardBranch) onViewDashboard?.(dashboardBranch) }}><LayoutDashboard size={14} />View</button></td><td><div className="user-role-actions"><button type="button" className="user-role-actions-trigger" aria-label={`Actions for ${user.fullName || 'account'}`} onClick={() => setActionUser(actionUser?.id === user.id ? null : user)}>&#8942;</button>{actionUser?.id === user.id ? <div className="user-role-actions-menu"><button type="button" onClick={() => { setViewUser(user); setActionUser(null) }}>View</button><button type="button" onClick={() => openEdit(user)}>Edit</button><button type="button" className="is-danger" onClick={() => { setDeleteUser(user); setActionUser(null) }}>Delete</button></div> : null}</div></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="7" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
       </section>
 
       {isCreateOpen ? <div className="user-role-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCreateForm() }}>

@@ -2682,11 +2682,6 @@ const filteredBranches = useMemo(() => {
                   </div>
 
                   <div className="branch-management-actions">
-                    <button type="button" className="branch-add-button" onClick={openAddBranch}>
-                      <span>+</span>
-                      <span>Create Branch</span>
-                    </button>
-
                     <p className="branch-management-subtitle">
                       Total branches: <strong>{totalBranches}</strong>
                     </p>
@@ -2894,17 +2889,11 @@ const filteredBranches = useMemo(() => {
                                   <button type="button" role="menuitem" onClick={() => openBranchAccess(branch)}>
                                     Branch Access
                                   </button>
-                                  <button type="button" role="menuitem" onClick={() => openEditBranch(branch)}>
-                                    Edit
-                                  </button>
                                   {!isResendMailActiveBranch ? (
                                     <button type="button" role="menuitem" className="is-warning" onClick={() => openResendMail(branch)}>
                                       Resend Mail
                                     </button>
                                   ) : null}
-                                  <button type="button" role="menuitem" className="is-danger" onClick={() => openDeleteConfirm(branch)}>
-                                    Delete
-                                  </button>
                                 </div>
                               </div>
                             </td>
@@ -2969,12 +2958,6 @@ const filteredBranches = useMemo(() => {
                                   </button>
                                   <button type="button" role="menuitem" onClick={() => openBranchAccess(branch)}>
                                     Branch Access
-                                  </button>
-                                  <button type="button" role="menuitem" onClick={() => openEditBranch(branch)}>
-                                    Edit
-                                  </button>
-                                  <button type="button" role="menuitem" className="is-danger" onClick={() => openDeleteConfirm(branch)}>
-                                    Delete
                                   </button>
                                 </div>
                               </div>
