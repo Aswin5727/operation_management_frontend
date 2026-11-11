@@ -5710,7 +5710,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
   // becomes the active section.
   useEffect(() => {
     if (activeSection !== 'notifications') return
-    void loadBranchNotifications()
+    void loadBranchNotifications({ force: true })
   }, [activeSection, loadBranchNotifications])
 
   useEffect(() => {
@@ -11845,7 +11845,7 @@ useEffect(() => {
               aria-expanded={isNotificationMenuOpen}
               onClick={() => {
                 // Fetch before opening so a faculty save is visible immediately.
-                void loadBranchNotifications()
+                void loadBranchNotifications({ force: true })
                 setIsNotificationMenuOpen((current) => !current)
               }}
             >
