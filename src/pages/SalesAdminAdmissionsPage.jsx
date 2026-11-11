@@ -120,7 +120,7 @@ function StudentDetailsModal({ student, loading, error, onClose, onRetry }) {
   </div>
 }
 
-export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false }) {
+export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false, salesAdminId = '' }) {
   const location = useLocation()
   const [rows, setRows] = useState([])
   const [summary, setSummary] = useState({ hotLeads: 0, pendingAdmissions: 0, completedAdmissions: 0, totalCollections: 0 })
@@ -181,7 +181,7 @@ export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false }) {
     setLoading(true)
     setError('')
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '5', status })
+      const params = new URLSearchParams({ page: String(page), limit: '5', status, ...(salesAdminId ? { salesAdminId } : {}) })
       if (branchId) params.set('branchId', branchId)
       if (courseId) params.set('courseId', courseId)
       if (search.trim()) params.set('search', search.trim())
@@ -249,7 +249,8 @@ export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false }) {
     setBatchDialogError('')
     setBatchDialogLoading(true)
     try {
-      const response = unwrap(await request(`/sales-admins/admissions/leads/${encodeURIComponent(lead.id)}/available-batches`))
+      const suffix = salesAdminId ? `?salesAdminId=${encodeURIComponent(salesAdminId)}` : ''
+      const response = unwrap(await request(`/sales-admins/admissions/leads/${encodeURIComponent(lead.id)}/available-batches${suffix}`))
       setBatchDialogData(response)
     } catch (reason) {
       setBatchDialogError(reason?.message || 'Unable to load available batches.')

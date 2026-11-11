@@ -40,7 +40,7 @@ function NotificationSkeleton() {
   return <div className="sales-admin-notification-skeleton" aria-label="Loading notifications">{Array.from({ length: 5 }, (_, index) => <div key={index}><i /><span><i /><i /><i /></span><i /></div>)}</div>
 }
 
-export function SalesAdminNotificationsPage() {
+export function SalesAdminNotificationsPage({ embeddedSalesAdmin = null }) {
   const navigate = useNavigate()
   const [items, setItems] = useState([])
   const [meta, setMeta] = useState(blankMeta)
@@ -54,13 +54,14 @@ export function SalesAdminNotificationsPage() {
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
+  const embeddedView = Boolean(embeddedSalesAdmin)
 
   useEffect(() => {
     let active = true
-    const customInvalid = datePreset === 'custom' && (!fromDate || !toDate || fromDate > toDate)
+    const customInvalid = !embeddedView && datePreset === 'custom' && (!fromDate || !toDate || fromDate > toDate)
     if (customInvalid) return () => { active = false }
-    const params = new URLSearchParams({ page: String(page), limit: '20', status, datePreset, sort })
-    if (datePreset === 'custom') { params.set('fromDate', fromDate); params.set('toDate', toDate) }
+    const params = new URLSearchParams({ page: String(page), limit: '20', status, sort, ...(embeddedView ? { targetUserId: embeddedSalesAdmin.salesAdminId || '' } : { datePreset }) })
+    if (!embeddedView && datePreset === 'custom') { params.set('fromDate', fromDate); params.set('toDate', toDate) }
     const load = async () => {
       try {
         const response = await request(`/notifications?${params}`)
@@ -78,7 +79,7 @@ export function SalesAdminNotificationsPage() {
     void load()
     const timer = window.setInterval(load, 30000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [datePreset, fromDate, toDate, status, sort, page, reloadKey])
+  }, [datePreset, fromDate, toDate, status, sort, page, reloadKey, embeddedView])
 
   const visibleItems = useMemo(() => items, [items])
   const customDateError = datePreset === 'custom' && fromDate && toDate && fromDate > toDate
@@ -141,7 +142,7 @@ export function SalesAdminNotificationsPage() {
       <div className="sales-admin-notification-filters" aria-label="Filter by read status">{statusFilters.map(([value, label]) => <button type="button" key={value} className={status === value ? 'is-active' : ''} onClick={() => changeStatus(value)}>{label}</button>)}</div>
       <div className="sales-admin-notification-toolbar-actions">
         <label className="sales-admin-notification-sort">Sort<select value={sort} onChange={(event) => changeSort(event.target.value)}><option value="newest">Newest First</option><option value="oldest">Oldest First</option></select></label>
-        <button type="button" className="sales-admin-notifications-mark-all" onClick={() => void markRead()} disabled={actionLoading || !meta.unreadCount} title="Marks all your notifications as read, regardless of the selected filters."><CheckCheck size={16} />Mark all as read</button>
+        {!embeddedView ? <button type="button" className="sales-admin-notifications-mark-all" onClick={() => void markRead()} disabled={actionLoading || !meta.unreadCount} title="Marks all your notifications as read, regardless of the selected filters."><CheckCheck size={16} />Mark all as read</button> : null}
       </div>
     </div>
 
@@ -159,7 +160,7 @@ export function SalesAdminNotificationsPage() {
           <div className="sales-admin-notification-title-row"><h3>{item.title}</h3><span className={`sales-admin-notification-state${item.read ? '' : ' is-unread'}`}>{item.read ? 'Read' : 'Unread'}</span></div>
           {student || leadId ? <div className="sales-admin-notification-context">{student ? <strong>{student}</strong> : null}{leadId ? <span>Lead ID: {leadId}</span> : null}</div> : null}
           <p>{item.message}</p>
-          <div className="sales-admin-notification-card-footer"><span className={`sales-admin-notification-category is-${color}`}>{label}</span><div>{!item.read ? <button type="button" className="sales-admin-notification-mark-one" onClick={() => void markRead([item.id])} disabled={actionLoading}><Check size={14} />Mark as read</button> : null}{canOpenLead || canOpenReport || canOpenPendingAdmissions ? <button type="button" className="sales-admin-notification-view" onClick={() => openNotification(item)}>{canOpenLead ? 'View Lead' : canOpenReport ? 'View Report' : (item.actionLabel || 'View Pending Admissions')} <ExternalLink size={14} /></button> : null}</div></div>
+          <div className="sales-admin-notification-card-footer"><span className={`sales-admin-notification-category is-${color}`}>{label}</span><div>{!embeddedView && !item.read ? <button type="button" className="sales-admin-notification-mark-one" onClick={() => void markRead([item.id])} disabled={actionLoading}><Check size={14} />Mark as read</button> : null}{canOpenLead || canOpenReport || canOpenPendingAdmissions ? <button type="button" className="sales-admin-notification-view" onClick={() => openNotification(item)}>{canOpenLead ? 'View Lead' : canOpenReport ? 'View Report' : (item.actionLabel || 'View Pending Admissions')} <ExternalLink size={14} /></button> : null}</div></div>
         </div>
         <time className="sales-admin-notification-created" dateTime={item.createdAt || undefined}>{formattedCreatedAt(item.createdAt, item.timezone)}</time>
         {!item.read ? <span className="sales-admin-notification-dot" aria-label="Unread notification" /> : null}
