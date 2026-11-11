@@ -2880,7 +2880,8 @@ const filteredBranches = useMemo(() => {
                                 onMouseLeave={() => {
                                   actionMenuCloseTimerRef.current = setTimeout(() => {
                                     setActionMenuBranchId(null)
-                                  }, 200)
+                                    setActionMenuPosition(null)
+                                  }, 350)
                                 }}
                               >
                                 <button
@@ -2889,6 +2890,7 @@ const filteredBranches = useMemo(() => {
                                   aria-label={`Open actions for ${branch.branchName}`}
                                   aria-haspopup="menu"
                                   aria-expanded={actionMenuBranchId === branch.id}
+                                  onMouseEnter={(event) => openActionMenu(branch.id, event.currentTarget)}
                                   onClick={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 >
                                   <MoreVertical size={18} strokeWidth={2.3} />
@@ -2898,6 +2900,15 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
+                                  onMouseEnter={() => {
+                                    if (actionMenuCloseTimerRef.current) clearTimeout(actionMenuCloseTimerRef.current)
+                                  }}
+                                  onMouseLeave={() => {
+                                    actionMenuCloseTimerRef.current = setTimeout(() => {
+                                      setActionMenuBranchId(null)
+                                      setActionMenuPosition(null)
+                                    }, 350)
+                                  }}
                                   style={actionMenuPosition ? {
                                     position: 'fixed',
                                     top: String(actionMenuPosition.top) + 'px',
@@ -2947,7 +2958,8 @@ const filteredBranches = useMemo(() => {
                                 onMouseLeave={() => {
                                   actionMenuCloseTimerRef.current = setTimeout(() => {
                                     setActionMenuBranchId(null)
-                                  }, 200)
+                                    setActionMenuPosition(null)
+                                  }, 350)
                                 }}
                               >
                                 <button
@@ -2956,6 +2968,7 @@ const filteredBranches = useMemo(() => {
                                   aria-label={`Open actions for ${branch.branchName}`}
                                   aria-haspopup="menu"
                                   aria-expanded={actionMenuBranchId === branch.id}
+                                  onMouseEnter={(event) => openActionMenu(branch.id, event.currentTarget)}
                                   onClick={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 >
                                   <MoreVertical size={18} strokeWidth={2.3} />
@@ -2965,6 +2978,15 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
+                                  onMouseEnter={() => {
+                                    if (actionMenuCloseTimerRef.current) clearTimeout(actionMenuCloseTimerRef.current)
+                                  }}
+                                  onMouseLeave={() => {
+                                    actionMenuCloseTimerRef.current = setTimeout(() => {
+                                      setActionMenuBranchId(null)
+                                      setActionMenuPosition(null)
+                                    }, 350)
+                                  }}
                                   style={actionMenuPosition ? {
                                     position: 'fixed',
                                     top: String(actionMenuPosition.top) + 'px',

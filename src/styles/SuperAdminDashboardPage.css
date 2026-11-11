@@ -3754,6 +3754,13 @@ body.super-admin-notification-menu-open .super-admin-content {
   pointer-events: auto;
 }
 
+/* Keep the actions menu available on pointer hover as well as click. */
+.branch-actions-wrap:hover .branch-actions-menu {
+  opacity: 1 !important;
+  transform: translateY(0) scale(1) !important;
+  pointer-events: auto !important;
+}
+
 .branch-actions-menu button {
   width: 100%;
   height: 34px;
