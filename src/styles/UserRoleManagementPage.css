@@ -47,6 +47,7 @@
 .user-role-view-drawer .user-role-drawer-section{min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .user-role-view-drawer .user-role-audit-section{flex:1;overflow-y:auto}
 .user-role-actions-menu{top:calc(100% + 5px);bottom:auto;z-index:100}
+.user-role-actions-menu{left:calc(100% + 5px);right:auto}
 .user-role-actions-menu.is-open-up{top:auto;bottom:calc(100% + 5px)}
 .user-role-table-wrap{overflow:visible}
 .user-role-table-card{overflow:visible}
