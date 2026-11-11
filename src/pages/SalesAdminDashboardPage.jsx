@@ -76,7 +76,7 @@ function formatChartDate(value) {
   return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(new Date(`${String(value).slice(0, 10)}T00:00:00.000Z`))
 }
 
-export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, embeddedSuperAdmin = false, salesBranchId = '', readOnlySalesAdmin = false, onSwitchDashboard }) {
+export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, embeddedSuperAdmin = false, salesBranchId = '', readOnlySalesAdmin = false, embeddedSalesAdmin = null, onSwitchDashboard }) {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -200,11 +200,11 @@ export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, embeddedS
         <div className="super-admin-main">
           <header className="super-admin-topbar">
             <div className="super-admin-topbar-left"><button type="button" className="super-admin-sidebar-toggle" aria-label="Open navigation menu" onClick={() => setIsMobileSidebarOpen(true)}><LayoutGrid size={19} /></button><h1 className="super-admin-header-title">{isLeadManagement ? 'Lead Management' : isReports ? 'Monthly Reports' : isNotifications ? 'Notifications' : isAdmissions ? 'Student Admission' : isProfile ? 'My Profile' : 'Sales Admin Dashboard'}</h1></div>
-            <div className="super-admin-topbar-right">{!embeddedBranchAdmin ? <NotificationBell /> : null}<div className="super-admin-profile"><span className="super-admin-avatar"><span className="super-admin-avatar-mark"><UserRound size={19} /></span></span><div className="super-admin-profile-copy"><strong>{user?.name || 'Sales Admin'}</strong><span>{user?.email || 'salesadmin@cispro.com'}</span></div></div></div>
+            <div className="super-admin-topbar-right">{!embeddedBranchAdmin ? <NotificationBell targetUserId={embeddedSuperAdmin ? embeddedSalesAdmin?.salesAdminId : ''} readOnlyView={embeddedSuperAdmin} /> : null}<div className="super-admin-profile"><span className="super-admin-avatar"><span className="super-admin-avatar-mark"><UserRound size={19} /></span></span><div className="super-admin-profile-copy"><strong>{user?.name || 'Sales Admin'}</strong><span>{user?.email || 'salesadmin@cispro.com'}</span></div></div></div>
           </header>
 
           <main className="super-admin-content">
-            {isLeadManagement ? <LeadManagementPage salesAdminReadOnly={readOnlySalesAdmin} /> : isReports ? <SalesCrmReportPage readOnlySalesAdmin={readOnlySalesAdmin} /> : isNotifications ? <SalesAdminNotificationsPage /> : isAdmissions ? <SalesAdminAdmissionsPage key={location.search} readOnlySalesAdmin={readOnlySalesAdmin} /> : isProfile ? <SalesAdminProfilePage /> : (
+            {isLeadManagement ? <LeadManagementPage salesAdminReadOnly={readOnlySalesAdmin} salesAdminId={embeddedSuperAdmin ? embeddedSalesAdmin?.salesAdminId : ''} /> : isReports ? <SalesCrmReportPage readOnlySalesAdmin={readOnlySalesAdmin} /> : isNotifications ? <SalesAdminNotificationsPage embeddedSalesAdmin={embeddedSalesAdmin} /> : isAdmissions ? <SalesAdminAdmissionsPage key={location.search} readOnlySalesAdmin={readOnlySalesAdmin} salesAdminId={embeddedSuperAdmin ? embeddedSalesAdmin?.salesAdminId : ''} /> : isProfile ? <SalesAdminProfilePage embeddedProfile={embeddedSalesAdmin} readOnly={Boolean(embeddedSuperAdmin)} /> : (
               <section className="sales-admin-dashboard-home">
                 <header className="sales-admin-dashboard-header">
                   <div className="sales-admin-dashboard-intro">
