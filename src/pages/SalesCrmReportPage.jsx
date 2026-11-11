@@ -104,7 +104,7 @@ function MetricCard({ icon: Icon, label, value, helper, accent, percent = false,
     <span className="sales-crm-report-metric-link">View details <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden="true" /></span>
   </button>
 }
-export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
+export function SalesCrmReportPage({ readOnlySalesAdmin = false, branchScoped = false, branchId = "", branchName = "" }) {
   const [report, setReport] = useState(null)
   const [draftFilters, setDraftFilters] = useState(defaultFilters)
   const [appliedFilters, setAppliedFilters] = useState(defaultFilters)
@@ -126,7 +126,10 @@ export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
   const [reportBranches, setReportBranches] = useState([])
   const [readOnly, setReadOnly] = useState(() => readOnlySalesAdmin || String(loadSession()?.user?.status || '').toUpperCase() === 'INACTIVE' || loadSession()?.user?.active === false)
 
-  const reportQuery = buildQuery(appliedFilters).toString()
+  const effectiveAppliedFilters = branchScoped ? { ...appliedFilters, branchId } : appliedFilters
+  const effectiveDraftFilters = branchScoped ? { ...draftFilters, branchId } : draftFilters
+  const reportQuery = branchScoped && !branchId ? "" : buildQuery(effectiveAppliedFilters).toString()
+  const effectiveDownloadFilters = branchScoped ? { ...reportDownloadFilters, branchId } : reportDownloadFilters
   const blockInactiveAction = () => {
     if (!readOnly) return false
     window.dispatchEvent(new CustomEvent('cispro:inactive-account-action-blocked', { detail: { message: 'Your account is currently inactive. You have view-only access. Please contact the Super Admin to reactivate your account.' } }))
@@ -134,26 +137,36 @@ export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
   }
 
   useEffect(() => {
+    if (branchScoped) return undefined
     request('/sales-admins/me').then((response) => {
       const user = response?.data || response?.user || response
       setReadOnly(readOnlySalesAdmin || String(user?.status || '').toUpperCase() === 'INACTIVE' || user?.active === false)
     }).catch(() => {})
-  }, [])
+  }, [branchScoped, readOnlySalesAdmin])
 
   useEffect(() => {
+    if (branchScoped && !branchId) return undefined
     let active = true
     request(`/sales-crm/reports/monthly?${reportQuery}`)
       .then((response) => { if (active) { setReport(response?.data || null); setError('') } })
       .catch((reason) => { if (active) setError(reason?.message || 'Unable to load Sales CRM report') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [reportQuery, reloadKey])
+  }, [branchId, branchScoped, reportQuery, reloadKey])
 
   useEffect(() => {
+    if (branchScoped) return undefined
     let active = true
     listReportBranches().then((items) => { if (active) setReportBranches(Array.isArray(items) ? items : []) }).catch(() => {})
     return () => { active = false }
-  }, [])
+  }, [branchScoped])
+
+  useEffect(() => {
+    if (!branchScoped || !branchId) return
+    setDraftFilters((current) => ({ ...current, branchId }))
+    setAppliedFilters((current) => ({ ...current, branchId }))
+    setReportDownloadFilters((current) => ({ ...current, branchId }))
+  }, [branchId, branchScoped])
 
   const updateDraft = (key, value) => {
     setDraftFilters((current) => ({ ...current, [key]: value }))
@@ -209,12 +222,12 @@ export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
     setSelectedMetric('')
     setTablePage(1)
     setLoading(true)
-    setAppliedFilters({ ...draftFilters })
+    setAppliedFilters({ ...effectiveDraftFilters })
   }
 
   const resetFilters = () => {
-    setDraftFilters({ ...defaultFilters })
-    setAppliedFilters({ ...defaultFilters })
+    setDraftFilters(branchScoped ? { ...defaultFilters, branchId } : { ...defaultFilters })
+    setAppliedFilters(branchScoped ? { ...defaultFilters, branchId } : { ...defaultFilters })
     setFilterError('')
     setDownloadError('')
     setDownloadNotice('')
@@ -247,7 +260,7 @@ export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
   }
 
   const exportPeriodLabel = () => {
-    const filters = reportDownloadFilters
+    const filters = effectiveDownloadFilters
     if (filters.period === 'month') {
       const monthStart = String(filters.year) + '-' + String(filters.month) + '-01'
       const monthEnd = new Date(Date.UTC(Number(filters.year), Number(filters.month), 0)).toISOString().slice(0, 10)
@@ -260,7 +273,7 @@ export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
   const downloadReport = async (event) => {
     event.preventDefault()
     if (blockInactiveAction()) return
-    const filters = reportDownloadFilters
+    const filters = effectiveDownloadFilters
     if (filters.period === 'custom' && (!filters.fromDate || !filters.toDate)) {
       setDownloadError('Select both From Date and To Date.')
       return
@@ -365,10 +378,10 @@ export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
     {downloadOpen ? <div className="sales-crm-report-download-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDownloadReport() }}><form className="sales-crm-report-download-modal" onSubmit={downloadReport} role="dialog" aria-modal="true" aria-labelledby="sales-crm-download-title">
       <header className="sales-crm-report-download-modal-header"><div><p className="eyebrow">REPORT DOWNLOAD</p><h2 id="sales-crm-download-title">Download Report</h2><p>Choose the branch and period for the Excel export.</p></div><button type="button" className="sales-crm-report-download-close" onClick={closeDownloadReport} disabled={downloading} aria-label="Close"><X size={17} /></button></header>
       <div className="sales-crm-report-download-form">
-        <div className="sales-crm-report-download-controls"><label className="sales-crm-report-download-field">Report Type<ReportDownloadSelect value={reportDownloadFilters.scope} ariaLabel="Download report type" options={[{ value: 'all', label: 'ALL LEADS' }, { value: 'admissions', label: 'ADMISSION STUDENTS' }]} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, scope: value }))} /></label><label className="sales-crm-report-download-field">Branch<ReportDownloadSelect value={reportDownloadFilters.branchId} ariaLabel="Download branch" options={[{ value: '', label: 'ALL BRANCHES' }, ...reportBranches.map((branch) => ({ value: branch.id, label: branch.branchName || branch.branchId }))]} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, branchId: value }))} /></label></div>
+        <div className="sales-crm-report-download-controls"><label className="sales-crm-report-download-field">Report Type<ReportDownloadSelect value={reportDownloadFilters.scope} ariaLabel="Download report type" options={[{ value: 'all', label: 'ALL LEADS' }, { value: 'admissions', label: 'ADMISSION STUDENTS' }]} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, scope: value }))} /></label>{branchScoped ? <div className="sales-crm-report-download-field sales-crm-report-locked-branch"><span>Branch</span><strong>{branchName || "Assigned branch"}</strong></div> : <label className="sales-crm-report-download-field">Branch<ReportDownloadSelect value={reportDownloadFilters.branchId} ariaLabel="Download branch" options={[{ value: '', label: 'ALL BRANCHES' }, ...reportBranches.map((branch) => ({ value: branch.id, label: branch.branchName || branch.branchId }))]} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, branchId: value }))} /></label>}</div>
         <div className="sales-crm-report-download-controls"><label className="sales-crm-report-download-field">Period type<ReportDownloadSelect value={reportDownloadFilters.period} ariaLabel="Download period type" options={[{ value: 'month', label: 'Month' }, { value: 'year', label: 'Year' }, { value: 'custom', label: 'Custom date range' }]} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, period: value }))} /></label></div>
         {reportDownloadFilters.period === 'month' ? <div className="sales-crm-report-download-period-card"><label>Month<ReportDownloadSelect value={reportDownloadFilters.month} ariaLabel="Download month" options={reportMonthOptions.map(([value, name]) => ({ value, label: name }))} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, month: value }))} /></label><label>Year<ReportDownloadSelect value={reportDownloadFilters.year} ariaLabel="Download year" options={reportYearOptions.map((year) => ({ value: year, label: year }))} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, year: value }))} /></label></div> : reportDownloadFilters.period === 'year' ? <div className="sales-crm-report-download-period-card sales-crm-report-download-year-card"><label>Year<ReportDownloadSelect value={reportDownloadFilters.year} ariaLabel="Download year" options={reportYearOptions.map((year) => ({ value: year, label: year }))} onChange={(value) => setReportDownloadFilters((current) => ({ ...current, year: value }))} /></label></div> : <div className="sales-crm-report-download-period-card"><label>From date<input type="date" value={reportDownloadFilters.fromDate} onChange={(event) => setReportDownloadFilters((current) => ({ ...current, fromDate: event.target.value }))} /></label><label>To date<input type="date" min={reportDownloadFilters.fromDate || undefined} value={reportDownloadFilters.toDate} onChange={(event) => setReportDownloadFilters((current) => ({ ...current, toDate: event.target.value }))} /></label></div>}
-        <div className="sales-crm-report-download-summary"><span>Selected scope</span><strong>{reportDownloadFilters.branchId ? reportBranches.find((branch) => String(branch.id) === String(reportDownloadFilters.branchId))?.branchName || 'Selected branch' : 'All branches'}</strong><small>{scopeLabel(reportDownloadFilters.scope)} · {exportPeriodLabel()}</small></div>
+        <div className="sales-crm-report-download-summary"><span>Selected scope</span><strong>{effectiveDownloadFilters.branchId ? reportBranches.find((branch) => String(branch.id) === String(effectiveDownloadFilters.branchId))?.branchName || branchName || 'Selected branch' : 'All branches'}</strong><small>{scopeLabel(reportDownloadFilters.scope)} · {exportPeriodLabel()}</small></div>
         {downloadError ? <div className="sales-crm-report-download-inline-error" role="alert"><AlertCircle size={15} />{downloadError}</div> : null}
       </div>
       <footer className="sales-crm-report-download-actions"><button type="button" className="sales-crm-report-download-cancel" onClick={closeDownloadReport} disabled={downloading}>Cancel</button><button type="submit" className="sales-crm-report-download-submit" disabled={downloading}>{downloading ? 'Generating…' : <><FileSpreadsheet size={15} />Download Excel</>}</button></footer>
@@ -378,7 +391,7 @@ export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
       <div className="sales-crm-report-filter-heading"><div><span className="sales-crm-report-filter-icon"><FileSpreadsheet size={18} /></span><div><h2>Report filters</h2><p>Choose the report scope and optional stage or status filters.</p></div></div><span className="sales-crm-report-scope-pill">{scopeLabel(appliedFilters.scope)}</span></div>
             <div className="sales-crm-report-filter-grid sales-crm-report-compact-filters">
         <label>Report Type<ReportDownloadSelect value={draftFilters.scope} ariaLabel="Report Type" options={[{ value: 'all', label: 'ALL LEADS' }, { value: 'admissions', label: 'ADMISSION STUDENTS' }]} onChange={(value) => updateDraft('scope', value)} /></label>
-        <label>Branch<ReportDownloadSelect value={draftFilters.branchId} ariaLabel="Branch" options={[{ value: '', label: 'ALL BRANCHES' }, ...reportBranches.map((branch) => ({ value: branch.id, label: branch.branchName || branch.branchId }))]} onChange={(value) => updateDraft('branchId', value)} /></label>
+        {branchScoped ? <div className="sales-crm-report-locked-branch"><span>Branch</span><strong>{branchName || "Assigned branch"}</strong></div> : <label>Branch<ReportDownloadSelect value={draftFilters.branchId} ariaLabel="Branch" options={[{ value: '', label: 'ALL BRANCHES' }, ...reportBranches.map((branch) => ({ value: branch.id, label: branch.branchName || branch.branchId }))]} onChange={(value) => updateDraft('branchId', value)} /></label>}
         <label>Stage<ReportDownloadSelect value={draftFilters.stage} ariaLabel="Stage" options={[{ value: '', label: 'All stages' }, ...STAGES.map(([key, label]) => ({ value: key, label }))]} onChange={(value) => updateDraft('stage', value)} /></label>
         <label>Status<ReportDownloadSelect value={draftFilters.status} ariaLabel="Status" options={STATUSES.map(([value, label]) => ({ value, label }))} onChange={(value) => updateDraft('status', value)} /></label>
         <div className="sales-crm-report-filter-actions"><button type="button" className="sales-crm-report-reset-button" onClick={resetFilters}>Reset</button><button type="button" className="sales-crm-report-apply-button" onClick={applyFilters}>Apply filters</button></div>

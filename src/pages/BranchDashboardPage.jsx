@@ -4300,6 +4300,8 @@ export function BranchDashboardPage({ embeddedMode = false, branchData = null, i
   const [isSalesAdminDashboardMode, setIsSalesAdminDashboardMode] = useState(false)
   const hasLeadManagementAccess = String(resolvedBranchRoleAccess || user?.roleAccess || session?.user?.roleAccess || '').toUpperCase() === 'BRANCH_ADMIN_SALES_ADMIN'
 
+
+
   useEffect(() => {
     if (['lead-management', 'sales-crm-admissions'].includes(activeSection) && !hasLeadManagementAccess) {
       navigate('/branch-dashboard', { replace: true })
@@ -12529,7 +12531,7 @@ useEffect(() => {
               {activeSection === 'discontinuations' ? <BranchDiscontinuationManagementPage /> : null}
               {activeSection === 'lead-management' ? <LeadManagementPage /> : null}
               {activeSection === 'sales-crm-admissions' ? <SalesAdminAdmissionsPage key={location.search} /> : null}
-              {activeSection === 'sales-crm-reports' ? <SalesCrmReportPage /> : null}
+              {activeSection === 'sales-crm-reports' ? <SalesCrmReportPage branchScoped branchId={branchProfile?.id || branchData?.id || ''} branchName={branchProfile?.branchName || branchData?.branchName || ''} /> : null}
               {activeSection === 'branch-reports' ? (
                 <BranchReportsAnalyticsPage
                   students={branchStudentsForDisplay}
