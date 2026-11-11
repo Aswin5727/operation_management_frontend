@@ -7,6 +7,51 @@ import { deleteBranch, listBranches, updateBranch } from '../services/branchServ
 import { listBranchAccessUsers } from '../services/userRoleManagementService'
 import '../styles/UserRoleManagementPage.css'
 
+const moduleAccessGroups = [
+  { key: 'COMMON', label: 'Common access', modules: [
+    { key: 'DASHBOARD', label: 'Dashboard', description: 'Open the role dashboard', locked: true },
+    { key: 'NOTIFICATIONS', label: 'Notifications', description: 'View account notifications', locked: true },
+    { key: 'PROFILE', label: 'Profile', description: 'View and update profile details', locked: true },
+    { key: 'SETTINGS', label: 'Settings', description: 'Manage account settings', locked: true },
+  ] },
+  { key: 'ACADEMIC', label: 'Academic operations', modules: [
+    { key: 'STUDENT_MANAGEMENT', label: 'Student Management', description: 'Manage students and course records' },
+    { key: 'ACADEMIC_OPERATIONS', label: 'Academic Operations', description: 'Manage courses, batches and academic workflows' },
+    { key: 'FEE_ACCOUNTS', label: 'Fee & Accounts', description: 'Manage payments, installments and account records' },
+    { key: 'REPORTS_ANALYTICS', label: 'Reports & Analytics', description: 'View and download operational reports' },
+    { key: 'HELPDESK_SUPPORT', label: 'Helpdesk & Support', description: 'Manage support requests' },
+  ] },
+  { key: 'SALES_CRM', label: 'Sales CRM', modules: [
+    { key: 'LEAD_MANAGEMENT', label: 'Lead Management', description: 'Manage leads and follow-ups' },
+    { key: 'ADMISSION_MANAGEMENT', label: 'Admission Management', description: 'Manage admissions and conversions' },
+    { key: 'SALES_CRM_REPORTS', label: 'Sales CRM Reports', description: 'View sales and conversion reports' },
+  ] },
+]
+const commonModuleKeys = moduleAccessGroups[0].modules.map((module) => module.key)
+const roleModuleDefaults = {
+  BRANCH_ADMIN: [...commonModuleKeys, 'STUDENT_MANAGEMENT', 'ACADEMIC_OPERATIONS', 'FEE_ACCOUNTS', 'REPORTS_ANALYTICS', 'HELPDESK_SUPPORT'],
+  BRANCH_ADMIN_SALES_ADMIN: [...commonModuleKeys, 'STUDENT_MANAGEMENT', 'ACADEMIC_OPERATIONS', 'FEE_ACCOUNTS', 'REPORTS_ANALYTICS', 'HELPDESK_SUPPORT', 'LEAD_MANAGEMENT', 'ADMISSION_MANAGEMENT', 'SALES_CRM_REPORTS'],
+  SALES_ADMIN: [...commonModuleKeys, 'LEAD_MANAGEMENT', 'ADMISSION_MANAGEMENT', 'SALES_CRM_REPORTS'],
+}
+function defaultModuleAccess(accountType = 'BRANCH_ADMIN') { return [...(roleModuleDefaults[accountType] || roleModuleDefaults.BRANCH_ADMIN)] }
+function normalizedModuleAccess(value, accountType) {
+  const selected = new Set(Array.isArray(value) ? value : defaultModuleAccess(accountType))
+  commonModuleKeys.forEach((key) => selected.add(key))
+  return moduleAccessGroups.flatMap((group) => group.modules.map((module) => module.key)).filter((key) => selected.has(key))
+}
+function orderedModuleAccessGroups(accountType, selectedKeys) {
+  const selected = new Set(selectedKeys)
+  const preferredOrder = accountType === 'SALES_ADMIN' ? ['SALES_CRM', 'ACADEMIC'] : ['ACADEMIC', 'SALES_CRM']
+  const commonGroup = moduleAccessGroups.find((group) => group.key === 'COMMON')
+  const roleGroups = moduleAccessGroups.filter((group) => group.key !== 'COMMON')
+  return [commonGroup, ...roleGroups.sort((left, right) => {
+    const leftSelected = left.modules.some((module) => selected.has(module.key))
+    const rightSelected = right.modules.some((module) => selected.has(module.key))
+    if (leftSelected !== rightSelected) return Number(rightSelected) - Number(leftSelected)
+    return preferredOrder.indexOf(left.key) - preferredOrder.indexOf(right.key)
+  })]
+}
+
 const accountTypes = [
   { value: 'BRANCH_ADMIN', label: 'Branch Admin', description: 'Manage one branch and its operations.', icon: Shield, tone: 'blue' },
   { value: 'BRANCH_ADMIN_SALES_ADMIN', label: 'Branch Admin + Sales Admin', description: 'Manage one branch with Sales CRM access.', icon: Users, tone: 'teal' },
@@ -24,7 +69,7 @@ const roleFieldConfig = {
   SALES_ADMIN: { nameLabel: 'Sales Admin Name', requiresBranch: false, showStatus: true, showSalesId: true },
 }
 
-const initialForm = { accountType: 'BRANCH_ADMIN', branchId: '', branchName: '', branchIds: [], salesAdminId: '', fullName: '', email: '', phone: '', country: 'India', state: 'Tamil Nadu', city: '', address: '', status: 'ACTIVE' }
+const initialForm = { accountType: 'BRANCH_ADMIN', branchId: '', branchName: '', branchIds: [], salesAdminId: '', fullName: '', email: '', phone: '', country: 'India', state: 'Tamil Nadu', city: '', address: '', status: 'ACTIVE', moduleAccess: defaultModuleAccess('BRANCH_ADMIN') }
 
 function normalizeError(error) {
   return String(error?.message || 'Unable to create the account. Please try again.')
@@ -32,6 +77,16 @@ function normalizeError(error) {
 
 function accountTypeLabel(value) {
   return value === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : value === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'
+}
+
+// Keep the canonical Sales Admin ID format consistent with the API. Older
+// forms used `CISSALE001` (one trailing S); accept that input and normalize it
+// to `CISSALES001` before validation and submission.
+function normalizeSalesAdminId(value) {
+  const normalized = String(value ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (/^CISSALES\d{3,}$/.test(normalized)) return normalized
+  if (/^CISSALE\d{3,}$/.test(normalized)) return normalized.replace(/^CISSALE/, 'CISSALES')
+  return normalized
 }
 
 function historyOperationLabel(value) {
@@ -176,10 +231,14 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
   const [statusFilter, setStatusFilter] = useState('all')
   const [userPage, setUserPage] = useState(1)
   const [form, setForm] = useState(initialForm)
+  const [createStep, setCreateStep] = useState(1)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [salesAdminIdTouched, setSalesAdminIdTouched] = useState(false)
+  const [salesAdminIdServerError, setSalesAdminIdServerError] = useState('')
+  const [showFieldErrors, setShowFieldErrors] = useState(false)
   const [creationPopup, setCreationPopup] = useState('')
   const [actionUser, setActionUser] = useState(null)
   const [viewUser, setViewUser] = useState(null)
@@ -200,6 +259,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
   const [branches, setBranches] = useState([])
   const [branchesLoading, setBranchesLoading] = useState(false)
   const [branchesError, setBranchesError] = useState('')
+  const [salesAdminUsers, setSalesAdminUsers] = useState([])
   const [countryOptions, setCountryOptions] = useState([])
   const [stateOptions, setStateOptions] = useState([])
   const [cityOptions, setCityOptions] = useState([])
@@ -303,8 +363,9 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
       branchId: branch?.branchId || '', branchName: branch?.branchName || '',
       branchIds: user.assignedBranchIds || [], salesAdminId: user.role === 'SALES_ADMIN' ? user.userCode || '' : '',
       fullName: branch?.branchAdminName || user.fullName || '', email: branch?.branchEmail || user.email || '', phone: branch?.branchPhone || user.phone || '',
-      country: branch?.branchCountry || user.country || '', state: branch?.branchState || user.state || '', city: branch?.branchCity || user.city || '', address: branch?.branchAddress || user.address || '', status: String(isSalesPage ? (user.status || (user.active === false ? 'INACTIVE' : 'ACTIVE')) : (branch?.status || 'ACTIVE')).toUpperCase(),
+      country: branch?.branchCountry || user.country || '', state: branch?.branchState || user.state || '', city: branch?.branchCity || user.city || '', address: branch?.branchAddress || user.address || '', status: String(isSalesPage ? (user.status || (user.active === false ? 'INACTIVE' : 'ACTIVE')) : (branch?.status || 'ACTIVE')).toUpperCase(), moduleAccess: normalizedModuleAccess(user.moduleAccess, user.accountType || (user.role === 'SALES_ADMIN' ? 'SALES_ADMIN' : 'BRANCH_ADMIN')),
     })
+    setCreateStep(1)
     setIsCreateOpen(true)
   }
 
@@ -333,7 +394,9 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
       city: '',
       address: '',
       status: 'ACTIVE',
+      moduleAccess: defaultModuleAccess(user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? user.accountType : 'BRANCH_ADMIN'),
     })
+    setCreateStep(1)
     setIsCreateOpen(true)
   }
 
@@ -424,6 +487,34 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
 
   const selectedType = useMemo(() => accountTypes.find((item) => item.value === form.accountType) || accountTypes[0], [form.accountType])
   const roleConfig = roleFieldConfig[form.accountType] || roleFieldConfig.BRANCH_ADMIN
+  function getSalesAdminIdError(value = form.salesAdminId) {
+    if (!roleConfig.showSalesId) return ''
+    const normalized = normalizeSalesAdminId(value)
+    if (!normalized) return 'Sales Admin ID is required.'
+    if (!/^CISSALES\d{3,}$/.test(normalized)) return 'Enter a valid Sales Admin ID, for example CISSALES001.'
+    const salesUsers = isSalesPage ? users : salesAdminUsers
+    const duplicate = salesUsers.some((user) => String(user.id) !== String(editingUser?.id || '') && normalizeSalesAdminId(user.userCode) === normalized)
+    return duplicate ? 'Sales Admin ID is already in use.' : ''
+  }
+  function getBasicFieldErrors() {
+    const fieldErrors = {}
+    if (roleConfig.requiresBranch && !/^(?:CIS)?[A-Z]{2,12}\d{3}$/.test(form.branchId.trim().toUpperCase())) fieldErrors.branchId = 'Enter a valid Branch ID, for example SAI001.'
+    if (roleConfig.requiresBranch && !/^[A-Za-z]+(?: [A-Za-z]+)*$/.test(form.branchName.trim())) fieldErrors.branchName = 'Branch Name must contain letters only.'
+    if (roleConfig.requiresBranch && !form.country.trim()) fieldErrors.country = 'Select a country.'
+    if (roleConfig.requiresBranch && !form.state.trim()) fieldErrors.state = 'Select a state.'
+    if (roleConfig.requiresBranch && !form.city.trim()) fieldErrors.city = 'Select a city.'
+    if (roleConfig.requiresBranch && !form.address.trim()) fieldErrors.address = 'Enter the branch address.'
+    if (roleConfig.showSalesId && !form.branchIds.length) fieldErrors.branchIds = 'Select at least one branch for this Sales Admin.'
+    const salesIdError = salesAdminIdServerError || getSalesAdminIdError()
+    if (salesIdError) fieldErrors.salesAdminId = salesIdError
+    if (!form.fullName.trim()) fieldErrors.fullName = 'Full name is required.'
+    else if (roleConfig.requiresBranch && !/^[A-Za-z]+(?: [A-Za-z]+)*$/.test(form.fullName.trim())) fieldErrors.fullName = 'Branch Admin Name must contain letters only.'
+    if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) fieldErrors.email = 'Enter a valid email address.'
+    if (!/^\d{10}$/.test(form.phone.trim())) fieldErrors.phone = 'Phone number must contain exactly 10 digits.'
+    return fieldErrors
+  }
+  const basicFieldErrors = getBasicFieldErrors()
+  const salesAdminIdFieldError = salesAdminIdServerError || ((salesAdminIdTouched || showFieldErrors) ? getSalesAdminIdError() : '')
   const selectedCountryCode = countryOptions.find((country) => country.name === form.country)?.iso2 || ''
   const selectedStateCode = stateOptions.find((state) => state.name === form.state)?.iso2 || ''
   const countrySelectOptions = useMemo(() => countryOptions.length
@@ -480,8 +571,20 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
     return () => { active = false }
   }, [form.accountType, isCreateOpen])
 
+  useEffect(() => {
+    if (!isCreateOpen || form.accountType !== 'SALES_ADMIN' || isSalesPage) return undefined
+    let active = true
+    listBranchAccessUsers('SALES_ADMIN').then((items) => {
+      if (active) setSalesAdminUsers(Array.isArray(items) ? items : [])
+    }).catch(() => {
+      if (active) setSalesAdminUsers([])
+    })
+    return () => { active = false }
+  }, [form.accountType, isCreateOpen, isSalesPage])
+
   function update(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
+    if (field === 'salesAdminId') setSalesAdminIdServerError('')
     setError('')
     setSuccess('')
   }
@@ -494,6 +597,10 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
 
   function resetForm() {
     setForm(initialForm)
+    setCreateStep(1)
+    setSalesAdminIdTouched(false)
+    setSalesAdminIdServerError('')
+    setShowFieldErrors(false)
     setError('')
     setSuccess('')
   }
@@ -515,7 +622,8 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
   }
 
   function selectAccountType(value) {
-    setForm((current) => ({ ...current, accountType: value, branchId: value === 'SALES_ADMIN' ? '' : current.branchId, branchName: value === 'SALES_ADMIN' ? '' : current.branchName, branchIds: value === 'SALES_ADMIN' ? current.branchIds : [] }))
+    setForm((current) => ({ ...current, accountType: value, branchId: value === 'SALES_ADMIN' ? '' : current.branchId, branchName: value === 'SALES_ADMIN' ? '' : current.branchName, branchIds: value === 'SALES_ADMIN' ? current.branchIds : [], moduleAccess: defaultModuleAccess(value) }))
+    setCreateStep(1)
     setError('')
     setSuccess('')
   }
@@ -533,30 +641,39 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
   }
 
   function validateBasicDetails() {
-    const nextErrors = []
-    if (roleConfig.requiresBranch && !/^(?:CIS)?[A-Z]{2,12}\d{3}$/.test(form.branchId.trim().toUpperCase())) nextErrors.push('Enter a valid Branch ID, for example SAI001.')
-    if (roleConfig.requiresBranch && !/^[A-Za-z]+(?: [A-Za-z]+)*$/.test(form.branchName.trim())) nextErrors.push('Branch Name must contain letters only.')
-    if (roleConfig.requiresBranch && !/^[A-Za-z]+(?: [A-Za-z]+)*$/.test(form.fullName.trim())) nextErrors.push('Branch Admin Name must contain letters only.')
-    if (roleConfig.requiresBranch && !form.country.trim()) nextErrors.push('Select a country.')
-    if (roleConfig.requiresBranch && !form.state.trim()) nextErrors.push('Select a state.')
-    if (roleConfig.requiresBranch && !form.city.trim()) nextErrors.push('Select a city.')
-    if (roleConfig.requiresBranch && !form.address.trim()) nextErrors.push('Enter the branch address.')
-    if (roleConfig.showSalesId && !form.branchIds.length) nextErrors.push('Select at least one branch for this Sales Admin.')
-    if (roleConfig.showSalesId && !/^CISSALES\d{3,}$/i.test(form.salesAdminId.trim())) nextErrors.push('Enter a valid Sales Admin ID, for example CISSALES001.')
-    if (!form.fullName.trim()) nextErrors.push('Full name is required.')
-    if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) nextErrors.push('Enter a valid email address.')
-    if (!/^\d{10}$/.test(form.phone.trim())) nextErrors.push('Phone number must contain exactly 10 digits.')
-    return nextErrors
+    return Object.values(getBasicFieldErrors())
   }
 
   function validate() {
     return validateBasicDetails()
   }
 
+  function continueToModuleAccess(event) {
+    event.preventDefault()
+    setSalesAdminIdTouched(true)
+    setShowFieldErrors(true)
+    const validationErrors = validateBasicDetails()
+    if (validationErrors.length) { setError(''); return }
+    setError('')
+    setCreateStep(2)
+  }
+
+  function toggleModuleAccess(moduleKey) {
+    if (commonModuleKeys.includes(moduleKey)) return
+    setForm((current) => {
+      const currentAccess = new Set(normalizedModuleAccess(current.moduleAccess, current.accountType))
+      if (currentAccess.has(moduleKey)) currentAccess.delete(moduleKey)
+      else currentAccess.add(moduleKey)
+      return { ...current, moduleAccess: normalizedModuleAccess([...currentAccess], current.accountType) }
+    })
+  }
+
   async function submit(event, bypassReplacementConfirm = false) {
     event.preventDefault()
+    setSalesAdminIdTouched(true)
+    setShowFieldErrors(true)
     const validationErrors = validate()
-    if (validationErrors.length) { setError(validationErrors[0]); return }
+    if (validationErrors.length) { setError(''); return }
     if (replacementUser && !bypassReplacementConfirm) { setReplacementConfirmOpen(true); return }
     setSaving(true)
     setError('')
@@ -568,9 +685,9 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
         if (emailChanged) await request(`/user-role-accounts/${editingUser.id}/email-change`, { method: 'POST', body: JSON.stringify({ email: form.email.trim() }) })
         const persistedEmail = emailChanged ? originalEmail : form.email.trim()
         if (editingUser.role === 'SALES_ADMIN') {
-          await request(`/sales-admins/${editingUser.id}`, { method: 'PATCH', body: JSON.stringify({ fullName: form.fullName.trim(), email: persistedEmail, phone: form.phone.trim(), country: form.country, state: form.state, city: form.city, address: form.address, status: form.status, branchIds: form.branchIds }) })
+          await request(`/sales-admins/${editingUser.id}`, { method: 'PATCH', body: JSON.stringify({ fullName: form.fullName.trim(), email: persistedEmail, phone: form.phone.trim(), country: form.country, state: form.state, city: form.city, address: form.address, status: form.status, branchIds: form.branchIds, moduleAccess: normalizedModuleAccess(form.moduleAccess, form.accountType) }) })
         } else {
-          await updateBranch(editingUser.managedBranch.id, { branchId: form.branchId.trim().toUpperCase(), branchName: form.branchName.trim(), branchAdminName: form.fullName.trim(), branchEmail: persistedEmail, branchPhone: form.phone.trim(), branchCountryCode: selectedCountryCode, branchCountry: form.country, branchStateCode: selectedStateCode, branchState: form.state, branchCity: form.city.trim(), branchAddress: form.address.trim(), status: form.status, roleAccess: form.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'BRANCH_ADMIN_SALES_ADMIN' : 'BRANCH_ADMIN_ONLY' })
+          await updateBranch(editingUser.managedBranch.id, { branchId: form.branchId.trim().toUpperCase(), branchName: form.branchName.trim(), branchAdminName: form.fullName.trim(), branchEmail: persistedEmail, branchPhone: form.phone.trim(), branchCountryCode: selectedCountryCode, branchCountry: form.country, branchStateCode: selectedStateCode, branchState: form.state, branchCity: form.city.trim(), branchAddress: form.address.trim(), status: form.status, roleAccess: form.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'BRANCH_ADMIN_SALES_ADMIN' : 'BRANCH_ADMIN_ONLY', moduleAccess: normalizedModuleAccess(form.moduleAccess, form.accountType) })
         }
         await loadUsers()
         setEditingUser(null)
@@ -602,7 +719,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
       }
       let payload
       if (form.accountType === 'SALES_ADMIN') {
-        payload = { ...form, fullName: form.fullName.trim(), email: form.email.trim(), phone: form.phone.trim(), salesAdminId: form.salesAdminId.trim().toUpperCase() }
+          payload = { ...form, fullName: form.fullName.trim(), email: form.email.trim(), phone: form.phone.trim(), salesAdminId: normalizeSalesAdminId(form.salesAdminId), moduleAccess: normalizedModuleAccess(form.moduleAccess, form.accountType) }
         delete payload.branchId
         delete payload.branchName
       } else {
@@ -621,6 +738,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
           branchAddress: form.address.trim(),
           status: form.status,
           roleAccess: form.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'BRANCH_ADMIN_SALES_ADMIN' : 'BRANCH_ADMIN_ONLY',
+          moduleAccess: normalizedModuleAccess(form.moduleAccess, form.accountType),
         }
       }
       const response = await request('/user-role-accounts', { method: 'POST', body: JSON.stringify(payload) })
@@ -633,7 +751,12 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
       setIsCreateOpen(false)
       setForm((current) => ({ ...initialForm, accountType: current.accountType }))
     } catch (reason) {
-      setError(normalizeError(reason))
+      const message = normalizeError(reason)
+      if (/sales admin id is already in use/i.test(message)) {
+        setSalesAdminIdTouched(true)
+        setSalesAdminIdServerError(message)
+        setError('')
+      } else setError(message)
     } finally {
       setSaving(false)
     }
@@ -654,30 +777,40 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
       {isCreateOpen ? <div className="user-role-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCreateForm() }}>
         <section className="user-role-modal" role="dialog" aria-modal="true" aria-labelledby="user-role-modal-title">
       <header className="user-role-modal-header"><div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h2 id="user-role-modal-title">{replacementUser ? 'Replace Branch Admin' : editingUser ? 'Edit user account' : 'Create user account'}</h2><p>{replacementUser ? `Assign a new administrator to ${replacementUser.managedBranch?.branchName || 'this branch'} without creating a new branch.` : roleConfig.requiresBranch ? 'Choose an account type, enter the branch profile, and complete the account details.' : 'Choose an account type and complete the account details. Sales Admin branch access is managed from the Branch Admin table.'}</p></div><button type="button" className="user-role-modal-close" onClick={closeCreateForm} aria-label="Close user form"><X size={20} /></button></header>
-          <form className="user-role-form" onSubmit={submit} noValidate>
-        <section className="user-role-card user-role-details-step">
+          <form className="user-role-form" onSubmit={createStep === 1 && !replacementUser ? continueToModuleAccess : submit} noValidate>
+          <div className="user-role-step-indicator" aria-label="Create user steps">
+            <div className={`user-role-step${createStep === 1 ? ' is-active' : ' is-complete'}`}><span>1</span><strong>Account details</strong></div>
+            <div className="user-role-step-line" />
+            <div className={`user-role-step${createStep === 2 ? ' is-active' : ''}`}><span>2</span><strong>Module access</strong></div>
+          </div>
+          {createStep === 1 ? <section className="user-role-card user-role-details-step">
           <div className="user-role-card-heading"><div><span className="user-role-card-kicker">ACCOUNT DETAILS</span><h2>Personal information</h2><p>Enter the login and contact details for this account.</p></div></div>
           <div className="user-role-fields-grid">
-            <div className="user-role-field"><span>Account type <b>*</b></span><AccountTypeSelect value={form.accountType} options={accountTypes} onChange={selectAccountType} disabled={Boolean(editingUser)} /></div>
+            <div className="user-role-field"><span>Account type <b>*</b></span><AccountTypeSelect value={form.accountType} options={editingUser?.role === 'BRANCH_ADMIN' ? accountTypes.filter((option) => option.value !== 'SALES_ADMIN') : accountTypes} onChange={selectAccountType} disabled={Boolean(editingUser && editingUser.role !== 'BRANCH_ADMIN')} /></div>
             {roleConfig.requiresBranch ? <>
-              <label className="user-role-field"><span>Branch ID <b>*</b></span><div className="user-role-input-wrap"><Building2 size={17} /><input value={form.branchId} onChange={(event) => update('branchId', event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))} placeholder="CISTES001" maxLength={24} autoComplete="off" /></div></label>
-              <label className="user-role-field"><span>Branch Name <b>*</b></span><div className="user-role-input-wrap"><Building2 size={17} /><input value={form.branchName} onChange={(event) => update('branchName', event.target.value.replace(/[^\p{L} .'-]/gu, ''))} placeholder="Enter branch name" maxLength={80} /></div></label>
+              <label className={`user-role-field${showFieldErrors && basicFieldErrors.branchId ? ' has-error' : ''}`}><span>Branch ID <b>*</b></span><div className={`user-role-input-wrap${showFieldErrors && basicFieldErrors.branchId ? ' is-invalid' : ''}`}><Building2 size={17} /><input value={form.branchId} onChange={(event) => update('branchId', event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))} placeholder="CISTES001" maxLength={24} autoComplete="off" aria-invalid={Boolean(showFieldErrors && basicFieldErrors.branchId)} /></div>{showFieldErrors && basicFieldErrors.branchId ? <small className="user-role-inline-error">{basicFieldErrors.branchId}</small> : null}</label>
+              <label className={`user-role-field${showFieldErrors && basicFieldErrors.branchName ? ' has-error' : ''}`}><span>Branch Name <b>*</b></span><div className={`user-role-input-wrap${showFieldErrors && basicFieldErrors.branchName ? ' is-invalid' : ''}`}><Building2 size={17} /><input value={form.branchName} onChange={(event) => update('branchName', event.target.value.replace(/[^\p{L} .'-]/gu, ''))} placeholder="Enter branch name" maxLength={80} aria-invalid={Boolean(showFieldErrors && basicFieldErrors.branchName)} /></div>{showFieldErrors && basicFieldErrors.branchName ? <small className="user-role-inline-error">{basicFieldErrors.branchName}</small> : null}</label>
             </> : null}
-            {roleConfig.showSalesId ? <label className="user-role-field user-role-sales-id-field"><span>Sales Admin ID <b>*</b></span><div className="user-role-input-wrap"><Shield size={17} /><input value={form.salesAdminId} onChange={(event) => update('salesAdminId', event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="CISSALES001" maxLength={20} /></div></label> : null}
-            {roleConfig.showSalesId ? <div className="user-role-field user-role-field-wide"><span>Branch access <b>*</b></span><BranchMultiSelect value={form.branchIds} branches={branches} loading={branchesLoading} error={branchesError} onToggle={toggleBranchAccess} /></div> : null}
-            <label className="user-role-field"><span>{roleConfig.nameLabel} <b>*</b></span><div className="user-role-input-wrap"><Users size={17} /><input value={form.fullName} onChange={(event) => update('fullName', event.target.value.replace(roleConfig.requiresBranch ? /[^A-Za-z ]/g : /[^\p{L} .'-]/gu, ''))} placeholder={`Enter ${roleConfig.nameLabel.toLowerCase()}`} autoComplete="name" /></div></label>
-            <label className="user-role-field"><span>Email address <b>*</b></span><div className="user-role-input-wrap"><Mail size={17} /><input type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="name@example.com" autoComplete="email" /></div></label>
-            <label className="user-role-field"><span>Phone number <b>*</b></span><div className="user-role-input-wrap"><Phone size={17} /><input inputMode="numeric" maxLength={10} value={form.phone} onChange={(event) => update('phone', event.target.value.replace(/\D/g, ''))} placeholder="10-digit mobile number" autoComplete="tel" /></div></label>
-            <div className="user-role-field"><span>Country</span><AccountTypeSelect value={form.country} options={countrySelectOptions} onChange={(value) => updateLocation('country', value)} ariaLabel="Country" disabled={!countryOptions.length} /></div>
-            <div className="user-role-field"><span>State</span><AccountTypeSelect value={form.state} options={stateSelectOptions} onChange={(value) => updateLocation('state', value)} ariaLabel="State" disabled={!selectedCountryCode || !stateOptions.length} /></div>
-            <div className="user-role-field"><span>City</span><AccountTypeSelect value={form.city} options={citySelectOptions} onChange={(value) => updateLocation('city', value)} ariaLabel="City" disabled={!selectedStateCode || !cityOptions.length} /></div>
-            <label className="user-role-field user-role-field-wide"><span>Address</span><textarea value={form.address} onChange={(event) => update('address', event.target.value)} rows={3} placeholder="Enter address" /></label>
+            {roleConfig.showSalesId ? <label className={`user-role-field user-role-sales-id-field${salesAdminIdFieldError ? ' has-error' : ''}`}><span>Sales Admin ID <b>*</b></span><div className={`user-role-input-wrap${salesAdminIdFieldError ? ' is-invalid' : ''}`}><Shield size={17} /><input value={form.salesAdminId} onChange={(event) => { const nextValue = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (/^CISSALES\d{3,}$/.test(normalizeSalesAdminId(nextValue))) setSalesAdminIdTouched(true); update('salesAdminId', nextValue) }} onBlur={() => { setSalesAdminIdTouched(true); update('salesAdminId', normalizeSalesAdminId(form.salesAdminId)) }} placeholder="CISSALES001" maxLength={20} autoComplete="off" aria-invalid={Boolean(salesAdminIdFieldError)} /></div>{salesAdminIdFieldError ? <small className="user-role-inline-error">{salesAdminIdFieldError}</small> : null}</label> : null}
+            {roleConfig.showSalesId ? <div className={`user-role-field user-role-field-wide${showFieldErrors && basicFieldErrors.branchIds ? ' has-error' : ''}`}><span>Branch access <b>*</b></span><BranchMultiSelect value={form.branchIds} branches={branches} loading={branchesLoading} error={branchesError || (showFieldErrors ? basicFieldErrors.branchIds : '')} onToggle={toggleBranchAccess} /></div> : null}
+            <label className={`user-role-field${showFieldErrors && basicFieldErrors.fullName ? ' has-error' : ''}`}><span>{roleConfig.nameLabel} <b>*</b></span><div className={`user-role-input-wrap${showFieldErrors && basicFieldErrors.fullName ? ' is-invalid' : ''}`}><Users size={17} /><input value={form.fullName} onChange={(event) => update('fullName', event.target.value.replace(roleConfig.requiresBranch ? /[^A-Za-z ]/g : /[^\p{L} .'-]/gu, ''))} placeholder={`Enter ${roleConfig.nameLabel.toLowerCase()}`} autoComplete="name" aria-invalid={Boolean(showFieldErrors && basicFieldErrors.fullName)} /></div>{showFieldErrors && basicFieldErrors.fullName ? <small className="user-role-inline-error">{basicFieldErrors.fullName}</small> : null}</label>
+            <label className={`user-role-field${showFieldErrors && basicFieldErrors.email ? ' has-error' : ''}`}><span>Email address <b>*</b></span><div className={`user-role-input-wrap${showFieldErrors && basicFieldErrors.email ? ' is-invalid' : ''}`}><Mail size={17} /><input type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="name@example.com" autoComplete="email" aria-invalid={Boolean(showFieldErrors && basicFieldErrors.email)} /></div>{showFieldErrors && basicFieldErrors.email ? <small className="user-role-inline-error">{basicFieldErrors.email}</small> : null}</label>
+            <label className={`user-role-field${showFieldErrors && basicFieldErrors.phone ? ' has-error' : ''}`}><span>Phone number <b>*</b></span><div className={`user-role-input-wrap${showFieldErrors && basicFieldErrors.phone ? ' is-invalid' : ''}`}><Phone size={17} /><input inputMode="numeric" maxLength={10} value={form.phone} onChange={(event) => update('phone', event.target.value.replace(/\D/g, ''))} placeholder="10-digit mobile number" autoComplete="tel" aria-invalid={Boolean(showFieldErrors && basicFieldErrors.phone)} /></div>{showFieldErrors && basicFieldErrors.phone ? <small className="user-role-inline-error">{basicFieldErrors.phone}</small> : null}</label>
+            <div className={`user-role-field${showFieldErrors && basicFieldErrors.country ? ' has-error' : ''}`}><span>Country</span><AccountTypeSelect value={form.country} options={countrySelectOptions} onChange={(value) => updateLocation('country', value)} ariaLabel="Country" disabled={!countryOptions.length} />{showFieldErrors && basicFieldErrors.country ? <small className="user-role-inline-error">{basicFieldErrors.country}</small> : null}</div>
+            <div className={`user-role-field${showFieldErrors && basicFieldErrors.state ? ' has-error' : ''}`}><span>State</span><AccountTypeSelect value={form.state} options={stateSelectOptions} onChange={(value) => updateLocation('state', value)} ariaLabel="State" disabled={!selectedCountryCode || !stateOptions.length} />{showFieldErrors && basicFieldErrors.state ? <small className="user-role-inline-error">{basicFieldErrors.state}</small> : null}</div>
+            <div className={`user-role-field${showFieldErrors && basicFieldErrors.city ? ' has-error' : ''}`}><span>City</span><AccountTypeSelect value={form.city} options={citySelectOptions} onChange={(value) => updateLocation('city', value)} ariaLabel="City" disabled={!selectedStateCode || !cityOptions.length} />{showFieldErrors && basicFieldErrors.city ? <small className="user-role-inline-error">{basicFieldErrors.city}</small> : null}</div>
+            <label className={`user-role-field user-role-field-wide${showFieldErrors && basicFieldErrors.address ? ' has-error' : ''}`}><span>Address</span><textarea value={form.address} onChange={(event) => update('address', event.target.value)} rows={3} placeholder="Enter address" aria-invalid={Boolean(showFieldErrors && basicFieldErrors.address)} />{showFieldErrors && basicFieldErrors.address ? <small className="user-role-inline-error">{basicFieldErrors.address}</small> : null}</label>
             {roleConfig.showStatus && !(isSalesPage && editingUser) ? <div className="user-role-field"><span>{roleConfig.requiresBranch ? 'Branch status' : 'Account status'}</span><AccountTypeSelect value={form.status} options={statusOptions} onChange={(value) => update('status', value)} ariaLabel={roleConfig.requiresBranch ? 'Branch status' : 'Account status'} /></div> : null}
           </div>
-        </section>
+        </section> : <section className="user-role-card user-role-module-step">
+          <div className="user-role-card-heading"><div><span className="user-role-card-kicker">MODULE ACCESS</span><h2>Choose permissions</h2><p>Select the areas this account can open after sign-in. Common access stays enabled for every account.</p></div><span className="user-role-module-role-badge">{selectedType.label}</span></div>
+          <div className="user-role-module-groups">
+            {orderedModuleAccessGroups(form.accountType, normalizedModuleAccess(form.moduleAccess, form.accountType)).map((group) => <section key={group.key} className="user-role-module-group"><div className="user-role-module-header"><div><strong>{group.label}</strong><span>{group.key === 'COMMON' ? 'Required for every account' : 'Optional role modules'}</span></div></div><div className="user-role-module-list">{group.modules.map((module) => { const checked = normalizedModuleAccess(form.moduleAccess, form.accountType).includes(module.key); return <label key={module.key} className={`user-role-module-row${module.locked ? ' is-locked' : ''}`}><input className="user-role-module-checkbox" type="checkbox" checked={checked} disabled={module.locked} onChange={() => toggleModuleAccess(module.key)} /><span className="user-role-module-copy"><strong>{module.label}</strong><small>{module.description}</small></span>{module.locked ? <span className="user-role-lock">Required</span> : null}</label> })}</div></section>)}
+          </div>
+        </section>}
         {error ? <div className="user-role-alert is-error" role="alert"><AlertCircle size={18} /><span>{error}</span></div> : null}
         {success ? <div className="user-role-alert is-success" role="status"><CheckCircle2 size={18} /><span>{success}</span></div> : null}
-        <footer className="user-role-form-footer"><button type="button" className="user-role-secondary-button" onClick={closeCreateForm} disabled={saving}>Cancel</button><button type="submit" className="user-role-primary-button" disabled={saving}>{saving ? (replacementUser ? 'Replacing admin...' : editingUser ? 'Saving changes...' : 'Creating account...') : replacementUser ? 'Replace Admin' : editingUser ? <>Save changes</> : <>Create {selectedType.label}</>}</button></footer>
+        <footer className="user-role-form-footer"><button type="button" className="user-role-secondary-button" onClick={createStep === 2 && !replacementUser ? () => setCreateStep(1) : closeCreateForm} disabled={saving}>{createStep === 2 && !replacementUser ? 'Back' : 'Cancel'}</button><button type="submit" className="user-role-primary-button" disabled={saving}>{saving ? (replacementUser ? 'Replacing admin...' : editingUser ? 'Saving changes...' : 'Creating account...') : createStep === 1 && !replacementUser ? 'Continue' : replacementUser ? 'Replace Admin' : editingUser ? <>Save changes</> : <>Create {selectedType.label}</>}</button></footer>
       </form>
         </section>
       </div> : null}
