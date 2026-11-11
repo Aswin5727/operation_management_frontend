@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, ArrowUpRight, BarChart3, CheckCheck, ChevronDown, CircleDot, Clock3, FileSpreadsheet, Flame, RefreshCw, Search, TrendingUp, Users, X } from 'lucide-react'
 import { request, requestBlob } from '../services/apiClient'
+import { loadSession } from '../lib/session'
 import { listReportBranches } from '../services/reportService'
 
 const REPORT_TIMEZONE = 'Asia/Kolkata'
@@ -123,8 +124,21 @@ export function SalesCrmReportPage() {
   const [selectedMetric, setSelectedMetric] = useState('')
   const [tablePage, setTablePage] = useState(1)
   const [reportBranches, setReportBranches] = useState([])
+  const [readOnly, setReadOnly] = useState(() => String(loadSession()?.user?.status || '').toUpperCase() === 'INACTIVE' || loadSession()?.user?.active === false)
 
   const reportQuery = buildQuery(appliedFilters).toString()
+  const blockInactiveAction = () => {
+    if (!readOnly) return false
+    window.dispatchEvent(new CustomEvent('cispro:inactive-account-action-blocked', { detail: { message: 'Your account is currently inactive. You have view-only access. Please contact the Super Admin to reactivate your account.' } }))
+    return true
+  }
+
+  useEffect(() => {
+    request('/sales-admins/me').then((response) => {
+      const user = response?.data || response?.user || response
+      setReadOnly(String(user?.status || '').toUpperCase() === 'INACTIVE' || user?.active === false)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -219,6 +233,7 @@ export function SalesCrmReportPage() {
     setReloadKey((value) => value + 1)
   }
   const openDownloadReport = () => {
+    if (blockInactiveAction()) return
     setDownloadError('')
     setDownloadNotice('')
     setDownloadOpen(true)
@@ -244,6 +259,7 @@ export function SalesCrmReportPage() {
 
   const downloadReport = async (event) => {
     event.preventDefault()
+    if (blockInactiveAction()) return
     const filters = reportDownloadFilters
     if (filters.period === 'custom' && (!filters.fromDate || !filters.toDate)) {
       setDownloadError('Select both From Date and To Date.')

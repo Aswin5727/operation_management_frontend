@@ -191,6 +191,8 @@ export function normalizeAuthSession(response, fallbackSession) {
       email: user?.email ?? fallbackSession.user.email,
       role: roleFromBackend(user?.role ?? fallbackSession.user.role),
       roleAccess: String(user?.roleAccess ?? fallbackSession.user.roleAccess ?? 'BRANCH_ADMIN_ONLY').trim().toUpperCase(),
+      status: String(user?.status ?? fallbackSession.user.status ?? (user?.active === false ? 'INACTIVE' : 'ACTIVE')).trim().toUpperCase(),
+      active: user?.active ?? fallbackSession.user.active ?? true,
       mustResetPassword: Boolean(user?.mustResetPassword ?? mustResetPassword),
     },
   }

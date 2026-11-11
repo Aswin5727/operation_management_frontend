@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, ArrowLeft, BookOpen, Building2, CalendarDays, Clock3, CreditCard, GraduationCap, IndianRupee, Layers3, RefreshCw, Search, Send, UserRound, UserRoundCheck, Users, Wallet, X } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { request } from '../services/apiClient'
+import { loadSession } from '../lib/session'
 import { createSalesAdminBatchRequest, listSalesAdminBatchRequests, resendSalesAdminBatchRequest } from '../services/salesCrmBatchRequestService'
 import '../styles/SalesAdminAdmissionsPage.css'
 
@@ -147,8 +148,21 @@ export function SalesAdminAdmissionsPage() {
   const [requestingBatchRequest, setRequestingBatchRequest] = useState(null)
   const [requestSaving, setRequestSaving] = useState(false)
   const [requestError, setRequestError] = useState('')
+  const [readOnly, setReadOnly] = useState(() => String(loadSession()?.user?.status || '').toUpperCase() === 'INACTIVE' || loadSession()?.user?.active === false)
   const loadInFlightRef = useRef(false)
   const isStudentModalOpen = Boolean(viewStudent)
+  const blockInactiveAction = () => {
+    if (!readOnly) return false
+    window.dispatchEvent(new CustomEvent('cispro:inactive-account-action-blocked', { detail: { message: 'Your account is currently inactive. You have view-only access. Please contact the Super Admin to reactivate your account.' } }))
+    return true
+  }
+
+  useEffect(() => {
+    request('/sales-admins/me').then((response) => {
+      const user = response?.data || response?.user || response
+      setReadOnly(String(user?.status || '').toUpperCase() === 'INACTIVE' || user?.active === false)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!requestingLead) setRequestingBatchRequest(null)
@@ -213,6 +227,7 @@ export function SalesAdminAdmissionsPage() {
   }, [])
 
   const startAdmission = async (leadId) => {
+    if (blockInactiveAction()) return
     setError('')
     try {
       const result = unwrap(await request(`/sales-admins/admissions/leads/${encodeURIComponent(leadId)}/start`, { method: 'POST' }))
@@ -259,6 +274,7 @@ export function SalesAdminAdmissionsPage() {
   }
 
   const sendBatchRequest = async () => {
+    if (blockInactiveAction()) return
     if (!requestingLead || requestSaving) return
     setRequestSaving(true)
     setRequestError('')

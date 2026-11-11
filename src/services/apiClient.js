@@ -216,6 +216,9 @@ async function request(path, options = {}, retryCount = 0) {
       const error = new Error(serverMessage ? `${serverMessage}` : `Request failed with status ${response.status}`)
       error.status = response.status
       error.body = body
+      if (response.status === 403 && serverMessage === 'Your account is currently inactive. You have view-only access. Please contact the Super Admin to reactivate your account.') {
+        window.dispatchEvent(new CustomEvent('cispro:inactive-account-action-blocked', { detail: { message: serverMessage } }))
+      }
       throw error
     }
 
@@ -449,6 +452,10 @@ export async function requestBlob(path, options = {}, retryCount = 0) {
       const error = new Error(`Request failed with status ${response.status}`)
       error.status = response.status
       error.body = await safeParseJson(response)
+      const serverMessage = error.body?.message || error.body?.error
+      if (response.status === 403 && serverMessage === 'Your account is currently inactive. You have view-only access. Please contact the Super Admin to reactivate your account.') {
+        window.dispatchEvent(new CustomEvent('cispro:inactive-account-action-blocked', { detail: { message: serverMessage } }))
+      }
       throw error
     }
 
