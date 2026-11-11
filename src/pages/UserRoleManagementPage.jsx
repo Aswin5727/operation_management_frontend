@@ -28,16 +28,24 @@ const moduleAccessGroups = [
   ] },
 ]
 const commonModuleKeys = moduleAccessGroups[0].modules.map((module) => module.key)
+const academicModuleKeys = moduleAccessGroups.find((group) => group.key === 'ACADEMIC').modules.map((module) => module.key)
+const salesCrmModuleKeys = moduleAccessGroups.find((group) => group.key === 'SALES_CRM').modules.map((module) => module.key)
 const roleModuleDefaults = {
   BRANCH_ADMIN: [...commonModuleKeys, 'STUDENT_MANAGEMENT', 'ACADEMIC_OPERATIONS', 'FEE_ACCOUNTS', 'REPORTS_ANALYTICS', 'HELPDESK_SUPPORT'],
   BRANCH_ADMIN_SALES_ADMIN: [...commonModuleKeys, 'STUDENT_MANAGEMENT', 'ACADEMIC_OPERATIONS', 'FEE_ACCOUNTS', 'REPORTS_ANALYTICS', 'HELPDESK_SUPPORT', 'LEAD_MANAGEMENT', 'ADMISSION_MANAGEMENT', 'SALES_CRM_REPORTS'],
   SALES_ADMIN: [...commonModuleKeys, 'LEAD_MANAGEMENT', 'ADMISSION_MANAGEMENT', 'SALES_CRM_REPORTS'],
 }
+const permittedModuleKeys = (accountType) => new Set([
+  ...commonModuleKeys,
+  ...(accountType === 'SALES_ADMIN' ? salesCrmModuleKeys : academicModuleKeys),
+  ...(accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? salesCrmModuleKeys : []),
+])
 function defaultModuleAccess(accountType = 'BRANCH_ADMIN') { return [...(roleModuleDefaults[accountType] || roleModuleDefaults.BRANCH_ADMIN)] }
 function normalizedModuleAccess(value, accountType) {
   const selected = new Set(Array.isArray(value) ? value : defaultModuleAccess(accountType))
   commonModuleKeys.forEach((key) => selected.add(key))
-  return moduleAccessGroups.flatMap((group) => group.modules.map((module) => module.key)).filter((key) => selected.has(key))
+  const permitted = permittedModuleKeys(accountType)
+  return moduleAccessGroups.flatMap((group) => group.modules.map((module) => module.key)).filter((key) => selected.has(key) && permitted.has(key))
 }
 function orderedModuleAccessGroups(accountType, selectedKeys) {
   const selected = new Set(selectedKeys)
@@ -636,6 +644,14 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
 
   function continueToModuleAccess(event) {
     event.preventDefault()
+    goToStep(2)
+  }
+
+  function goToStep(step) {
+    if (step === 1) {
+      setCreateStep(1)
+      return
+    }
     setSalesAdminIdTouched(true)
     setShowFieldErrors(true)
     const validationErrors = validateBasicDetails()
@@ -645,7 +661,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
   }
 
   function toggleModuleAccess(moduleKey) {
-    if (commonModuleKeys.includes(moduleKey)) return
+    if (commonModuleKeys.includes(moduleKey) || !permittedModuleKeys(form.accountType).has(moduleKey)) return
     setForm((current) => {
       const currentAccess = new Set(normalizedModuleAccess(current.moduleAccess, current.accountType))
       if (currentAccess.has(moduleKey)) currentAccess.delete(moduleKey)
@@ -760,14 +776,14 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
         {usersLoading ? <div className="user-role-table-wrap user-role-skeleton-wrap"><table className="user-role-table user-role-skeleton-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{[1, 2, 3].map((row) => <tr key={row}>{[1, 2, 3, 4, 5, 6, 7].map((cell) => <td key={cell}><span className={`user-role-skeleton-line is-cell-${cell}`} /></td>)}</tr>)}</tbody></table></div> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchRecords = user.managedBranch ? [user.managedBranch] : (user.assignedBranches || []); const branchNames = branchRecords.map((branch) => branch.branchName).filter(Boolean); const statusLabel = accountIsActive(user) ? 'Active' : 'Inactive'; const dashboardBranch = branchRecords[0]; const shouldOpenUp = index >= Math.max(0, paginatedUsers.length - 2); return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.email || '-'}</small></td><td><span className="user-role-status-indicator"><i className={`user-role-status-dot ${statusLabel === 'Active' ? 'is-active' : 'is-inactive'}`} /><span className="user-role-status-tooltip">{statusLabel}</span></span><strong>{user.userCode || '-'}</strong></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button user-role-dashboard-button" disabled={!dashboardBranch} onClick={(event) => { event.stopPropagation(); setViewUser(null); if (dashboardBranch) onViewDashboard?.(dashboardBranch) }}><LayoutDashboard size={14} />View</button></td><td><div className="user-role-actions"><button type="button" className="user-role-actions-trigger" aria-label={`Actions for ${user.fullName || 'account'}`} onClick={() => setActionUser(actionUser?.id === user.id ? null : user)}>&#8942;</button>{actionUser?.id === user.id ? <div className={`user-role-actions-menu${shouldOpenUp ? ' is-open-up' : ''}`}><button type="button" onClick={() => { openView(user); setActionUser(null) }}>View</button><button type="button" onClick={() => openEdit(user)}>Edit</button>{user.managedBranch ? <button type="button" onClick={() => openRoleChange(user)}>Change Role</button> : null}{!isSalesPage && user.managedBranch ? <button type="button" onClick={() => openReplace(user)}>Replace Admin</button> : null}<button type="button" className="is-danger" onClick={() => { setDeleteUser(user); setActionUser(null) }}>Delete</button></div> : null}</div></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="7" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
       </section>
 
-      {isCreateOpen ? <div className="user-role-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCreateForm() }}>
+      {isCreateOpen ? <div className="user-role-modal-backdrop" role="presentation">
         <section className="user-role-modal" role="dialog" aria-modal="true" aria-labelledby="user-role-modal-title">
       <header className="user-role-modal-header"><div><span className="user-role-eyebrow">USER &amp; ROLE MANAGEMENT</span><h2 id="user-role-modal-title">{replacementUser ? 'Replace Branch Admin' : editingUser ? 'Edit user account' : 'Create user account'}</h2><p>{replacementUser ? `Assign a new administrator to ${replacementUser.managedBranch?.branchName || 'this branch'} without creating a new branch.` : roleConfig.requiresBranch ? 'Choose an account type, enter the branch profile, and complete the account details.' : 'Choose an account type and complete the account details. Sales Admin branch access is managed from the Branch Admin table.'}</p></div><button type="button" className="user-role-modal-close" onClick={closeCreateForm} aria-label="Close user form"><X size={20} /></button></header>
           <form className="user-role-form" onSubmit={createStep === 1 && !replacementUser ? continueToModuleAccess : submit} noValidate>
           <div className="user-role-step-indicator" aria-label="Create user steps">
-            <div className={`user-role-step${createStep === 1 ? ' is-active' : ' is-complete'}`}><span>1</span><strong>Account details</strong></div>
+            <button type="button" className={`user-role-step${createStep === 1 ? ' is-active' : ' is-complete'}`} onClick={() => goToStep(1)} aria-current={createStep === 1 ? 'step' : undefined}><span>1</span><strong>Account details</strong></button>
             <div className="user-role-step-line" />
-            <div className={`user-role-step${createStep === 2 ? ' is-active' : ''}`}><span>2</span><strong>Module access</strong></div>
+            <button type="button" className={`user-role-step${createStep === 2 ? ' is-active' : ''}`} onClick={() => goToStep(2)} aria-current={createStep === 2 ? 'step' : undefined}><span>2</span><strong>Module access</strong></button>
           </div>
           {createStep === 1 ? <section className="user-role-card user-role-details-step">
           <div className="user-role-card-heading"><div><span className="user-role-card-kicker">ACCOUNT DETAILS</span><h2>Personal information</h2><p>Enter the login and contact details for this account.</p></div></div>
@@ -791,7 +807,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
         </section> : <section className="user-role-card user-role-module-step">
           <div className="user-role-card-heading"><div><span className="user-role-card-kicker">MODULE ACCESS</span><h2>Choose permissions</h2><p>Select the areas this account can open after sign-in. Common access stays enabled for every account.</p></div><span className="user-role-module-role-badge">{selectedType.label}</span></div>
           <div className="user-role-module-groups">
-            {orderedModuleAccessGroups(form.accountType, normalizedModuleAccess(form.moduleAccess, form.accountType)).map((group) => <section key={group.key} className="user-role-module-group"><div className="user-role-module-header"><div><strong>{group.label}</strong><span>{group.key === 'COMMON' ? 'Required for every account' : 'Optional role modules'}</span></div></div><div className="user-role-module-list">{group.modules.map((module) => { const checked = normalizedModuleAccess(form.moduleAccess, form.accountType).includes(module.key); return <label key={module.key} className={`user-role-module-row${module.locked ? ' is-locked' : ''}`}><input className="user-role-module-checkbox" type="checkbox" checked={checked} disabled={module.locked} onChange={() => toggleModuleAccess(module.key)} /><span className="user-role-module-copy"><strong>{module.label}</strong><small>{module.description}</small></span>{module.locked ? <span className="user-role-lock">Required</span> : null}</label> })}</div></section>)}
+            {orderedModuleAccessGroups(form.accountType, normalizedModuleAccess(form.moduleAccess, form.accountType)).map((group) => <section key={group.key} className="user-role-module-group"><div className="user-role-module-header"><div><strong>{group.label}</strong><span>{group.key === 'COMMON' ? 'Required for every account' : permittedModuleKeys(form.accountType).has(group.modules[0]?.key) ? 'Enabled for this account type' : 'Disabled for this account type'}</span></div></div><div className="user-role-module-list">{group.modules.map((module) => { const checked = normalizedModuleAccess(form.moduleAccess, form.accountType).includes(module.key); const unavailable = !permittedModuleKeys(form.accountType).has(module.key); return <label key={module.key} className={`user-role-module-row${module.locked ? ' is-locked' : ''}${unavailable ? ' is-disabled' : ''}`}><input className="user-role-module-checkbox" type="checkbox" checked={checked} disabled={module.locked || unavailable} onChange={() => toggleModuleAccess(module.key)} /><span className="user-role-module-copy"><strong>{module.label}</strong><small>{module.description}</small></span>{module.locked ? <span className="user-role-lock">Required</span> : unavailable ? <span className="user-role-lock">Unavailable</span> : null}</label> })}</div></section>)}
           </div>
         </section>}
         {error ? <div className="user-role-alert is-error" role="alert"><AlertCircle size={18} /><span>{error}</span></div> : null}
