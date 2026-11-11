@@ -104,7 +104,7 @@ function MetricCard({ icon: Icon, label, value, helper, accent, percent = false,
     <span className="sales-crm-report-metric-link">View details <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden="true" /></span>
   </button>
 }
-export function SalesCrmReportPage() {
+export function SalesCrmReportPage({ readOnlySalesAdmin = false }) {
   const [report, setReport] = useState(null)
   const [draftFilters, setDraftFilters] = useState(defaultFilters)
   const [appliedFilters, setAppliedFilters] = useState(defaultFilters)
@@ -124,7 +124,7 @@ export function SalesCrmReportPage() {
   const [selectedMetric, setSelectedMetric] = useState('')
   const [tablePage, setTablePage] = useState(1)
   const [reportBranches, setReportBranches] = useState([])
-  const [readOnly, setReadOnly] = useState(() => String(loadSession()?.user?.status || '').toUpperCase() === 'INACTIVE' || loadSession()?.user?.active === false)
+  const [readOnly, setReadOnly] = useState(() => readOnlySalesAdmin || String(loadSession()?.user?.status || '').toUpperCase() === 'INACTIVE' || loadSession()?.user?.active === false)
 
   const reportQuery = buildQuery(appliedFilters).toString()
   const blockInactiveAction = () => {
@@ -136,7 +136,7 @@ export function SalesCrmReportPage() {
   useEffect(() => {
     request('/sales-admins/me').then((response) => {
       const user = response?.data || response?.user || response
-      setReadOnly(String(user?.status || '').toUpperCase() === 'INACTIVE' || user?.active === false)
+      setReadOnly(readOnlySalesAdmin || String(user?.status || '').toUpperCase() === 'INACTIVE' || user?.active === false)
     }).catch(() => {})
   }, [])
 

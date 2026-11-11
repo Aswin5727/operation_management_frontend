@@ -120,7 +120,7 @@ function StudentDetailsModal({ student, loading, error, onClose, onRetry }) {
   </div>
 }
 
-export function SalesAdminAdmissionsPage() {
+export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false }) {
   const location = useLocation()
   const [rows, setRows] = useState([])
   const [summary, setSummary] = useState({ hotLeads: 0, pendingAdmissions: 0, completedAdmissions: 0, totalCollections: 0 })
@@ -148,7 +148,7 @@ export function SalesAdminAdmissionsPage() {
   const [requestingBatchRequest, setRequestingBatchRequest] = useState(null)
   const [requestSaving, setRequestSaving] = useState(false)
   const [requestError, setRequestError] = useState('')
-  const [readOnly, setReadOnly] = useState(() => String(loadSession()?.user?.status || '').toUpperCase() === 'INACTIVE' || loadSession()?.user?.active === false)
+  const [readOnly, setReadOnly] = useState(() => readOnlySalesAdmin || String(loadSession()?.user?.status || '').toUpperCase() === 'INACTIVE' || loadSession()?.user?.active === false)
   const loadInFlightRef = useRef(false)
   const isStudentModalOpen = Boolean(viewStudent)
   const blockInactiveAction = () => {
@@ -160,7 +160,7 @@ export function SalesAdminAdmissionsPage() {
   useEffect(() => {
     request('/sales-admins/me').then((response) => {
       const user = response?.data || response?.user || response
-      setReadOnly(String(user?.status || '').toUpperCase() === 'INACTIVE' || user?.active === false)
+      setReadOnly(readOnlySalesAdmin || String(user?.status || '').toUpperCase() === 'INACTIVE' || user?.active === false)
     }).catch(() => {})
   }, [])
 

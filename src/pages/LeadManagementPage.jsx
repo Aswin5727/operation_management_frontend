@@ -21,7 +21,7 @@ const formatFollowUpTime = (time) => { if (!time || !/^\d{2}:\d{2}$/.test(time))
 const syncAmPmPicker = (input) => { const picker = input?.parentElement?.querySelector('.crm-ampm-time-picker'); if (!picker) return; const [hourText, minuteText] = (input.value || '').split(':'); if (!hourText || !minuteText) { picker.querySelector('[data-time-part="hour"]').value = ''; picker.querySelector('[data-time-part="minute"]').value = '00'; picker.querySelector('[data-time-part="period"]').value = 'AM'; return } const hour24 = Number(hourText); picker.querySelector('[data-time-part="hour"]').value = String(hour24 % 12 || 12).padStart(2, '0'); picker.querySelector('[data-time-part="minute"]').value = minuteText; picker.querySelector('[data-time-part="period"]').value = hour24 >= 12 ? 'PM' : 'AM' }
 const formatAudioTime = (value) => { if (!Number.isFinite(value) || value < 0) return '--:--'; const seconds = Math.floor(value); const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); const remaining = seconds % 60; return hours ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}` : `${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}` }
 
-export function LeadManagementPage() {
+export function LeadManagementPage({ salesAdminReadOnly = false }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [sessionUser, setSessionUser] = useState(() => loadSession()?.user || {}); const [leads, setLeads] = useState([]); const [showDeletedLeads, setShowDeletedLeads] = useState(false); const [meta, setMeta] = useState({ page: 1, totalPages: 1, total: 0 }); const [options, setOptions] = useState({ branches: [], courses: [], assignees: [], nextLeadId: '', currentUserId: '' }); const [filters, setFilters] = useState({ search: '', branchId: '', courseId: '', stage: '', status: '', leadSource: '', page: 1 }); const [form, setForm] = useState(emptyForm); const [fieldErrors, setFieldErrors] = useState({}); const [validatedSteps, setValidatedSteps] = useState({}); const [editing, setEditing] = useState(null); const [viewing, setViewing] = useState(null); const [modal, setModal] = useState(false); const [step, setStep] = useState(1); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [recordings, setRecordings] = useState([]); const [followUpModal, setFollowUpModal] = useState(false); const [followUpForm, setFollowUpForm] = useState({ stage: '', status: '', callStatus: '', notes: '', scheduleChoice: 'SET_NEW_DATE', nextFollowUpDate: '' }); const [followUpFieldErrors, setFollowUpFieldErrors] = useState({}); const [followUpRecordings, setFollowUpRecordings] = useState([]); const [followUpSaving, setFollowUpSaving] = useState(false); const [followUpError, setFollowUpError] = useState(''); const [followUpSuccess, setFollowUpSuccess] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
@@ -102,6 +102,18 @@ export function LeadManagementPage() {
     document.addEventListener('click', blockMutationButtons, true)
     return () => { document.removeEventListener('click', blockMutationButtons, true); document.body.classList.remove('sales-admin-view-only') }
   }, [isSalesAdminInactive])
+  useEffect(() => {
+    if (!salesAdminReadOnly) return undefined
+    const blockEmbeddedMutations = (event) => {
+      const button = event.target.closest?.('.lead-management-heading-actions button, .lead-actions button:not(.lead-menu-toggle), .lead-profile-header-actions button, .lead-recordings-send-button')
+      if (!button) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      window.dispatchEvent(new CustomEvent('cispro:inactive-account-action-blocked', { detail: { message: inactiveAccountMessage } }))
+    }
+    document.addEventListener('click', blockEmbeddedMutations, true)
+    return () => document.removeEventListener('click', blockEmbeddedMutations, true)
+  }, [salesAdminReadOnly, inactiveAccountMessage])
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value, ...(key !== 'page' ? { page: 1 } : {}) }))
   const loadOptions = async () => { try { const result = await request('/leads/options'); const data = result?.data || { branches: [], courses: [], assignees: [] }; setOptions(data); if (data.salesAdminStatus) setSessionUser((current) => ({ ...current, status: data.salesAdminStatus, active: data.salesAdminStatus === 'ACTIVE' })) } catch (reason) { setError(reason?.message || 'Unable to load lead options') } }
   const loadLeads = async () => { setLoading(true); try { const params = new URLSearchParams({ page: String(filters.page), limit: String(LEADS_PAGE_SIZE), ...(showDeletedLeads ? { deleted: 'true' } : {}), ...(filters.search ? { search: filters.search } : {}), ...(filters.branchId ? { branchId: filters.branchId } : {}), ...(filters.courseId ? { courseId: filters.courseId } : {}), ...(filters.stage ? { stage: filters.stage } : {}), ...(filters.status ? { status: filters.status } : {}), ...(filters.leadSource ? { leadSource: filters.leadSource } : {}) }); const result = await request(`/leads?${params}`); setLeads(result?.data || []); setMeta(result?.meta || { page: filters.page, totalPages: 1, total: 0 }); setError('') } catch (reason) { setError(reason?.message || 'Unable to load leads') } finally { setLoading(false) } }

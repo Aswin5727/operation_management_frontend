@@ -76,7 +76,7 @@ function formatChartDate(value) {
   return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(new Date(`${String(value).slice(0, 10)}T00:00:00.000Z`))
 }
 
-export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, embeddedSuperAdmin = false, salesBranchId = '', onSwitchDashboard }) {
+export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, embeddedSuperAdmin = false, salesBranchId = '', readOnlySalesAdmin = false, onSwitchDashboard }) {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -204,7 +204,7 @@ export function SalesAdminDashboardPage({ embeddedBranchAdmin = false, embeddedS
           </header>
 
           <main className="super-admin-content">
-            {isLeadManagement ? <LeadManagementPage /> : isReports ? <SalesCrmReportPage /> : isNotifications ? <SalesAdminNotificationsPage /> : isAdmissions ? <SalesAdminAdmissionsPage key={location.search} /> : isProfile ? <SalesAdminProfilePage /> : (
+            {isLeadManagement ? <LeadManagementPage salesAdminReadOnly={readOnlySalesAdmin} /> : isReports ? <SalesCrmReportPage readOnlySalesAdmin={readOnlySalesAdmin} /> : isNotifications ? <SalesAdminNotificationsPage /> : isAdmissions ? <SalesAdminAdmissionsPage key={location.search} readOnlySalesAdmin={readOnlySalesAdmin} /> : isProfile ? <SalesAdminProfilePage /> : (
               <section className="sales-admin-dashboard-home">
                 <header className="sales-admin-dashboard-header">
                   <div className="sales-admin-dashboard-intro">

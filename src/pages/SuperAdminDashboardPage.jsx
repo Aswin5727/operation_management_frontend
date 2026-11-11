@@ -2039,6 +2039,7 @@ const filteredBranches = useMemo(() => {
         <SalesAdminDashboardPage
           embeddedSuperAdmin
           salesBranchId={embeddedSalesAdmin.id || embeddedSalesAdmin.branchId || ''}
+          readOnlySalesAdmin={String(embeddedSalesAdmin.salesAdminStatus || embeddedSalesAdmin.status || '').toUpperCase() === 'INACTIVE' || embeddedSalesAdmin.salesAdminActive === false || embeddedSalesAdmin.active === false}
           onSwitchDashboard={handleExitDashboardClick}
         />
         {isExitDashboardConfirmOpen ? (
