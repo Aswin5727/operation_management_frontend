@@ -293,20 +293,6 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
     return () => window.clearTimeout(timer)
   }, [loadUsers])
 
-  useEffect(() => {
-    const refreshUsers = () => {
-      if (document.visibilityState === 'visible') void loadUsers()
-    }
-    const refreshInterval = window.setInterval(refreshUsers, 10000)
-    window.addEventListener('focus', refreshUsers)
-    document.addEventListener('visibilitychange', refreshUsers)
-    return () => {
-      window.clearInterval(refreshInterval)
-      window.removeEventListener('focus', refreshUsers)
-      document.removeEventListener('visibilitychange', refreshUsers)
-    }
-  }, [loadUsers])
-
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase()
     return users.filter((user) => {
