@@ -205,7 +205,7 @@ export function BranchReportsAnalyticsPage({ students = [], batchGroups = [], br
           <div className="branch-report-download-copy"><h2>Student Attendance</h2><p>Choose a student and download attendance for a date range.</p></div>
           <div className="branch-report-card-action-row">
             <SearchableReportPicker label="Student" value={effectiveStudentId} onChange={setSelectedStudentId} options={studentOptions.map((student) => ({ value: student.id, label: `${text(student.studentName, student.studentId || student.id)}${student.studentId ? ` (${student.studentId})` : ''}` }))} placeholder="Search active student" disabled={!studentOptions.length} />
-            <button type="button" className="branch-report-download-button" disabled={!selectedStudent || !selectedStudentBranchId} onClick={() => setAttendanceTarget({ mode: 'student', record: selectedStudent, branchId: selectedStudentBranchId })}><Download size={16} /> Download</button>
+            <button type="button" className="branch-report-download-button" onClick={() => setAttendanceTarget({ mode: 'student', record: selectedStudent, branchId: selectedStudentBranchId })}><Download size={16} /> Download</button>
           </div>
         </article>
 
@@ -214,7 +214,7 @@ export function BranchReportsAnalyticsPage({ students = [], batchGroups = [], br
           <div className="branch-report-download-copy"><h2>Batch Attendance</h2><p>Choose a batch and download attendance for a date range.</p></div>
           <div className="branch-report-card-action-row">
             <SearchableReportPicker label="Batch" value={effectiveBatchId} onChange={setSelectedBatchId} options={batchOptions.map((batch) => ({ value: batch.id, label: `${batch.batchName}${batch.courseName ? ` - ${batch.courseName}` : ''}` }))} placeholder="Search active batch" disabled={!batchOptions.length} />
-            <button type="button" className="branch-report-download-button" disabled={!selectedBatch || !selectedBatchBranchId} onClick={() => setAttendanceTarget({ mode: 'batch', record: selectedBatch, branchId: selectedBatchBranchId })}><Download size={16} /> Download</button>
+            <button type="button" className="branch-report-download-button" onClick={() => setAttendanceTarget({ mode: 'batch', record: selectedBatch, branchId: selectedBatchBranchId })}><Download size={16} /> Download</button>
           </div>
         </article>
 
