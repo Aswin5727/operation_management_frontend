@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { CheckCircle2, XCircle } from 'lucide-react'
 import { request } from '../services/apiClient'
@@ -9,15 +9,19 @@ export function EmailChangeVerificationPage() {
   const navigate = useNavigate()
   const token = params.get('token')
   const temporaryPassword = params.get('temporaryPassword') || ''
+  const verificationStartedRef = useRef(false)
   const [state, setState] = useState(() => ({ loading: Boolean(token), error: token ? '' : 'This email verification link is missing a token.', success: '', resetToken: '' }))
 
   useEffect(() => {
-    if (!token) return undefined
-    let active = true
-    request('/user-role-accounts/email-change/verify', { method: 'POST', body: JSON.stringify({ token }) })
-      .then((response) => { if (active) setState({ loading: false, error: '', success: response?.message || 'Email address verified successfully.', resetToken: response?.data?.resetToken || '' }) })
-      .catch((error) => { if (active) setState({ loading: false, error: error?.message || 'This email verification link is invalid or expired.', success: '', resetToken: '' }) })
-    return () => { active = false }
+    if (!token || verificationStartedRef.current) return undefined
+    verificationStartedRef.current = true
+    const timeoutId = window.setTimeout(() => {
+      setState({ loading: false, error: 'Verification is taking too long. Please refresh this page and try the latest email link again.', success: '', resetToken: '' })
+    }, 15000)
+    request('/user-role-accounts/email-change/verify', { method: 'POST', skipAuth: true, body: JSON.stringify({ token }) })
+      .then((response) => { setState({ loading: false, error: '', success: response?.message || 'Email address verified successfully.', resetToken: response?.data?.resetToken || '' }) })
+      .catch((error) => { setState({ loading: false, error: error?.message || 'This email verification link is invalid or expired.', success: '', resetToken: '' }) })
+    return () => { window.clearTimeout(timeoutId) }
   }, [token])
 
   const resetLink = state.resetToken ? `/reset-password?token=${encodeURIComponent(state.resetToken)}&redirect=/login` : ''

@@ -328,8 +328,8 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
       fullName: '', email: '', phone: '',
       country: branch.branchCountry || 'India',
       state: branch.branchState || 'Tamil Nadu',
-      city: branch.branchCity || '',
-      address: branch.branchAddress || '',
+      city: '',
+      address: '',
       status: 'ACTIVE',
     })
     setIsCreateOpen(true)
