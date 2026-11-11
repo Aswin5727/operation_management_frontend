@@ -135,6 +135,16 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
   const [isDatePopoverOpen, setIsDatePopoverOpen] = useState(false)
   const [draftStartDate, setDraftStartDate] = useState('')
   const [draftEndDate, setDraftEndDate] = useState('')
+  const branchPerformanceStateRef = useRef({ period: 'thisMonth', startDate: '', endDate: '' })
+  const defaultBranchPerformanceReadyRef = useRef(true)
+
+  useEffect(() => {
+    branchPerformanceStateRef.current = {
+      period: branchPerformancePeriod,
+      startDate: branchPerformanceStartDate,
+      endDate: branchPerformanceEndDate,
+    }
+  }, [branchPerformanceEndDate, branchPerformancePeriod, branchPerformanceStartDate])
 
   const load = useCallback(async () => {
     setIsLoading(true)
@@ -147,6 +157,13 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
         endDate: appliedDateRange.endDate,
       } : {})
       setOverview(nextOverview)
+      const performanceState = branchPerformanceStateRef.current
+      if (!appliedDateRange && performanceState.period === 'thisMonth' && !performanceState.startDate && !performanceState.endDate) {
+        setBranchPerformance(nextOverview?.branchPerformance || [])
+        setBranchPerformanceHasData(nextOverview?.branchPerformanceHasData !== false)
+        setIsPerformanceLoading(false)
+        defaultBranchPerformanceReadyRef.current = true
+      }
     } catch (loadError) {
       setError(loadError?.status === 404 ? 'No matching branch found.' : 'Dashboard data is temporarily unavailable due to a server capacity limit.')
     } finally {
@@ -165,6 +182,9 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
       })
       setBranchPerformance(nextOverview?.branchPerformance || [])
       setBranchPerformanceHasData(nextOverview?.branchPerformanceHasData !== false)
+      if (!appliedDateRange && branchPerformancePeriod === 'thisMonth' && !branchPerformanceStartDate && !branchPerformanceEndDate) {
+        defaultBranchPerformanceReadyRef.current = true
+      }
     } catch (loadError) {
       setBranchPerformance([])
       setBranchPerformanceHasData(false)
@@ -172,7 +192,7 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
     } finally {
       setIsPerformanceLoading(false)
     }
-  }, [branchIdFromUrl, branchPerformanceEndDate, branchPerformancePeriod, branchPerformanceStartDate, selectedBranch?.branchId])
+  }, [appliedDateRange, branchIdFromUrl, branchPerformanceEndDate, branchPerformancePeriod, branchPerformanceStartDate, selectedBranch?.branchId])
 
   useEffect(() => {
     const timerId = window.setTimeout(() => { void load() }, 0)
@@ -185,9 +205,15 @@ export function SuperAdminOverallDashboard({ branches, userKey = 'super-admin', 
   }, [load])
 
   useEffect(() => {
+    if (!appliedDateRange && branchPerformancePeriod === 'thisMonth' && !branchPerformanceStartDate && !branchPerformanceEndDate && defaultBranchPerformanceReadyRef.current) {
+      return undefined
+    }
+    if (branchPerformancePeriod !== 'thisMonth' || branchPerformanceStartDate || branchPerformanceEndDate || appliedDateRange) {
+      defaultBranchPerformanceReadyRef.current = false
+    }
     const timerId = window.setTimeout(() => { void loadBranchPerformance() }, 0)
     return () => window.clearTimeout(timerId)
-  }, [loadBranchPerformance])
+  }, [appliedDateRange, branchPerformanceEndDate, branchPerformancePeriod, branchPerformanceStartDate, loadBranchPerformance])
 
   useEffect(() => {
     const search = branchQuery.trim()

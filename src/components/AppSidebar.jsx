@@ -99,6 +99,14 @@ export function AppSidebar({
 }) {
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false)
   const userRoleLabel = roleLabels[user?.role] || 'Cispro User'
+  const defaultAccessByRole = {
+    'branch-admin': ['DASHBOARD', 'NOTIFICATIONS', 'PROFILE', 'SETTINGS', 'STUDENT_MANAGEMENT', 'ACADEMIC_OPERATIONS', 'FEE_ACCOUNTS', 'REPORTS_ANALYTICS', 'HELPDESK_SUPPORT'],
+    'branch-admin-sales': ['DASHBOARD', 'NOTIFICATIONS', 'PROFILE', 'SETTINGS', 'STUDENT_MANAGEMENT', 'ACADEMIC_OPERATIONS', 'FEE_ACCOUNTS', 'REPORTS_ANALYTICS', 'HELPDESK_SUPPORT', 'LEAD_MANAGEMENT', 'ADMISSION_MANAGEMENT', 'SALES_CRM_REPORTS'],
+    'sales-admin': ['DASHBOARD', 'NOTIFICATIONS', 'PROFILE', 'SETTINGS', 'LEAD_MANAGEMENT', 'ADMISSION_MANAGEMENT', 'SALES_CRM_REPORTS'],
+  }
+  const fallbackAccessRole = user?.role === 'branch-admin' && user?.roleAccess === 'BRANCH_ADMIN_SALES_ADMIN' ? 'branch-admin-sales' : user?.role
+  const moduleAccess = useMemo(() => new Set(Array.isArray(user?.moduleAccess) && user.moduleAccess.length ? user.moduleAccess : (defaultAccessByRole[fallbackAccessRole] || [])), [fallbackAccessRole, user?.moduleAccess])
+  const hasModuleAccess = (moduleKey) => ['super-admin', 'business-owner', 'operation-manager'].includes(user?.role) || moduleAccess.has(moduleKey)
   const userName = user?.name && !/^\s*user\s*$/i.test(user.name) ? user.name : userRoleLabel
   const profileEmail = user?.email || (isBusinessOwner ? 'business.owner@cispro.com' : '')
   const avatarSrc = user?.avatarUrl || defaultAvatarSrc
@@ -142,7 +150,7 @@ export function AppSidebar({
           onClick: createNavHandler(onClose, onNavigateFacultyBatches),
         }
       : null,
-    showCoursesNav
+    showCoursesNav && hasModuleAccess('ACADEMIC_OPERATIONS')
       ? {
           icon: GraduationCap,
           label: 'Courses',
@@ -150,7 +158,7 @@ export function AppSidebar({
           onClick: createNavHandler(onClose, onNavigateCourses),
         }
       : null,
-    showStudentManagementNav
+    showStudentManagementNav && hasModuleAccess('STUDENT_MANAGEMENT')
       ? {
           icon: UsersRound,
           label: 'Student Management',
@@ -158,7 +166,7 @@ export function AppSidebar({
           onClick: createNavHandler(onClose, onNavigateStudentManagement),
         }
       : null,
-    showFacultyManagementNav
+    showFacultyManagementNav && hasModuleAccess('ACADEMIC_OPERATIONS')
       ? {
           icon: UserRound,
           label: 'Faculty Management',
@@ -169,7 +177,7 @@ export function AppSidebar({
   ].filter(Boolean)
 
   const otherMenuItems = [
-    showNotificationsNav
+    showNotificationsNav && hasModuleAccess('NOTIFICATIONS')
       ? {
           icon: Bell,
           label: 'Notifications',

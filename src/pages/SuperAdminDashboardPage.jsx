@@ -610,7 +610,7 @@ export function SuperAdminDashboardPage() {
   const [globalLeaveSort, setGlobalLeaveSort] = useState('createdAt')
   const [globalStudentRefreshKey, setGlobalStudentRefreshKey] = useState(0)
   const [isGlobalStudentsLoading, setIsGlobalStudentsLoading] = useState(true)
-  const [isGlobalManagementLoading, setIsGlobalManagementLoading] = useState(true)
+  const [isGlobalManagementLoading, setIsGlobalManagementLoading] = useState(false)
   const [globalManagementError, setGlobalManagementError] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false)
@@ -858,12 +858,16 @@ export function SuperAdminDashboardPage() {
   }, [])
 
   useEffect(() => {
-    if (!branches.length) {
-      setAllBranchFaculty([])
-      setAllBranchBatches([])
-      setAllBranchLeaves([])
-      setAllInstituteLeaves([])
+    const view = new URLSearchParams(location.search).get('view')
+    const needsFaculty = activeSection === 'faculty'
+    const needsBatches = activeSection === 'faculty' || activeSection === 'reports'
+    const needsFacultyLeaves = ['leave-management', 'faculty-leave'].includes(activeSection) && view !== 'institute'
+    const needsInstituteLeaves = activeSection === 'leave-management' && view === 'institute'
+    const needsManagementData = needsFaculty || needsBatches || needsFacultyLeaves || needsInstituteLeaves
+
+    if (!branches.length || !needsManagementData) {
       setIsGlobalManagementLoading(false)
+      setGlobalManagementError('')
       return undefined
     }
 
@@ -872,64 +876,68 @@ export function SuperAdminDashboardPage() {
       setIsGlobalManagementLoading(true)
       setGlobalManagementError('')
       try {
-        const facultyResponse = await request('/branch-faculty?page=1&limit=1000&sortBy=createdAt&sortOrder=desc')
-        const facultyPayload = facultyResponse?.data ?? facultyResponse
-        const facultyRows = Array.isArray(facultyPayload)
-          ? facultyPayload
-          : Array.isArray(facultyPayload?.data) ? facultyPayload.data : []
+        const facultyPromise = needsFaculty
+          ? request('/branch-faculty?page=1&limit=1000&sortBy=createdAt&sortOrder=desc')
+          : Promise.resolve(null)
+        const batchPromise = needsBatches
+          ? Promise.all(branches.map(async (branch) => {
+              const branchId = branch.id || branch.branchId
+              if (!branchId) return []
+              try {
+                const response = await listBranchBatches({ branchId, impersonateBranchId: branchId, page: 1, limit: 100, sortBy: 'createdAt', sortOrder: 'desc' })
+                return (Array.isArray(response?.data) ? response.data : []).map((item) => ({ ...item, branchRecord: branch }))
+              } catch {
+                return []
+              }
+            }))
+          : Promise.resolve([])
+        const facultyLeavePromise = needsFacultyLeaves
+          ? Promise.all(branches.map(async (branch) => {
+              const branchId = branch.id || branch.branchId
+              if (!branchId) return []
+              try {
+                const facultyLeaveResponse = await request('/faculty-leave-requests/branch', { impersonateBranchId: branchId })
+                const facultyLeaves = facultyLeaveResponse?.data?.requests || facultyLeaveResponse?.requests || []
+                return facultyLeaves.map((item) => ({ ...item, leaveCategory: 'Faculty Leave Request', branchRecord: branch }))
+              } catch {
+                return []
+              }
+            }))
+          : Promise.resolve([])
+        const instituteLeavePromise = needsInstituteLeaves
+          ? Promise.all(branches.map(async (branch) => {
+              const branchId = branch.id || branch.branchId
+              if (!branchId) return []
+              try {
+                const response = await request('/institute-leaves', { impersonateBranchId: branchId })
+                const payload = response?.data ?? response
+                return (Array.isArray(payload?.leaves) ? payload.leaves : []).map((item) => ({ ...item, branchId, branchRecord: branch }))
+              } catch {
+                return []
+              }
+            }))
+          : Promise.resolve([])
 
-        const leaveResults = await Promise.all(branches.map(async (branch) => {
-          const branchId = branch.id || branch.branchId
-          if (!branchId) return []
-          try {
-            const facultyLeaveResponse = await request('/faculty-leave-requests/branch', { impersonateBranchId: branchId })
-            const facultyLeaves = facultyLeaveResponse?.data?.requests || facultyLeaveResponse?.requests || []
-            return facultyLeaves.map((item) => ({ ...item, leaveCategory: 'Faculty Leave Request', branchRecord: branch }))
-          } catch {
-            return []
-          }
-        }))
-        const instituteLeaveResults = await Promise.all(branches.map(async (branch) => {
-          const branchId = branch.id || branch.branchId
-          if (!branchId) return []
-          try {
-            const response = await request('/institute-leaves', { impersonateBranchId: branchId })
-            const payload = response?.data ?? response
-            return (Array.isArray(payload?.leaves) ? payload.leaves : []).map((item) => ({ ...item, branchId, branchRecord: branch }))
-          } catch {
-            return []
-          }
-        }))
-        const batchResults = await Promise.all(branches.map(async (branch) => {
-          const branchId = branch.id || branch.branchId
-          if (!branchId) return []
-          try {
-            const response = await listBranchBatches({ branchId, impersonateBranchId: branchId, page: 1, limit: 100, sortBy: 'createdAt', sortOrder: 'desc' })
-            return (Array.isArray(response?.data) ? response.data : []).map((item) => ({ ...item, branchRecord: branch }))
-          } catch {
-            return []
-          }
-        }))
+        const [facultyResult, batchResults, leaveResults, instituteLeaveResults] = await Promise.all([facultyPromise, batchPromise, facultyLeavePromise, instituteLeavePromise])
+        if (cancelled) return
 
-        if (!cancelled) {
+        if (needsFaculty) {
+          const facultyPayload = facultyResult?.data ?? facultyResult
+          const facultyRows = Array.isArray(facultyPayload)
+            ? facultyPayload
+            : Array.isArray(facultyPayload?.data) ? facultyPayload.data : []
           setAllBranchFaculty(facultyRows.map((item) => ({
             ...item,
             branchRecord: branches.find((branch) => [branch.id, branch.branchId, branch.branchCode]
               .map((value) => String(value || '').trim().toLowerCase())
               .includes(String(item.branchId || item.branchCode || item.branch?.id || item.branch?.branchId || '').trim().toLowerCase())) || null,
           })))
-          setAllBranchBatches(batchResults.flat())
-          setAllBranchLeaves(leaveResults.flat())
-          setAllInstituteLeaves(instituteLeaveResults.flat())
         }
+        if (needsBatches) setAllBranchBatches(batchResults.flat())
+        if (needsFacultyLeaves) setAllBranchLeaves(leaveResults.flat())
+        if (needsInstituteLeaves) setAllInstituteLeaves(instituteLeaveResults.flat())
       } catch (error) {
-        if (!cancelled) {
-          setAllBranchFaculty([])
-          setAllBranchBatches([])
-          setAllBranchLeaves([])
-          setAllInstituteLeaves([])
-          setGlobalManagementError(error?.message || 'Unable to load global management data.')
-        }
+        if (!cancelled) setGlobalManagementError(error?.message || 'Unable to load global management data.')
       } finally {
         if (!cancelled) setIsGlobalManagementLoading(false)
       }
@@ -937,7 +945,7 @@ export function SuperAdminDashboardPage() {
 
     void loadGlobalManagementData()
     return () => { cancelled = true }
-  }, [branches])
+  }, [activeSection, branches, location.search])
 
   useEffect(() => {
   const handleWindowFocus = () => {
