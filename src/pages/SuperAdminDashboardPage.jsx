@@ -1270,13 +1270,14 @@ useEffect(() => {
  
 
   const rowsPerPage = 5
-  const totalBranches = branches.length
-  const activeBranches = branches.filter((branch) => String(branch?.status || '').trim().toLowerCase() === 'active').length
+  const branchManagementBranches = useMemo(() => branches.filter((branch) => String(branch?.branchAdminName || '').trim() && String(branch?.branchAdminName || '').trim().toLowerCase() !== 'unassigned'), [branches])
+  const totalBranches = branchManagementBranches.length
+  const activeBranches = branchManagementBranches.filter((branch) => String(branch?.status || '').trim().toLowerCase() === 'active').length
 
 const filteredBranches = useMemo(() => {
   const query = searchTerm.trim().toLowerCase()
 
-  return branches.filter((branch) => {
+  return branchManagementBranches.filter((branch) => {
     const matchesSearch =
       !query ||
       [branch.branchId, branch.branchName, branch.branchAdminName].some((value) =>
@@ -1290,7 +1291,7 @@ const filteredBranches = useMemo(() => {
 
     return matchesSearch && matchesStatus
   })
-}, [branches, searchTerm, statusFilter])
+}, [branchManagementBranches, searchTerm, statusFilter])
 
   const globalRowsPerPage = 10
   const globalFacultyRowsPerPage = 5
@@ -2855,21 +2856,17 @@ const filteredBranches = useMemo(() => {
                               <strong>{branch.studentCount ?? 0}</strong>
                             </td>
                             <td className="branch-table-col-dashboard" style={{ textAlign: 'center' }}>
-                              {getNormalizedBranchStatus(branch) === 'Active' ? (
-                                <button 
-                                  type="button" 
-                                  className="sa-view-dashboard-btn"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    openViewDashboardConfirm(branch)
-                                  }}
-                                >
-                                  <LayoutDashboard size={14} strokeWidth={2.3} />
-                                  View
-                                </button>
-                              ) : (
-                                <span className="branch-contact-email" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Inactive</span>
-                              )}
+                              <button 
+                                type="button" 
+                                className="sa-view-dashboard-btn"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openViewDashboardConfirm(branch)
+                                }}
+                              >
+                                <LayoutDashboard size={14} strokeWidth={2.3} />
+                                View
+                              </button>
                             </td>
                             <td
                               className="branch-table-col-actions"
