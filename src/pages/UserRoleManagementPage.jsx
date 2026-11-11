@@ -249,6 +249,10 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
   const [showFieldErrors, setShowFieldErrors] = useState(false)
   const [creationPopup, setCreationPopup] = useState('')
   const [actionUser, setActionUser] = useState(null)
+  const actionOpenModeRef = useRef('')
+  useEffect(() => {
+    if (!actionUser) actionOpenModeRef.current = ''
+  }, [actionUser])
   const [viewUser, setViewUser] = useState(null)
   const [viewTab, setViewTab] = useState('details')
   const [adminHistory, setAdminHistory] = useState([])
@@ -324,7 +328,10 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
-      if (!event.target?.closest?.('.user-role-actions')) setActionUser(null)
+      if (!event.target?.closest?.('.user-role-actions')) {
+        actionOpenModeRef.current = ''
+        setActionUser(null)
+      }
     }
     document.addEventListener('mousedown', handleOutsideClick)
     return () => document.removeEventListener('mousedown', handleOutsideClick)
@@ -341,8 +348,32 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
       const user = paginatedUsers[rowIndex]
       if (user) openView(user)
     }
+    const handleActionsHover = (event) => {
+      if (!event.target?.closest?.('.user-role-actions')) return
+      const row = event.target.closest('tbody tr')
+      if (!row || !row.parentElement) return
+      const rowIndex = Array.from(row.parentElement.children).indexOf(row)
+      const user = paginatedUsers[rowIndex]
+      if (user && actionOpenModeRef.current !== 'click') {
+        actionOpenModeRef.current = 'hover'
+        setActionUser(user)
+      }
+    }
+    const handleActionsLeave = (event) => {
+      const actions = event.target?.closest?.('.user-role-actions')
+      if (actions && !actions.contains(event.relatedTarget) && actionOpenModeRef.current === 'hover') {
+        actionOpenModeRef.current = ''
+        setActionUser(null)
+      }
+    }
     table.addEventListener('click', handleRowClick)
-    return () => table.removeEventListener('click', handleRowClick)
+    table.addEventListener('mouseover', handleActionsHover)
+    table.addEventListener('mouseout', handleActionsLeave)
+    return () => {
+      table.removeEventListener('click', handleRowClick)
+      table.removeEventListener('mouseover', handleActionsHover)
+      table.removeEventListener('mouseout', handleActionsLeave)
+    }
   }, [paginatedUsers])
 
   function openEdit(user) {
@@ -554,7 +585,16 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
     setBranchesError('')
     listBranches({ page: 1, limit: 100, status: 'ACTIVE', sortBy: 'branchName', sortOrder: 'asc' }).then((result) => {
       if (!active) return
-      const available = Array.isArray(result?.data) ? result.data : []
+      const activeBranches = Array.isArray(result?.data)
+        ? result.data.filter((branch) => String(branch?.status || '').trim().toUpperCase() === 'ACTIVE')
+        : []
+      const tableBranchIds = new Set(users.flatMap((user) => {
+        const branch = user?.managedBranch
+        return branch ? [String(branch.id || ''), String(branch.branchId || '')].filter(Boolean) : []
+      }))
+      const available = isSalesPage
+        ? activeBranches
+        : activeBranches.filter((branch) => tableBranchIds.has(String(branch.id || '')) || tableBranchIds.has(String(branch.branchId || '')))
       setBranches(available)
       setForm((current) => ({ ...current, branchIds: current.branchIds.filter((id) => available.some((branch) => String(branch.id) === String(id))) }))
     }).catch((reason) => {
@@ -563,7 +603,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
       setBranchesError(reason?.message || 'Unable to load active branches.')
     }).finally(() => { if (active) setBranchesLoading(false) })
     return () => { active = false }
-  }, [form.accountType, isCreateOpen])
+  }, [form.accountType, isCreateOpen, isSalesPage, users])
 
   useEffect(() => {
     if (!isCreateOpen || form.accountType !== 'SALES_ADMIN' || isSalesPage) return undefined
@@ -773,7 +813,7 @@ export function UserRoleManagementPage({ pageType = 'branch', onViewDashboard: b
 
       <div className="user-role-external-table-tools"><div className="user-role-table-tools"><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${pageTitle.toLowerCase()} accounts`} aria-label={`Search ${pageTitle} accounts`} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter accounts by status"><option value="all">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select><span>{filteredUsers.length} account{filteredUsers.length === 1 ? '' : 's'}</span></div></div>
       <section className="user-role-table-card" aria-label={`${pageTitle} accounts`}>
-        {usersLoading ? <div className="user-role-table-wrap user-role-skeleton-wrap"><table className="user-role-table user-role-skeleton-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{[1, 2, 3].map((row) => <tr key={row}>{[1, 2, 3, 4, 5, 6, 7].map((cell) => <td key={cell}><span className={`user-role-skeleton-line is-cell-${cell}`} /></td>)}</tr>)}</tbody></table></div> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchRecords = user.managedBranch ? [user.managedBranch] : (user.assignedBranches || []); const branchNames = branchRecords.map((branch) => branch.branchName).filter(Boolean); const statusLabel = accountIsActive(user) ? 'Active' : 'Inactive'; const dashboardBranch = branchRecords[0]; const shouldOpenUp = index >= Math.max(0, paginatedUsers.length - 2); return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.email || '-'}</small></td><td><span className="user-role-status-indicator"><i className={`user-role-status-dot ${statusLabel === 'Active' ? 'is-active' : 'is-inactive'}`} /><span className="user-role-status-tooltip">{statusLabel}</span></span><strong>{user.userCode || '-'}</strong></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button user-role-dashboard-button" disabled={!dashboardBranch} onClick={(event) => { event.stopPropagation(); setViewUser(null); if (dashboardBranch) onViewDashboard?.(dashboardBranch) }}><LayoutDashboard size={14} />View</button></td><td><div className="user-role-actions"><button type="button" className="user-role-actions-trigger" aria-label={`Actions for ${user.fullName || 'account'}`} onClick={() => setActionUser(actionUser?.id === user.id ? null : user)}>&#8942;</button>{actionUser?.id === user.id ? <div className={`user-role-actions-menu${shouldOpenUp ? ' is-open-up' : ''}`}><button type="button" onClick={() => { openView(user); setActionUser(null) }}>View</button><button type="button" onClick={() => openEdit(user)}>Edit</button>{user.managedBranch ? <button type="button" onClick={() => openRoleChange(user)}>Change Role</button> : null}{!isSalesPage && user.managedBranch ? <button type="button" onClick={() => openReplace(user)}>Replace Admin</button> : null}<button type="button" className="is-danger" onClick={() => { setDeleteUser(user); setActionUser(null) }}>Delete</button></div> : null}</div></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="7" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
+        {usersLoading ? <div className="user-role-table-wrap user-role-skeleton-wrap"><table className="user-role-table user-role-skeleton-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{[1, 2, 3].map((row) => <tr key={row}>{[1, 2, 3, 4, 5, 6, 7].map((cell) => <td key={cell}><span className={`user-role-skeleton-line is-cell-${cell}`} /></td>)}</tr>)}</tbody></table></div> : usersError ? <p className="user-role-table-state is-error">{usersError}</p> : <><div className="user-role-table-wrap"><table className="user-role-table"><thead><tr><th>S.No</th><th>User</th><th>{isSalesPage ? 'Sales Admin ID' : 'Branch Admin ID'}</th><th>Account Type</th><th>Branch access</th><th>{isSalesPage ? 'View Sales' : 'View Branch'}</th><th>Actions</th></tr></thead><tbody>{paginatedUsers.map((user, index) => { const branchRecords = user.managedBranch ? [user.managedBranch] : (user.assignedBranches || []); const branchNames = branchRecords.map((branch) => branch.branchName).filter(Boolean); const statusLabel = accountIsActive(user) ? 'Active' : 'Inactive'; const dashboardBranch = branchRecords[0]; const shouldOpenUp = index >= Math.max(0, paginatedUsers.length - 2); return <tr key={user.id}><td>{(safeUserPage - 1) * 5 + index + 1}</td><td><strong>{user.fullName || '-'}</strong><small>{user.email || '-'}</small></td><td><span className="user-role-status-indicator"><i className={`user-role-status-dot ${statusLabel === 'Active' ? 'is-active' : 'is-inactive'}`} /><span className="user-role-status-tooltip">{statusLabel}</span></span><strong>{user.userCode || '-'}</strong></td><td>{user.accountType === 'BRANCH_ADMIN_SALES_ADMIN' ? 'Branch Admin + Sales Admin' : user.accountType === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}</td><td>{branchNames.join(', ') || 'Unassigned'}</td><td><button type="button" className="user-role-view-button user-role-dashboard-button" disabled={!dashboardBranch} onClick={(event) => { event.stopPropagation(); setViewUser(null); if (dashboardBranch) onViewDashboard?.(dashboardBranch) }}><LayoutDashboard size={14} />View</button></td><td><div className="user-role-actions"><button type="button" className="user-role-actions-trigger" aria-label={`Actions for ${user.fullName || 'account'}`} onClick={() => { actionOpenModeRef.current = 'click'; setActionUser(user) }}>&#8942;</button>{actionUser?.id === user.id ? <div className={`user-role-actions-menu${shouldOpenUp ? ' is-open-up' : ''}`}><button type="button" onClick={() => { openView(user); setActionUser(null) }}>View</button><button type="button" onClick={() => openEdit(user)}>Edit</button>{user.managedBranch ? <button type="button" onClick={() => openRoleChange(user)}>Change Role</button> : null}{!isSalesPage && user.managedBranch ? <button type="button" onClick={() => openReplace(user)}>Replace Admin</button> : null}<button type="button" className="is-danger" onClick={() => { setDeleteUser(user); setActionUser(null) }}>Delete</button></div> : null}</div></td></tr> })}{!filteredUsers.length ? <tr><td colSpan="7" className="user-role-table-state">No {pageTitle.toLowerCase()} accounts found.</td></tr> : null}</tbody></table></div>{userPageCount > 1 ? <div className="user-role-pagination"><span>Page {safeUserPage} of {userPageCount}</span><div><button type="button" disabled={safeUserPage === 1} onClick={() => setUserPage((page) => Math.max(1, page - 1))}>Previous</button><button type="button" disabled={safeUserPage === userPageCount} onClick={() => setUserPage((page) => Math.min(userPageCount, page + 1))}>Next</button></div></div> : null}</>}
       </section>
 
       {isCreateOpen ? <div className="user-role-modal-backdrop" role="presentation">

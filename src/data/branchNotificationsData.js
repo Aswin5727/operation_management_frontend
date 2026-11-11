@@ -55,7 +55,7 @@ function getNotificationIcon(kind) {
 }
 
 export function normalizeBranchNotification(notification = {}) {
-  const kind = String(notification.kind || '').trim()
+  const kind = String(notification.kind || '').trim().toLowerCase()
   const title = String(notification.title || '').trim()
   const normalizedMessage = normalizeNotificationMessage(notification.message).trim()
   const message = kind === 'sales-crm-admission'

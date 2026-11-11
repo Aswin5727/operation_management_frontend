@@ -100,7 +100,7 @@ const normalizeCreatedAt = (notification = {}) => {
 
 const normalizeNotification = (notification = {}) => {
   const createdAt = normalizeCreatedAt(notification)
-  const kind = String(notification.kind || 'general').trim() || 'general'
+  const kind = String(notification.kind || 'general').trim().toLowerCase() || 'general'
   const tone = String(notification.tone || 'blue').trim() || 'blue'
 
   return {
