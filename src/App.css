@@ -27907,6 +27907,26 @@ canvas {
   font-size: 13px;
 }
 
+.student-discontinuation-loading-skeleton {
+  display: grid;
+  gap: 11px;
+  width: min(100%, 270px);
+}
+
+.student-discontinuation-loading-skeleton span {
+  display: block;
+  height: 13px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #eef3f8 25%, #e1eaf4 50%, #eef3f8 75%);
+  background-size: 200% 100%;
+  animation: student-discontinuation-shimmer 1.2s linear infinite;
+}
+
+.student-discontinuation-loading-skeleton span:nth-child(2) { width: 78%; }
+.student-discontinuation-loading-skeleton span:nth-child(3) { width: 56%; }
+
+@keyframes student-discontinuation-shimmer { to { background-position: -200% 0; } }
+
 .student-discontinuation-modal-backdrop {
   position: fixed;
   z-index: 1000;
@@ -27935,6 +27955,22 @@ canvas {
   color: #405778;
   font-size: 13px;
   font-weight: 700;
+}
+
+.student-discontinuation-modal label.has-error select {
+  border-color: #dc5a68;
+  box-shadow: 0 0 0 2px rgba(220, 90, 104, .12);
+}
+
+.student-discontinuation-field-error {
+  color: #c0394b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.student-discontinuation-checkbox-error {
+  display: block;
+  margin-top: -8px;
 }
 
 .student-discontinuation-modal select,
@@ -28124,6 +28160,25 @@ canvas {
   height: 16px;
   margin-top: 1px;
   accent-color: #2563df;
+}
+
+.student-discontinuation-modal .student-discontinuation-refund-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 2px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid #dce7f6;
+  border-radius: 10px;
+  color: #536b8d;
+  background: #f8fbff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.student-discontinuation-modal .student-discontinuation-refund-option input {
+  margin: 2px 0 0;
 }
 
 .student-discontinuation-review-actions {

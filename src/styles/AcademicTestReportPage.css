@@ -77,3 +77,11 @@
 .academic-report-table-toolbar{display:flex;justify-content:flex-end;padding:12px 24px 0}
 .academic-report-section-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin:0 0 14px;padding:0 24px}.academic-report-section-heading h2{margin:0;color:#173568;font-size:21px;font-weight:600}.academic-report-section-heading p{margin:7px 0 0;color:#6680a5}.academic-report-section-heading>span{color:#6680a5;font-weight:700}
 .academic-report-section-actions{display:flex;align-items:center;gap:14px}.academic-report-section-actions>span{color:#6680a5;font-weight:700}
+.academic-report-loading-card { display: grid; gap: 22px; }
+.academic-report-loading-card .academic-report-card-title { display: grid; gap: 11px; }
+.academic-report-loading-card .academic-report-card-title span { display: block; height: 16px; width: 34%; border-radius: 6px; background: linear-gradient(90deg, #edf2f7 25%, #f8fafc 37%, #edf2f7 63%); background-size: 400% 100%; animation: academic-report-skeleton-shimmer 1.4s ease infinite; }
+.academic-report-loading-card .academic-report-card-title span:last-child { width: 58%; height: 12px; }
+.academic-report-loading-table { display: grid; gap: 14px; overflow: hidden; }
+.academic-report-loading-table > div { display: grid; grid-template-columns: repeat(7, minmax(90px, 1fr)); gap: 14px; min-width: 700px; }
+.academic-report-loading-table span { display: block; height: 18px; border-radius: 6px; background: linear-gradient(90deg, #edf2f7 25%, #f8fafc 37%, #edf2f7 63%); background-size: 400% 100%; animation: academic-report-skeleton-shimmer 1.4s ease infinite; }
+@keyframes academic-report-skeleton-shimmer { to { background-position: -400% 0; } }

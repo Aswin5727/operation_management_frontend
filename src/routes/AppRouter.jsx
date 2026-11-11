@@ -399,6 +399,12 @@ export function AppRouter() {
     path="/student-new-dashboard"
     element={<StudentNewDashboardPage />}
   />
+  <Route path="/student-new-dashboard/profile" element={<StudentNewDashboardPage />} />
+  <Route path="/student-new-dashboard/course" element={<StudentNewDashboardPage />} />
+  <Route path="/student-new-dashboard/calendar" element={<StudentNewDashboardPage />} />
+  <Route path="/student-new-dashboard/attendance" element={<StudentNewDashboardPage />} />
+  <Route path="/student-new-dashboard/payments" element={<StudentNewDashboardPage />} />
+  <Route path="/student-new-dashboard/leave-management" element={<StudentNewDashboardPage />} />
   <Route
     path="/student-new-dashboard/notifications"
     element={<StudentNotificationsPage />}

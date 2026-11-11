@@ -31,7 +31,7 @@ export function NotificationBell({ targetUserId = '', readOnlyView = false }) {
     if (!isRemoteNotifications) return undefined
     let active = true
     const load = async () => {
-      const query = targetUserId ? `?limit=20&page=1&targetUserId=${encodeURIComponent(targetUserId)}` : '/notifications?limit=20&page=1'
+      const query = targetUserId ? `?limit=20&page=1&targetUserId=${encodeURIComponent(targetUserId)}` : '?limit=20&page=1'
       const pending = remoteLoadRef.current || request(`/notifications${query}`).then(unwrapNotifications)
       remoteLoadRef.current = pending
       try {
