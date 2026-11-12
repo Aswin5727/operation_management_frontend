@@ -36,6 +36,7 @@ function normalizeBranchRecord(record = {}) {
     // Keep it on the branch record so consumers do not derive counts locally.
     studentCount: Number(record.studentCount ?? record.studentsCount ?? 0),
     branchAdminName: String(record.branchAdminName || '').trim(),
+    adminUserId: String(record.adminUserId || '').trim(),
     branchEmail: String(record.branchEmail || '').trim().toLowerCase(),
     branchPhone: String(record.branchPhone || '').trim(),
     branchCountryCode: String(record.branchCountryCode || '').trim(),
@@ -46,6 +47,7 @@ function normalizeBranchRecord(record = {}) {
     branchDistrict: pickFirstNonEmpty(record.branchDistrict, record.district, record.branchCity, record.city),
     branchAddress: String(record.branchAddress || '').trim(),
     roleAccess: String(record.roleAccess || 'BRANCH_ADMIN_ONLY').trim().toUpperCase(),
+    roleAccessLabel: String(record.roleAccessLabel || '').trim(),
     tempPassword,
     mustResetPassword: Boolean(record.mustResetPassword || tempPassword),
     status: normalizeStatus(record.status),

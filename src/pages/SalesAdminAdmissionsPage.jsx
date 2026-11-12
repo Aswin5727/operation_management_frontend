@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, ArrowLeft, BookOpen, Building2, CalendarDays, Clock3, CreditCard, GraduationCap, IndianRupee, Layers3, RefreshCw, Search, Send, UserRound, UserRoundCheck, Users, Wallet, X } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { request } from '../services/apiClient'
-import { createSalesAdminBatchRequest, listSalesAdminBatchRequests } from '../services/salesCrmBatchRequestService'
+import { loadSession } from '../lib/session'
+import { createSalesAdminBatchRequest, listSalesAdminBatchRequests, resendSalesAdminBatchRequest } from '../services/salesCrmBatchRequestService'
 import '../styles/SalesAdminAdmissionsPage.css'
 
 const BranchDashboardPage = lazy(() => import('./BranchDashboardPage').then(({ BranchDashboardPage: Page }) => ({ default: Page })))
@@ -119,7 +120,7 @@ function StudentDetailsModal({ student, loading, error, onClose, onRetry }) {
   </div>
 }
 
-export function SalesAdminAdmissionsPage() {
+export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false, salesAdminId = '' }) {
   const location = useLocation()
   const [rows, setRows] = useState([])
   const [summary, setSummary] = useState({ hotLeads: 0, pendingAdmissions: 0, completedAdmissions: 0, totalCollections: 0 })
@@ -144,10 +145,28 @@ export function SalesAdminAdmissionsPage() {
   const [batchDialogError, setBatchDialogError] = useState('')
   const [batchRequests, setBatchRequests] = useState([])
   const [requestingLead, setRequestingLead] = useState(null)
+  const [requestingBatchRequest, setRequestingBatchRequest] = useState(null)
   const [requestSaving, setRequestSaving] = useState(false)
   const [requestError, setRequestError] = useState('')
+  const [readOnly, setReadOnly] = useState(() => readOnlySalesAdmin || String(loadSession()?.user?.status || '').toUpperCase() === 'INACTIVE' || loadSession()?.user?.active === false)
   const loadInFlightRef = useRef(false)
   const isStudentModalOpen = Boolean(viewStudent)
+  const blockInactiveAction = () => {
+    if (!readOnly) return false
+    window.dispatchEvent(new CustomEvent('cispro:inactive-account-action-blocked', { detail: { message: 'Your account is currently inactive. You have view-only access. Please contact the Super Admin to reactivate your account.' } }))
+    return true
+  }
+
+  useEffect(() => {
+    request('/sales-admins/me').then((response) => {
+      const user = response?.data || response?.user || response
+      setReadOnly(readOnlySalesAdmin || String(user?.status || '').toUpperCase() === 'INACTIVE' || user?.active === false)
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!requestingLead) setRequestingBatchRequest(null)
+  }, [requestingLead])
 
   useEffect(() => {
     if (!isStudentModalOpen) return undefined
@@ -162,7 +181,7 @@ export function SalesAdminAdmissionsPage() {
     setLoading(true)
     setError('')
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '5', status })
+      const params = new URLSearchParams({ page: String(page), limit: '5', status, ...(salesAdminId ? { salesAdminId } : {}) })
       if (branchId) params.set('branchId', branchId)
       if (courseId) params.set('courseId', courseId)
       if (search.trim()) params.set('search', search.trim())
@@ -208,6 +227,7 @@ export function SalesAdminAdmissionsPage() {
   }, [])
 
   const startAdmission = async (leadId) => {
+    if (blockInactiveAction()) return
     setError('')
     try {
       const result = unwrap(await request(`/sales-admins/admissions/leads/${encodeURIComponent(leadId)}/start`, { method: 'POST' }))
@@ -229,7 +249,8 @@ export function SalesAdminAdmissionsPage() {
     setBatchDialogError('')
     setBatchDialogLoading(true)
     try {
-      const response = unwrap(await request(`/sales-admins/admissions/leads/${encodeURIComponent(lead.id)}/available-batches`))
+      const suffix = salesAdminId ? `?salesAdminId=${encodeURIComponent(salesAdminId)}` : ''
+      const response = unwrap(await request(`/sales-admins/admissions/leads/${encodeURIComponent(lead.id)}/available-batches${suffix}`))
       setBatchDialogData(response)
     } catch (reason) {
       setBatchDialogError(reason?.message || 'Unable to load available batches.')
@@ -254,12 +275,15 @@ export function SalesAdminAdmissionsPage() {
   }
 
   const sendBatchRequest = async () => {
+    if (blockInactiveAction()) return
     if (!requestingLead || requestSaving) return
     setRequestSaving(true)
     setRequestError('')
     try {
-      await createSalesAdminBatchRequest(requestingLead.id)
+      if (requestingBatchRequest?.id) await resendSalesAdminBatchRequest(requestingBatchRequest.id)
+      else await createSalesAdminBatchRequest(requestingLead.id)
       setRequestingLead(null)
+      setRequestingBatchRequest(null)
       await load()
     } catch (reason) {
       setRequestError(reason?.message || 'Unable to send the batch request.')
@@ -298,7 +322,7 @@ export function SalesAdminAdmissionsPage() {
       <select aria-label="Course" value={courseId} onChange={(event) => { setCourseId(event.target.value); setPage(1) }}><option value="">All courses</option>{courses.map((course) => <option value={course.id} key={course.id}>{course.name}</option>)}</select>
     </div>
     <div className="sales-admissions-table-wrap"><table><thead><tr><th>Lead / Student ID</th><th>Student</th><th>Phone</th><th>Branch</th><th>Course</th><th>Training</th><th>Schedule</th><th>Stage</th><th>Lead Payment</th><th>Available Batches</th><th>Admission</th><th>Assigned To</th><th>Actions</th></tr></thead><tbody>
-    {loading ? <tr><td colSpan="13" className="sales-admissions-state">Loading admissions…</td></tr> : rows.length ? rows.map((row) => { const batchRequest = requestsForLead(row)[0]; const hasOpenRequest = batchRequest && batchRequest.status !== 'RESOLVED'; const noBatches = Number(row.availableBatchCount) === 0; return <tr key={row.leadId}><td><strong>{row.leadId}</strong><small>Student: {row.studentId || '—'}</small></td><td>{row.studentName}</td><td>{row.phoneNumber || '—'}</td><td>{row.branchName || '—'}</td><td>{row.courseName || row.otherCourse || '—'}</td><td>{row.trainingMode || '—'}</td><td>{row.classSchedule || '—'}</td><td><span className="sales-admission-stage">{row.stage}</span></td><td>{String(row.paymentStatus || 'NOT PAID').replace(/[_-]+/g, ' ')}{row.paymentAmount != null ? <small>{money(row.paymentAmount)} entered</small> : null}</td><td><span className={`sales-admission-batch-count${Number(row.availableBatchCount) > 0 ? ' is-available' : ''}`}>{row.availableBatchCount == null ? 'Unavailable' : `${row.availableBatchCount} Available`}</span></td><td><span className={`sales-admission-status is-${String(row.admissionStatus || 'PENDING').toLowerCase().replace('_', '-')}`}>{String(row.admissionStatus || 'PENDING').replace('_', ' ')}</span></td><td>{row.assignedAdminName || '—'}</td><td className="sales-admission-actions"><button type="button" className="sales-admission-view-batches" onClick={() => void openAvailableBatches(row)}><Layers3 size={14} />View Batches</button>{noBatches && row.canRequestBatch && row.admissionStatus !== 'ADMITTED' && !hasOpenRequest ? <button type="button" className="sales-admission-send-request" onClick={() => { setRequestError(''); setRequestingLead(row) }}><Send size={14} />Send Request</button> : null}{row.admissionStatus === 'ADMITTED' ? <button type="button" className="sales-admission-view" onClick={() => void openStudentDetails(row)}>View Student</button> : <button type="button" className="sales-admission-start" onClick={() => void startAdmission(row.id)}>{row.admissionStatus === 'IN_PROGRESS' ? 'Continue Admission' : 'Start Admission'}</button>}</td></tr> }) : <tr><td colSpan="13" className="sales-admissions-state"><GraduationCap size={27} /><strong>No admissions found</strong><span>HOT leads within your authorized branches will appear here.</span></td></tr>}
+    {loading ? <tr><td colSpan="13" className="sales-admissions-state">Loading admissions…</td></tr> : rows.length ? rows.map((row) => { const batchRequest = requestsForLead(row)[0]; const hasOpenRequest = batchRequest && batchRequest.status !== 'RESOLVED'; const noBatches = Number(row.availableBatchCount) === 0; return <tr key={row.leadId}><td><strong>{row.leadId}</strong><small>Student: {row.studentId || '—'}</small></td><td>{row.studentName}</td><td>{row.phoneNumber || '—'}</td><td>{row.branchName || '—'}</td><td>{row.courseName || row.otherCourse || '—'}</td><td>{row.trainingMode || '—'}</td><td>{row.classSchedule || '—'}</td><td><span className="sales-admission-stage">{row.stage}</span></td><td>{String(row.paymentStatus || 'NOT PAID').replace(/[_-]+/g, ' ')}{row.paymentAmount != null ? <small>{money(row.paymentAmount)} entered</small> : null}</td><td><span className={`sales-admission-batch-count${Number(row.availableBatchCount) > 0 ? ' is-available' : ''}`}>{row.availableBatchCount == null ? 'Unavailable' : `${row.availableBatchCount} Available`}</span></td><td><span className={`sales-admission-status is-${String(row.admissionStatus || 'PENDING').toLowerCase().replace('_', '-')}`}>{String(row.admissionStatus || 'PENDING').replace('_', ' ')}</span></td><td>{row.assignedAdminName || '—'}</td><td className="sales-admission-actions"><button type="button" className="sales-admission-view-batches" onClick={() => void openAvailableBatches(row)}><Layers3 size={14} />View Batches</button>{noBatches && row.canRequestBatch && row.admissionStatus !== 'ADMITTED' ? <button type="button" className="sales-admission-send-request" onClick={() => { setRequestError(''); setRequestingBatchRequest(batchRequest || null); setRequestingLead(row) }}><Send size={14} />{hasOpenRequest ? 'Resend Request' : 'Send Request'}</button> : null}{row.admissionStatus === 'ADMITTED' ? <button type="button" className="sales-admission-view" onClick={() => void openStudentDetails(row)}>View Student</button> : <button type="button" className="sales-admission-start" onClick={() => void startAdmission(row.id)}>{row.admissionStatus === 'IN_PROGRESS' ? 'Continue Admission' : 'Start Admission'}</button>}</td></tr> }) : <tr><td colSpan="13" className="sales-admissions-state"><GraduationCap size={27} /><strong>No admissions found</strong><span>HOT leads within your authorized branches will appear here.</span></td></tr>}
     </tbody></table></div>
     <footer className="sales-admissions-pagination"><span>Page {meta.page || 1} of {meta.totalPages || 1} · {meta.total || 0} leads</span><div><button type="button" disabled={loading || page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><button type="button" disabled={loading || page >= (meta.totalPages || 1)} onClick={() => setPage((value) => value + 1)}>Next</button></div></footer>
     {viewStudent ? <StudentDetailsModal student={viewStudent} loading={feeDetailsLoading} error={feeDetailsError} onClose={() => setViewStudent(null)} onRetry={() => void openStudentDetails({ admissionStudent: viewStudent, branchName: viewStudent.branchName })} /> : null}

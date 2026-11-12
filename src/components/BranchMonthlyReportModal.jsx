@@ -60,7 +60,7 @@ function ReportFilterSelect({ label, value, onChange, options }) {
   </div>
 }
 
-export function BranchMonthlyReportModal({ isOpen, onClose, reportVariant = 'monthly' }) {
+export function BranchMonthlyReportModal({ isOpen, onClose, reportVariant = 'monthly', branchId = '' }) {
   const isMonthlyReport = reportVariant === 'monthly'
   const reportFieldGroups = isMonthlyReport ? REPORT_FIELD_GROUPS : STUDENT_STATUS_REPORT_FIELD_GROUPS
   const reportFields = reportFieldGroups.flatMap((group) => group.fields)
@@ -89,6 +89,7 @@ export function BranchMonthlyReportModal({ isOpen, onClose, reportVariant = 'mon
       if (!selectedFields.length) return setError('Select at least one report field before downloading.')
       const reportOptions = isMonthlyReport ? { includeCollectionSummary: 'true', includeStatusLegend: 'true' } : { includeAdmissionDate: String(selectedFields.includes('admissionDate')) }
       const query = mode === 'month' ? { mode, month, year, status, columns: JSON.stringify(selectedFields), ...reportOptions } : mode === 'year' ? { mode, year, status, columns: JSON.stringify(selectedFields), ...reportOptions } : mode === 'all' ? { mode, status, columns: JSON.stringify(selectedFields), ...reportOptions } : mode === 'week' ? { mode, fromDate: weekRange.fromDate, toDate: weekRange.toDate, status, columns: JSON.stringify(selectedFields), ...reportOptions } : { mode, fromDate, toDate, status, columns: JSON.stringify(selectedFields), ...reportOptions }
+      if (branchId) query.branchId = branchId
       const statusLabel = status === 'all' ? 'All Students' : status === 'completed' ? 'Completed Students' : 'Discontinued Students'
       const statusName = status === 'all' ? 'All_Students' : status === 'completed' ? 'Completed_Students' : 'Discontinued_Students'
       const periodName = mode === 'month' ? 'Monthly_' + year + '-' + pad(month) : mode === 'year' ? 'Yearly_' + year : mode === 'all' ? 'All_Records' : mode === 'week' ? 'Weekly_' + weekRange.fromDate : 'Custom_' + fromDate + '_to_' + toDate

@@ -43,6 +43,13 @@ function StudentExamTableSkeleton({ columns = 8, rows = 3 }) {
   </div>
 }
 
+function StudentTestReportSkeleton() {
+  return <div className="student-test-report-loading-skeleton" aria-label="Loading test report" aria-busy="true">
+    <div className="student-test-report-loading-heading"><span /><span /></div>
+    {Array.from({ length: 4 }, (_, row) => <div className="student-test-report-loading-row" key={row}>{Array.from({ length: 8 }, (_, column) => <span key={column} />)}</div>)}
+  </div>
+}
+
 function StudentAssessmentReportTableView({ embedded, student, navigate, loading, error, reports, selectedModuleId, onSelectModule }) {
   const module = reports?.modules?.find((item) => item.moduleId === selectedModuleId) || reports?.modules?.[0]
   return <section className={`exam-page ${embedded ? 'exam-page-embedded' : ''}`}>
@@ -88,6 +95,11 @@ export function StudentExamsPage({ embedded = false, student = null, courseId = 
 
   useEffect(() => {
     let mounted = true
+    setTests([])
+    setActive(null)
+    setSelectedResult(null)
+    setSelectedResultTest(null)
+    setError('')
     setTestsLoading(true)
     listStudentTests(courseId).then((items) => { if (mounted) setTests(items) }).catch((e) => { if (mounted) setError(e.message) }).finally(() => { if (mounted) setTestsLoading(false) })
     return () => { mounted = false }
@@ -228,6 +240,7 @@ export function StudentExamsPage({ embedded = false, student = null, courseId = 
   const currentReportPage = Math.min(reportPage, reportPageCount)
   const pagedModuleReports = moduleReports.slice((currentReportPage - 1) * 5, currentReportPage * 5)
 
+  if (examTab === 'reports' && requestedReportTab === 'tests' && (testsLoading || reportLoading)) return <section className={`exam-page ${embedded ? 'exam-page-embedded' : ''}`}><header className="exam-page-header"><div><p className="exam-kicker">STUDENT LEARNING</p><h1>Test Report</h1><p>Module-wise results for submitted tests.</p></div></header><div className="exam-card student-reports-card"><StudentTestReportSkeleton /></div></section>
   if (examTab === 'reports' && requestedReportTab === 'assessments') return <StudentAssessmentReportTableView embedded={embedded} student={student} navigate={navigate} loading={assessmentReportLoading} error={assessmentReportError} reports={assessmentReports} selectedModuleId={selectedAssessmentModuleId} onSelectModule={setSelectedAssessmentModuleId} />
   if (examTab === 'reports' && requestedReportTab === 'assessments') return <section className={`exam-page ${embedded ? 'exam-page-embedded' : ''}`}>
     <header className="exam-page-header"><div><p className="exam-kicker">STUDENT LEARNING</p><h1>Tests</h1><p>Only tests assigned to your enrolled batch are shown.</p></div></header>

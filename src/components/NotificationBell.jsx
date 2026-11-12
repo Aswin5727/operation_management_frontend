@@ -7,7 +7,7 @@ import { getNotificationItems, getUnreadNotificationCount } from '../data/notifi
 import { request } from '../services/apiClient'
 import { filterNotificationsForDisplay, isNotificationAvailable, unwrapNotifications } from '../services/notificationService'
 
-export function NotificationBell() {
+export function NotificationBell({ targetUserId = '', readOnlyView = false }) {
   const { role } = useAuth()
   const navigate = useNavigate()
   const [isOpen, setIsOpen] = useState(false)
@@ -18,11 +18,12 @@ export function NotificationBell() {
   const remoteLoadRef = useRef(null)
   const roleKey = String(role).toUpperCase().replace(/[^A-Z0-9]+/g, '_')
   const isSalesAdmin = ['SALES_ADMIN', 'SALESADMIN'].includes(roleKey)
-  const isRemoteNotifications = roleKey === 'STUDENT' || isSalesAdmin
+  const isScopedSalesAdmin = Boolean(targetUserId)
+  const isRemoteNotifications = roleKey === 'STUDENT' || isSalesAdmin || isScopedSalesAdmin
   const isStudent = roleKey === 'STUDENT'
   const availableRemoteItems = isRemoteNotifications ? filterNotificationsForDisplay(remoteItems) : []
   const notificationItems = isRemoteNotifications ? availableRemoteItems : getNotificationItems(role)
-  const visibleItems = (isSalesAdmin ? notificationItems.filter(item => !item.read) : notificationItems).slice(0, isRemoteNotifications ? 3 : 2)
+  const visibleItems = ((isSalesAdmin || isScopedSalesAdmin) ? notificationItems.filter(item => !item.read) : notificationItems).slice(0, isRemoteNotifications ? 3 : 2)
   const deferredUnreadCount = isRemoteNotifications ? remoteItems.filter(item => !item.read && !isNotificationAvailable(item)).length : 0
   const unreadCount = isRemoteNotifications ? Math.max(0, remoteCount - deferredUnreadCount) : getUnreadNotificationCount(role)
 
@@ -30,7 +31,8 @@ export function NotificationBell() {
     if (!isRemoteNotifications) return undefined
     let active = true
     const load = async () => {
-      const pending = remoteLoadRef.current || request('/notifications?limit=20&page=1').then(unwrapNotifications)
+      const query = targetUserId ? `?limit=20&page=1&targetUserId=${encodeURIComponent(targetUserId)}` : '?limit=20&page=1'
+      const pending = remoteLoadRef.current || request(`/notifications${query}`).then(unwrapNotifications)
       remoteLoadRef.current = pending
       try {
         const body = await pending
@@ -52,7 +54,7 @@ export function NotificationBell() {
       window.removeEventListener('lead-notification-updated', load) }
   }, [isRemoteNotifications])
   const markRead = async (notificationIds = null) => {
-    if (!isRemoteNotifications) return
+    if (!isRemoteNotifications || readOnlyView) return
     const unreadIds = notificationIds?.length ? notificationIds : availableRemoteItems.filter(item => !item.read).map(item => item.id)
     if (!unreadIds.length) return
     try {
@@ -70,20 +72,20 @@ export function NotificationBell() {
       navigate('/student-new-dashboard?section=profile&open=discontinuation')
       return true
     }
-    if (isSalesAdmin && ['LEAD_FOLLOW_UP_DUE', 'LEAD_FOLLOW_UP_OVERDUE'].includes(kind)) {
+    if ((isSalesAdmin || isScopedSalesAdmin) && ['LEAD_FOLLOW_UP_DUE', 'LEAD_FOLLOW_UP_OVERDUE'].includes(kind)) {
       const leadId = description.split(':')[1]
       if (leadId) navigate('/dashboard/sales-admin/leads', { state: { leadId } })
       return true
     }
-    if (isSalesAdmin && kind === 'SALES_CRM_MONTHLY_REPORT') {
+    if ((isSalesAdmin || isScopedSalesAdmin) && kind === 'SALES_CRM_MONTHLY_REPORT') {
       navigate('/dashboard/sales-admin/reports')
       return true
     }
-    if (isSalesAdmin && kind === 'PENDING_STUDENT_ADMISSION_REMINDER') {
+    if ((isSalesAdmin || isScopedSalesAdmin) && kind === 'PENDING_STUDENT_ADMISSION_REMINDER') {
       navigate('/dashboard/sales-admin/admissions?status=PENDING_HOT')
       return true
     }
-    if (isSalesAdmin && kind === 'SALES_CRM_BATCH_REQUEST_UPDATE') {
+    if ((isSalesAdmin || isScopedSalesAdmin) && kind === 'SALES_CRM_BATCH_REQUEST_UPDATE') {
       navigate('/dashboard/sales-admin/admissions')
       return true
     }
@@ -148,9 +150,9 @@ export function NotificationBell() {
           <div className="notification-dropdown-head">
             <strong>Notifications</strong>
             <div className="notification-dropdown-head-actions">
-              <button type="button" className="notification-mark-read" onClick={markRead} disabled={isRemoteNotifications && unreadCount === 0}>
+              {!readOnlyView ? <button type="button" className="notification-mark-read" onClick={markRead} disabled={isRemoteNotifications && unreadCount === 0}>
                 {isRemoteNotifications && unreadCount === 0 ? 'All caught up' : 'Mark all as read'}
-              </button>
+              </button> : null}
               <button type="button" className="notification-dropdown-close" aria-label="Close notifications" onClick={() => setIsOpen(false)}>
                 <X size={17} strokeWidth={2.4} aria-hidden="true" />
               </button>
@@ -170,7 +172,7 @@ export function NotificationBell() {
                   onClick={() => {
                     setIsOpen(false)
                     if (isRemoteNotifications) {
-                      void markRead([item.id])
+                      if (!readOnlyView) void markRead([item.id])
                       openStudentNotification(item)
                     } else navigate(isSalesAdmin ? '/dashboard/sales-admin/notifications' : '/notifications')
                   }}

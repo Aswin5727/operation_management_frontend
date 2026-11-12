@@ -29,6 +29,7 @@ import {
   Code2,
   CircleDot,
   CalendarDays,
+  CheckCheck,
   Monitor,
   Clock3,
   ArrowUpRight,
@@ -36,9 +37,11 @@ import {
   Download,
   IndianRupee,
   FileText,
+  FileSpreadsheet,
   Tag,
   BadgeInfo,
   BadgePercent,
+  BarChart3,
   PieChart,
   UserRound,
   Search,
@@ -54,6 +57,8 @@ import {
   GraduationCap,
   PhoneCall,
   BriefcaseBusiness,
+  Headset,
+  Settings,
 } from 'lucide-react'
 
 import { CourseExcelUpload } from '../components/CourseExcelUpload'
@@ -134,6 +139,9 @@ import { calculateBatchCourseEndDate, getBatchAvailability } from '../lib/batchA
 import { StudentCalendarPage } from './StudentCalendarPage'
 import CompletedStudentsPage from './CompletedStudentsPage'
 import { BranchMonthlyReportModal } from '../components/BranchMonthlyReportModal'
+import { BranchReportsAnalyticsPage } from './BranchReportsAnalyticsPage'
+import { HelpdeskSupportPanel } from '../components/HelpdeskSupportPanel'
+import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
 import RecordPayment from '../components/payments/RecordPayment'
 import { buildModernPaymentReceiptHtml } from '../components/payments/RecordPayment'
 import { hasSalesCollectedAmount } from '../components/payments/receiptPaymentSource'
@@ -2940,6 +2948,8 @@ function getBranchDashboardSectionFromPath(pathname = '', search = '') {
   if (section === 'sales-crm-admitted-students') return 'sales-crm-admitted-students'
   if (section === 'sales-admin-directory') return 'sales-admin-directory'
   if (section === 'sales-crm-reports') return 'sales-crm-reports'
+  if (section === 'branch-reports') return 'branch-reports'
+  if (section === 'reports') return 'branch-reports'
   if (section === 'institute-leave') return 'institute-leave'
   if (section === 'faculty-leave') return 'faculty-leave'
   if (section === 'progress-notifications') return 'progress-notifications'
@@ -2961,6 +2971,8 @@ function getBranchDashboardSectionFromPath(pathname = '', search = '') {
   if (section === 'exams-results') return 'exams-results'
   if (section === 'academic-tests') return 'academic-tests'
   if (section === 'academic-test-reports') return 'academic-tests'
+  if (section === 'helpdesk' || section === 'helpdesk-tickets' || section === 'helpdesk-knowledge-base' || section === 'helpdesk-contact-support') return section
+  if (section === 'settings') return 'settings'
 
   return ''
 }
@@ -4288,8 +4300,10 @@ export function BranchDashboardPage({ embeddedMode = false, branchData = null, i
   const [isSalesAdminDashboardMode, setIsSalesAdminDashboardMode] = useState(false)
   const hasLeadManagementAccess = String(resolvedBranchRoleAccess || user?.roleAccess || session?.user?.roleAccess || '').toUpperCase() === 'BRANCH_ADMIN_SALES_ADMIN'
 
+
+
   useEffect(() => {
-    if (['lead-management', 'sales-crm-admissions', 'sales-crm-reports'].includes(activeSection) && !hasLeadManagementAccess) {
+    if (['lead-management', 'sales-crm-admissions'].includes(activeSection) && !hasLeadManagementAccess) {
       navigate('/branch-dashboard', { replace: true })
     }
   }, [activeSection, hasLeadManagementAccess, navigate])
@@ -4372,7 +4386,7 @@ export function BranchDashboardPage({ embeddedMode = false, branchData = null, i
   }, [isSidebarFlyoutMode, openSidebarFlyout])
 
   useEffect(() => {
-    const parentByChild = { faculty: 'faculty', 'sales-admin-directory': 'faculty', 'sales-crm-admitted-students': 'sales-crm', 'sales-crm-admissions': 'lead-management', 'sales-crm-reports': 'lead-management', 'lead-management': 'lead-management', students: 'academic', 'student-management': 'academic', 'completed-students': 'academic', courses: 'academic', batches: 'academic', installments: 'academic', payments: 'payments', 'exams-results': 'academic', 'academic-tests': 'academic', 'institute-leave': 'academic', 'faculty-leave': 'academic', 'progress-notifications': 'academic', 'faculty-edit-requests': 'academic', discontinuations: 'academic' }
+  const parentByChild = { faculty: 'faculty', 'sales-admin-directory': 'faculty', 'sales-crm-admitted-students': 'sales-crm', 'sales-crm-admissions': 'lead-management', 'sales-crm-reports': 'reports', 'branch-reports': 'reports', 'lead-management': 'lead-management', students: 'academic', 'student-management': 'academic', 'completed-students': 'academic', courses: 'academic', batches: 'academic', installments: 'academic', payments: 'payments', 'exams-results': 'academic', 'academic-tests': 'academic', 'institute-leave': 'academic', 'faculty-leave': 'academic', 'progress-notifications': 'academic', 'faculty-edit-requests': 'academic', discontinuations: 'academic', 'helpdesk-tickets': 'helpdesk', 'helpdesk-knowledge-base': 'helpdesk', 'helpdesk-contact-support': 'helpdesk' }
     const parent = parentByChild[activeSection]
     if (!parent) return
     setExpandedSidebarGroups((current) => current[parent] ? current : { ...current, [parent]: true })
@@ -4877,10 +4891,10 @@ const BRANCH_PAYMENT_HISTORY_PER_PAGE = 5
   const [isDiscontinuationReviewSaving, setIsDiscontinuationReviewSaving] = useState(false)
   const [branchNotificationRecords, setBranchNotificationRecords] = useState([])
   const [branchNotificationSearch, setBranchNotificationSearch] = useState('')
-  const [branchNotificationMonthFilter, setBranchNotificationMonthFilter] = useState(() => {
-    const today = new Date()
-    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
-  })
+  const [branchNotificationDatePreset, setBranchNotificationDatePreset] = useState('all')
+  const [branchNotificationFromDate, setBranchNotificationFromDate] = useState('')
+  const [branchNotificationToDate, setBranchNotificationToDate] = useState('')
+  const [branchNotificationSort, setBranchNotificationSort] = useState('newest')
   const [branchNotificationStatusFilter, setBranchNotificationStatusFilter] = useState('all')
   const [branchNotificationPage, setBranchNotificationPage] = useState(1)
   const [facultyTodayWorkEntries, setFacultyTodayWorkEntries] = useState([])
@@ -5696,7 +5710,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
   // becomes the active section.
   useEffect(() => {
     if (activeSection !== 'notifications') return
-    void loadBranchNotifications()
+    void loadBranchNotifications({ force: true })
   }, [activeSection, loadBranchNotifications])
 
   useEffect(() => {
@@ -6027,6 +6041,15 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     }),
     [branchProfile?.branchEmail, branchProfile?.branchId, branchProfile?.id, user?.email],
   )
+  const currentBranchUserId = String(
+    user?.id ||
+    user?.userId ||
+    session?.user?.id ||
+    session?.user?.userId ||
+    branchProfile?.adminUserId ||
+    branchData?.adminUserId ||
+    '',
+  ).trim()
   const branchLocation = branchProfile?.branchAddress || 'Assigned location'
   const mustResetPassword = Boolean(
     session?.user?.mustResetPassword ??
@@ -6067,6 +6090,8 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
               String(notification.kind || '').startsWith('course-edit-') ||
               String(notification.kind || '').trim() === 'sales-crm-admission' ||
               String(notification.kind || '').trim() === 'sales-crm-batch-request' ||
+              ['account-role-updated', 'email-changed', 'branch-admin-replaced'].includes(String(notification.kind || '').trim()) ||
+              String(notification.targetUserId || '').trim() === currentBranchUserId ||
               (['lead-follow-up-due', 'lead-follow-up-overdue', 'lead-follow-up-scheduled'].includes(String(notification.kind || '').trim())) ||
               (hasLeadManagementAccess && ['sales-crm-monthly-report', 'pending-student-admission-reminder', 'sales-crm-batch-request-update'].includes(String(notification.kind || '').trim())) ||
               (String(notification.kind || '') === 'sequential-course-scheduling-required' ||
@@ -6084,20 +6109,20 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
             'sales-crm-batch-request-update',
           ])
           const kind = String(notification.kind || '').trim()
-          return !salesNotificationKinds.has(kind) || String(notification.targetUserId || '').trim() === String(user?.id || '').trim()
+          return !salesNotificationKinds.has(kind) || String(notification.targetUserId || '').trim() === currentBranchUserId
         })
         .filter((notification) => {
           const kind = String(notification.kind || '').trim()
           const followUpKinds = ['lead-follow-up-scheduled', 'lead-follow-up-due', 'lead-follow-up-overdue']
           if (!followUpKinds.includes(kind)) return true
-          return String(notification.targetUserId || '').trim() === String(user?.id || '').trim()
+          return String(notification.targetUserId || '').trim() === currentBranchUserId
         })
         // The API is already tenant-scoped. Keep sequential scheduling alerts
         // visible even for legacy rows that were saved before branch IDs were
         // normalized to the canonical branch primary key.
         .filter((notification) => (
           String(notification.kind || '').trim() === 'sequential-course-scheduling-required' ||
-          String(notification.targetUserId || '').trim() === String(user?.id || '').trim() ||
+          String(notification.targetUserId || '').trim() === currentBranchUserId ||
           doesBranchNotificationBelongToBranch(notification, branchScope)
         ))
         .filter((notification) => {
@@ -6137,7 +6162,7 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
         })
         .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     },
-    [branchNotificationRecords, branchScope, branchStudents, hasLeadManagementAccess, isBranchStudentsLoading, user?.id],
+    [branchNotificationRecords, branchScope, branchStudents, currentBranchUserId, hasLeadManagementAccess, isBranchStudentsLoading],
   )
 
   useEffect(() => {
@@ -6177,17 +6202,24 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     () => {
       const searchTerm = branchNotificationSearch.trim().toLowerCase()
       const now = new Date()
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-      const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000
-      const daysSinceMonday = (now.getDay() + 6) % 7
-      const startOfWeek = startOfToday - daysSinceMonday * 24 * 60 * 60 * 1000
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const shiftDateKey = (dateKey, days) => {
+        const date = new Date(`${dateKey}T00:00:00`)
+        date.setDate(date.getDate() + days)
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+      }
+      const dateRange = branchNotificationDatePreset === 'custom'
+        ? { from: branchNotificationFromDate, to: branchNotificationToDate }
+        : branchNotificationDatePreset === 'today'
+          ? { from: todayKey, to: todayKey }
+          : branchNotificationDatePreset === 'yesterday'
+            ? { from: shiftDateKey(todayKey, -1), to: shiftDateKey(todayKey, -1) }
+            : branchNotificationDatePreset === 'last7days'
+              ? { from: shiftDateKey(todayKey, -6), to: todayKey }
+              : { from: `${todayKey.slice(0, 7)}-01`, to: todayKey }
 
       const filteredNotifications = normalizedBranchNotifications.filter((item) => {
         const notificationDate = new Date(item.createdAt)
-        const notificationTimestamp = notificationDate.getTime()
-        const notificationMonth = Number.isNaN(notificationDate.getTime())
-          ? ''
-          : `${notificationDate.getFullYear()}-${String(notificationDate.getMonth() + 1).padStart(2, '0')}`
         const matchesSearch = !searchTerm || [
           item.title,
           item.message,
@@ -6207,28 +6239,32 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
           item.summary,
         ].some((value) => String(value || '').toLowerCase().includes(searchTerm))
 
-        const matchesMonth =
-          branchNotificationMonthFilter === 'all' ||
-          (branchNotificationMonthFilter === 'today'
-            ? notificationTimestamp >= startOfToday
-            : branchNotificationMonthFilter === 'yesterday'
-              ? notificationTimestamp >= startOfYesterday && notificationTimestamp < startOfToday
-              : branchNotificationMonthFilter === 'week'
-                ? notificationTimestamp >= startOfWeek
-                : notificationMonth === branchNotificationMonthFilter)
+        const notificationKey = Number.isNaN(notificationDate.getTime()) ? '' : `${notificationDate.getFullYear()}-${String(notificationDate.getMonth() + 1).padStart(2, '0')}-${String(notificationDate.getDate()).padStart(2, '0')}`
+        const matchesDate = branchNotificationDatePreset === 'all' || (
+          dateRange.from && dateRange.to && notificationKey >= dateRange.from && notificationKey <= dateRange.to
+        )
 
         const matchesStatus =
           branchNotificationStatusFilter === 'all' ||
           (branchNotificationStatusFilter === 'unread' ? item.unread : !item.unread)
 
-        return matchesSearch && matchesMonth && matchesStatus
+        return matchesSearch && matchesDate && matchesStatus
+      })
+
+      filteredNotifications.sort((left, right) => {
+        const leftTime = Date.parse(left.createdAt || '') || 0
+        const rightTime = Date.parse(right.createdAt || '') || 0
+        return branchNotificationSort === 'oldest' ? leftTime - rightTime : rightTime - leftTime
       })
 
       return groupByDate(filteredNotifications)
     },
     [
-      branchNotificationMonthFilter,
+      branchNotificationDatePreset,
+      branchNotificationFromDate,
+      branchNotificationToDate,
       branchNotificationSearch,
+      branchNotificationSort,
       branchNotificationStatusFilter,
       normalizedBranchNotifications,
     ],
@@ -6260,29 +6296,6 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
   }, [paginatedBranchNotificationRows])
 
 
-  const branchNotificationMonthOptions = useMemo(() => {
-    const currentMonth = new Date()
-    const monthKeys = new Set([
-      `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`,
-      ...normalizedBranchNotifications.map((item) => {
-        const date = new Date(item.createdAt)
-        return Number.isNaN(date.getTime())
-          ? ''
-          : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-      }),
-    ])
-
-    return [...monthKeys]
-      .filter(Boolean)
-      .sort((left, right) => right.localeCompare(left))
-      .map((monthKey) => {
-        const [year, month] = monthKey.split('-').map(Number)
-        return {
-          value: monthKey,
-          label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)),
-        }
-      })
-  }, [normalizedBranchNotifications])
   const branchNotificationItems = normalizedBranchNotifications
   const branchUnreadNotificationCount = useMemo(
     () => normalizedBranchNotifications.filter((item) => item.unread && !item.dropdownViewed).length,
@@ -11639,9 +11652,14 @@ useEffect(() => {
           ...(hasLeadManagementAccess ? [{ id: 'lead-management', label: 'Lead Management', icon: BriefcaseBusiness, children: [
             { id: 'lead-management', label: 'Lead Management', icon: BriefcaseBusiness },
             { id: 'sales-crm-admissions', label: 'Student Admission', icon: GraduationCap },
-            { id: 'sales-crm-reports', label: 'Monthly Reports', icon: FileText },
           ] }] : []),
+          { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, children: [
+            { id: 'sales-crm-reports', label: 'Lead Monthly Report', icon: FileText },
+            { id: 'branch-reports', label: 'Report Downloads', icon: FileSpreadsheet },
+          ] },
+          { id: 'helpdesk', label: 'Helpdesk & Support', icon: Headset, children: [] },
           { id: 'notifications', label: 'Notifications', icon: Bell },
+          { id: 'settings', label: 'Settings', icon: Settings },
           { id: 'profile', label: 'Profile', icon: CircleUserRound },
         ].map((item) => {
           const Icon = item.icon
@@ -11827,7 +11845,7 @@ useEffect(() => {
               aria-expanded={isNotificationMenuOpen}
               onClick={() => {
                 // Fetch before opening so a faculty save is visible immediately.
-                void loadBranchNotifications()
+                void loadBranchNotifications({ force: true })
                 setIsNotificationMenuOpen((current) => !current)
               }}
             >
@@ -12513,7 +12531,14 @@ useEffect(() => {
               {activeSection === 'discontinuations' ? <BranchDiscontinuationManagementPage /> : null}
               {activeSection === 'lead-management' ? <LeadManagementPage /> : null}
               {activeSection === 'sales-crm-admissions' ? <SalesAdminAdmissionsPage key={location.search} /> : null}
-              {activeSection === 'sales-crm-reports' ? <SalesCrmReportPage /> : null}
+              {activeSection === 'sales-crm-reports' ? <SalesCrmReportPage branchScoped branchId={branchProfile?.id || branchData?.id || ''} branchName={branchProfile?.branchName || branchData?.branchName || ''} /> : null}
+              {activeSection === 'branch-reports' ? (
+                <BranchReportsAnalyticsPage
+                  students={branchStudentsForDisplay}
+                  batchGroups={branchBatchGroups}
+                  branchId={branchProfile?.id || branchProfile?.branchId || branchData?.id || branchData?.branchId || ''}
+                />
+              ) : null}
               {activeSection === 'exams-results' ? <BranchExamResultsPage branchId={branchProfile?.id || branchProfile?.branchId || branchData?.id || branchData?.branchId || ''} /> : null}
               {activeSection === 'academic-tests' ? <AcademicTestPage /> : null}
               {activeSection === 'notifications' ? (
@@ -12541,56 +12566,28 @@ useEffect(() => {
                         Back to dashboard
                       </button>
 
-                      <button type="button" className="notifications-mark-read" onClick={markAllBranchNotificationsAsRead} disabled={!branchPageUnreadNotificationCount}>
-                        <CheckCircle2 size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                        Mark all as read
-                      </button>
                     </div>
                   </header>
 
-                  <div className="branch-notifications-filters" aria-label="Notification filters">
-                    <label className="branch-notifications-search">
-                      <Search size={22} strokeWidth={2.1} aria-hidden="true" focusable="false" />
-                      <input
-                        type="search"
-                        value={branchNotificationSearch}
-                        onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationSearch(event.target.value) }}
-                        placeholder="Search notifications"
-                        aria-label="Search notifications"
-                      />
-                    </label>
-
-                    <label className="branch-notifications-select">
-                      <CalendarDays size={19} strokeWidth={2.1} aria-hidden="true" focusable="false" />
-                      <select
-                        value={branchNotificationMonthFilter}
-                        onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationMonthFilter(event.target.value) }}
-                        aria-label="Filter notifications by date or month"
-                      >
-                        <option value="all">All dates</option>
-                        <option value="today">Today</option>
-                        <option value="yesterday">Yesterday</option>
-                        <option value="week">This week</option>
-                        {branchNotificationMonthOptions.map((month) => (
-                          <option key={month.value} value={month.value}>{month.label}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                    </label>
-
-                    <label className="branch-notifications-select">
-                      <span className="branch-notifications-status-dot" aria-hidden="true" />
-                      <select
-                        value={branchNotificationStatusFilter}
-                        onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationStatusFilter(event.target.value) }}
-                        aria-label="Filter notifications by status"
-                      >
-                        <option value="all">All status</option>
-                        <option value="read">Read</option>
-                        <option value="unread">Unread</option>
-                      </select>
-                      <ChevronDown size={18} strokeWidth={2.2} aria-hidden="true" focusable="false" />
-                    </label>
+                  <div className="branch-notification-date-toolbar" aria-label="Filter notifications by date">
+                    <div className="branch-notification-date-filters">
+                      {[['all', 'All'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['last7days', 'Last 7 Days'], ['thismonth', 'This Month'], ['custom', 'Custom Range']].map(([value, label]) => (
+                        <button type="button" key={value} className={branchNotificationDatePreset === value ? 'is-active' : ''} onClick={() => { setBranchNotificationPage(1); setBranchNotificationDatePreset(value) }}>{label}</button>
+                      ))}
+                    </div>
+                    {branchNotificationDatePreset === 'custom' ? <div className="branch-notification-date-range">
+                      <label>From Date<input type="date" value={branchNotificationFromDate} max={branchNotificationToDate || undefined} onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationFromDate(event.target.value) }} /></label>
+                      <label>To Date<input type="date" value={branchNotificationToDate} min={branchNotificationFromDate || undefined} onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationToDate(event.target.value) }} /></label>
+                    </div> : null}
+                  </div>
+                  <div className="branch-notification-toolbar">
+                    <div className="branch-notification-status-filters" aria-label="Filter by read status">
+                      {[['all', 'All'], ['unread', 'Unread'], ['read', 'Read']].map(([value, label]) => <button type="button" key={value} className={branchNotificationStatusFilter === value ? 'is-active' : ''} onClick={() => { setBranchNotificationPage(1); setBranchNotificationStatusFilter(value) }}>{label}</button>)}
+                    </div>
+                    <div className="branch-notification-toolbar-actions">
+                      <label>Sort<select value={branchNotificationSort} onChange={(event) => { setBranchNotificationPage(1); setBranchNotificationSort(event.target.value) }}><option value="newest">Newest First</option><option value="oldest">Oldest First</option></select></label>
+                      <button type="button" className="notifications-mark-read" onClick={markAllBranchNotificationsAsRead} disabled={!branchPageUnreadNotificationCount}><CheckCheck size={16} strokeWidth={2.2} aria-hidden="true" focusable="false" />Mark all as read</button>
+                    </div>
                   </div>
 
                   <div className="notifications-feed">
@@ -15498,6 +15495,22 @@ if (paidProgress >= 100) {
 
 ) : null}
               
+              {activeSection === 'helpdesk' || activeSection.startsWith('helpdesk-') ? (
+                <HelpdeskSupportPanel
+                  roleLabel="your branch workspace"
+                  activeView={activeSection}
+                />
+              ) : null}
+
+              {activeSection === 'settings' ? (
+                <AccountSettingsPanel
+                  displayName={branchAdminDisplay}
+                  email={branchEmail}
+                  roleLabel={hasLeadManagementAccess ? 'Branch Admin and Sales Admin' : 'Branch Admin'}
+                  onForgotPassword={openForgotPassword}
+                />
+              ) : null}
+
               {activeSection === 'profile' ? (
                 <BranchDashboardSection title="Profile" description="Manage your branch profile and account information.">
                   {!branchProfile && !branchData ? <BranchProfileSkeleton /> : <>

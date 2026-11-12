@@ -100,7 +100,7 @@ const normalizeCreatedAt = (notification = {}) => {
 
 const normalizeNotification = (notification = {}) => {
   const createdAt = normalizeCreatedAt(notification)
-  const kind = String(notification.kind || 'general').trim() || 'general'
+  const kind = String(notification.kind || 'general').trim().toLowerCase() || 'general'
   const tone = String(notification.tone || 'blue').trim() || 'blue'
 
   return {
@@ -182,6 +182,7 @@ export function loadNotifications() {
         String(notification.kind || '').startsWith('branch-progress-status') ||
         String(notification.kind || '').trim() === 'sales-crm-admission' ||
         String(notification.kind || '').trim() === 'sales-crm-batch-request' ||
+        ['account-role-updated', 'email-changed', 'branch-admin-replaced'].includes(String(notification.kind || '').trim()) ||
         ['lead-follow-up-scheduled', 'lead-follow-up-due', 'lead-follow-up-overdue'].includes(String(notification.kind || '').trim()) ||
         String(notification.kind || '') === 'sequential-course-scheduling-required'
       ),

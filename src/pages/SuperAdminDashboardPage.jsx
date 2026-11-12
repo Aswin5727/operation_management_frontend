@@ -5,6 +5,7 @@ import html2pdf from 'html2pdf.js'
 import {
   BadgeCheck,
   Bell,
+  BriefcaseBusiness,
   Building2,
   CalendarDays,
   CircleUserRound,
@@ -26,6 +27,7 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
   ShieldCheck,
+  UserPlus,
 } from 'lucide-react'
 
 import { useAuth } from '../auth/useAuth'
@@ -41,14 +43,23 @@ import { listAllBranchCourses } from '../services/branchCourseService'
 import { listBranchBatches } from '../services/branchBatchService'
 import { listFacultyTodayWorkEntries } from '../lib/facultyTodayWorkStore'
 import { BranchDashboardPage } from './BranchDashboardPage'
+import { SalesAdminDashboardPage } from './SalesAdminDashboardPage'
 import { Student360Page } from './Student360Page'
 import StudentCalendarPage from './StudentCalendarPage'
 import { request, setImpersonateBranchId } from '../services/apiClient'
+import { assignBranchAccess, listBranchAccessUsers } from '../services/userRoleManagementService'
 import { SuperAdminOverallDashboard } from '../components/SuperAdminOverallDashboard'
 import { SuperAdminMetricDetailPage } from '../components/SuperAdminMetricDetailPage'
 import { SuperAdminSidebarNav } from '../components/SuperAdminSidebarNav'
 import { SuperAdminDiscontinuationPage } from './SuperAdminDiscontinuationPage'
-import { SalesAdminManagementPage } from './SalesAdminManagementPage'
+import { UserRoleManagementPage } from './UserRoleManagementPage'
+import { HelpdeskSupportPanel } from '../components/HelpdeskSupportPanel'
+import { AccountSettingsPanel } from '../components/AccountSettingsPanel'
+import { SuperAdminProfilePanel } from '../components/SuperAdminProfilePanel'
+import { BranchReportsAnalyticsPage } from './BranchReportsAnalyticsPage'
+import { SalesCrmReportPage } from './SalesCrmReportPage'
+import { SuperAdminSalesCrmPanel } from '../components/SuperAdminSalesCrmPanel'
+import { SuperAdminInstituteLeavePanel } from '../components/SuperAdminInstituteLeavePanel'
 import { loadBranchStudents } from '../lib/branchStudentStore'
 import { loadBranchPaymentHistoryEntries } from '../lib/branchPaymentHistoryStore'
 import { buildModernPaymentReceiptHtml } from '../components/payments/RecordPayment'
@@ -564,7 +575,7 @@ function validateBranchForm(form, existingBranches = [], ignoreBranchId = null) 
 function getInitialSuperAdminSection(search = '') {
   const params = new URLSearchParams(search)
   const section = params.get('section')
-  return ['branches', 'branch-admin', 'faculty', 'sales-admin', 'students', 'leave-management', 'faculty-leave', 'discontinuations', 'metric-branches', 'metric-students', 'metric-admissions', 'metric-total-payment', 'metric-month-payment', 'metric-outstanding', 'metric-month-due', 'metric-today-due', 'metric-overdue', 'metric-due-students', 'metric-today-collection'].includes(section) ? section : 'dashboard'
+  return ['branches', 'branch-admin', 'faculty', 'sales-admin', 'user-role', 'students', 'exams-results', 'academic-tests', 'leave-management', 'faculty-leave', 'discontinuations', 'helpdesk', 'settings', 'profile', 'reports', 'metric-branches', 'metric-students', 'metric-admissions', 'metric-total-payment', 'metric-month-payment', 'metric-outstanding', 'metric-month-due', 'metric-today-due', 'metric-overdue', 'metric-due-students', 'metric-today-collection'].includes(section) ? section : 'dashboard'
 }
 
 export function SuperAdminDashboardPage() {
@@ -583,6 +594,7 @@ export function SuperAdminDashboardPage() {
   const [allBranchFaculty, setAllBranchFaculty] = useState([])
   const [allBranchBatches, setAllBranchBatches] = useState([])
   const [allBranchLeaves, setAllBranchLeaves] = useState([])
+  const [allInstituteLeaves, setAllInstituteLeaves] = useState([])
   const [globalFacultyPage, setGlobalFacultyPage] = useState(1)
   const [globalStudentPage, setGlobalStudentPage] = useState(1)
   const [globalLeavePage, setGlobalLeavePage] = useState(1)
@@ -598,7 +610,7 @@ export function SuperAdminDashboardPage() {
   const [globalLeaveSort, setGlobalLeaveSort] = useState('createdAt')
   const [globalStudentRefreshKey, setGlobalStudentRefreshKey] = useState(0)
   const [isGlobalStudentsLoading, setIsGlobalStudentsLoading] = useState(true)
-  const [isGlobalManagementLoading, setIsGlobalManagementLoading] = useState(true)
+  const [isGlobalManagementLoading, setIsGlobalManagementLoading] = useState(false)
   const [globalManagementError, setGlobalManagementError] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false)
@@ -622,8 +634,10 @@ export function SuperAdminDashboardPage() {
   
   // Immersive Dashboard viewing states
   const [viewDashboardBranch, setViewDashboardBranch] = useState(null)
+  const [viewDashboardMode, setViewDashboardMode] = useState('branch')
   const [isViewDashboardConfirmOpen, setIsViewDashboardConfirmOpen] = useState(false)
   const [embeddedBranch, setEmbeddedBranch] = useState(null)
+  const [embeddedSalesAdmin, setEmbeddedSalesAdmin] = useState(null)
   const [embeddedStudentEditId, setEmbeddedStudentEditId] = useState('')
   const [superAdminStudentView, setSuperAdminStudentView] = useState(null)
   const [superAdminStudentCourseData, setSuperAdminStudentCourseData] = useState({ courses: [], batches: [], facultyWork: [] })
@@ -642,6 +656,13 @@ export function SuperAdminDashboardPage() {
   const [successTitle, setSuccessTitle] = useState('Action completed successfully')
   const [branchErrors, setBranchErrors] = useState({})
   const [actionError, setActionError] = useState('')
+  const [branchAccessTarget, setBranchAccessTarget] = useState(null)
+  const [branchAccessUsers, setBranchAccessUsers] = useState([])
+  const [branchAccessLoading, setBranchAccessLoading] = useState(false)
+  const [branchAccessSaving, setBranchAccessSaving] = useState(false)
+  const [branchAccessUserId, setBranchAccessUserId] = useState('')
+  const [branchAccessRole, setBranchAccessRole] = useState('BRANCH_ADMIN_ONLY')
+  const [branchAccessError, setBranchAccessError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const previousBranchSnapshotRef = useRef(null)
@@ -732,6 +753,12 @@ export function SuperAdminDashboardPage() {
   }, [loadBranches])
 
   useEffect(() => {
+    const refreshBranches = () => { void loadBranches() }
+    window.addEventListener('cispro:branches-changed', refreshBranches)
+    return () => window.removeEventListener('cispro:branches-changed', refreshBranches)
+  }, [loadBranches])
+
+  useEffect(() => {
     if (!superAdminStudentView) return undefined
 
     const branchId = String(superAdminStudentView.branch?.id || superAdminStudentView.branch?.branchId || '').trim()
@@ -759,7 +786,9 @@ export function SuperAdminDashboardPage() {
   }, [superAdminStudentView])
 
   useEffect(() => {
-    if (activeSection !== 'students' || !branches.length) {
+    const isAdmissionsView = activeSection === 'sales-admin' && new URLSearchParams(location.search).get('view') === 'admissions'
+    const isReportDownloadsView = activeSection === 'reports' && new URLSearchParams(location.search).get('view') === 'downloads'
+    if ((activeSection !== 'students' && !isAdmissionsView && !isReportDownloadsView) || !branches.length) {
       setIsGlobalStudentsLoading(false)
       setAllBranchStudents([])
       return undefined
@@ -816,7 +845,7 @@ export function SuperAdminDashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [activeSection, branches, globalStudentRefreshKey])
+  }, [activeSection, branches, globalStudentRefreshKey, location.search])
 
   useEffect(() => {
     const refreshStudents = () => setGlobalStudentRefreshKey((current) => current + 1)
@@ -829,11 +858,16 @@ export function SuperAdminDashboardPage() {
   }, [])
 
   useEffect(() => {
-    if (!branches.length) {
-      setAllBranchFaculty([])
-      setAllBranchBatches([])
-      setAllBranchLeaves([])
+    const view = new URLSearchParams(location.search).get('view')
+    const needsFaculty = activeSection === 'faculty'
+    const needsBatches = activeSection === 'faculty' || activeSection === 'reports'
+    const needsFacultyLeaves = ['leave-management', 'faculty-leave'].includes(activeSection) && view !== 'institute'
+    const needsInstituteLeaves = activeSection === 'leave-management' && view === 'institute'
+    const needsManagementData = needsFaculty || needsBatches || needsFacultyLeaves || needsInstituteLeaves
+
+    if (!branches.length || !needsManagementData) {
       setIsGlobalManagementLoading(false)
+      setGlobalManagementError('')
       return undefined
     }
 
@@ -842,51 +876,68 @@ export function SuperAdminDashboardPage() {
       setIsGlobalManagementLoading(true)
       setGlobalManagementError('')
       try {
-        const facultyResponse = await request('/branch-faculty?page=1&limit=1000&sortBy=createdAt&sortOrder=desc')
-        const facultyPayload = facultyResponse?.data ?? facultyResponse
-        const facultyRows = Array.isArray(facultyPayload)
-          ? facultyPayload
-          : Array.isArray(facultyPayload?.data) ? facultyPayload.data : []
+        const facultyPromise = needsFaculty
+          ? request('/branch-faculty?page=1&limit=1000&sortBy=createdAt&sortOrder=desc')
+          : Promise.resolve(null)
+        const batchPromise = needsBatches
+          ? Promise.all(branches.map(async (branch) => {
+              const branchId = branch.id || branch.branchId
+              if (!branchId) return []
+              try {
+                const response = await listBranchBatches({ branchId, impersonateBranchId: branchId, page: 1, limit: 100, sortBy: 'createdAt', sortOrder: 'desc' })
+                return (Array.isArray(response?.data) ? response.data : []).map((item) => ({ ...item, branchRecord: branch }))
+              } catch {
+                return []
+              }
+            }))
+          : Promise.resolve([])
+        const facultyLeavePromise = needsFacultyLeaves
+          ? Promise.all(branches.map(async (branch) => {
+              const branchId = branch.id || branch.branchId
+              if (!branchId) return []
+              try {
+                const facultyLeaveResponse = await request('/faculty-leave-requests/branch', { impersonateBranchId: branchId })
+                const facultyLeaves = facultyLeaveResponse?.data?.requests || facultyLeaveResponse?.requests || []
+                return facultyLeaves.map((item) => ({ ...item, leaveCategory: 'Faculty Leave Request', branchRecord: branch }))
+              } catch {
+                return []
+              }
+            }))
+          : Promise.resolve([])
+        const instituteLeavePromise = needsInstituteLeaves
+          ? Promise.all(branches.map(async (branch) => {
+              const branchId = branch.id || branch.branchId
+              if (!branchId) return []
+              try {
+                const response = await request('/institute-leaves', { impersonateBranchId: branchId })
+                const payload = response?.data ?? response
+                return (Array.isArray(payload?.leaves) ? payload.leaves : []).map((item) => ({ ...item, branchId, branchRecord: branch }))
+              } catch {
+                return []
+              }
+            }))
+          : Promise.resolve([])
 
-        const leaveResults = await Promise.all(branches.map(async (branch) => {
-          const branchId = branch.id || branch.branchId
-          if (!branchId) return []
-          try {
-            const facultyLeaveResponse = await request('/faculty-leave-requests/branch', { impersonateBranchId: branchId })
-            const facultyLeaves = facultyLeaveResponse?.data?.requests || facultyLeaveResponse?.requests || []
-            return facultyLeaves.map((item) => ({ ...item, leaveCategory: 'Faculty Leave Request', branchRecord: branch }))
-          } catch {
-            return []
-          }
-        }))
-        const batchResults = await Promise.all(branches.map(async (branch) => {
-          const branchId = branch.id || branch.branchId
-          if (!branchId) return []
-          try {
-            const response = await listBranchBatches({ branchId, impersonateBranchId: branchId, page: 1, limit: 100, sortBy: 'createdAt', sortOrder: 'desc' })
-            return (Array.isArray(response?.data) ? response.data : []).map((item) => ({ ...item, branchRecord: branch }))
-          } catch {
-            return []
-          }
-        }))
+        const [facultyResult, batchResults, leaveResults, instituteLeaveResults] = await Promise.all([facultyPromise, batchPromise, facultyLeavePromise, instituteLeavePromise])
+        if (cancelled) return
 
-        if (!cancelled) {
+        if (needsFaculty) {
+          const facultyPayload = facultyResult?.data ?? facultyResult
+          const facultyRows = Array.isArray(facultyPayload)
+            ? facultyPayload
+            : Array.isArray(facultyPayload?.data) ? facultyPayload.data : []
           setAllBranchFaculty(facultyRows.map((item) => ({
             ...item,
             branchRecord: branches.find((branch) => [branch.id, branch.branchId, branch.branchCode]
               .map((value) => String(value || '').trim().toLowerCase())
               .includes(String(item.branchId || item.branchCode || item.branch?.id || item.branch?.branchId || '').trim().toLowerCase())) || null,
           })))
-          setAllBranchBatches(batchResults.flat())
-          setAllBranchLeaves(leaveResults.flat())
         }
+        if (needsBatches) setAllBranchBatches(batchResults.flat())
+        if (needsFacultyLeaves) setAllBranchLeaves(leaveResults.flat())
+        if (needsInstituteLeaves) setAllInstituteLeaves(instituteLeaveResults.flat())
       } catch (error) {
-        if (!cancelled) {
-          setAllBranchFaculty([])
-          setAllBranchBatches([])
-          setAllBranchLeaves([])
-          setGlobalManagementError(error?.message || 'Unable to load global management data.')
-        }
+        if (!cancelled) setGlobalManagementError(error?.message || 'Unable to load global management data.')
       } finally {
         if (!cancelled) setIsGlobalManagementLoading(false)
       }
@@ -894,7 +945,7 @@ export function SuperAdminDashboardPage() {
 
     void loadGlobalManagementData()
     return () => { cancelled = true }
-  }, [branches])
+  }, [activeSection, branches, location.search])
 
   useEffect(() => {
   const handleWindowFocus = () => {
@@ -1227,13 +1278,14 @@ useEffect(() => {
  
 
   const rowsPerPage = 5
-  const totalBranches = branches.length
-  const activeBranches = branches.filter((branch) => String(branch?.status || '').trim().toLowerCase() === 'active').length
+  const branchManagementBranches = useMemo(() => branches.filter((branch) => String(branch?.branchAdminName || '').trim() && String(branch?.branchAdminName || '').trim().toLowerCase() !== 'unassigned'), [branches])
+  const totalBranches = branchManagementBranches.length
+  const activeBranches = branchManagementBranches.filter((branch) => String(branch?.status || '').trim().toLowerCase() === 'active').length
 
 const filteredBranches = useMemo(() => {
   const query = searchTerm.trim().toLowerCase()
 
-  return branches.filter((branch) => {
+  return branchManagementBranches.filter((branch) => {
     const matchesSearch =
       !query ||
       [branch.branchId, branch.branchName, branch.branchAdminName].some((value) =>
@@ -1247,7 +1299,7 @@ const filteredBranches = useMemo(() => {
 
     return matchesSearch && matchesStatus
   })
-}, [branches, searchTerm, statusFilter])
+}, [branchManagementBranches, searchTerm, statusFilter])
 
   const globalRowsPerPage = 10
   const globalFacultyRowsPerPage = 5
@@ -1454,6 +1506,57 @@ const filteredBranches = useMemo(() => {
     setIsMobileSidebarOpen(false)
   }
 
+  const openBranchAccess = async (branch) => {
+    setActionMenuBranchId(null)
+    setIsMobileSidebarOpen(false)
+    setBranchAccessTarget(branch)
+    setBranchAccessUserId('')
+    setBranchAccessRole(branch.roleAccess || 'BRANCH_ADMIN_ONLY')
+    setBranchAccessError('')
+    setBranchAccessLoading(true)
+    try {
+      const users = await listBranchAccessUsers()
+      setBranchAccessUsers(users)
+    } catch (reason) {
+      setBranchAccessError(String(reason?.message || 'Unable to load user accounts.'))
+    } finally {
+      setBranchAccessLoading(false)
+    }
+  }
+
+  const closeBranchAccess = () => {
+    setBranchAccessTarget(null)
+    setBranchAccessUsers([])
+    setBranchAccessUserId('')
+    setBranchAccessError('')
+  }
+
+  const handleAssignBranchAccess = async () => {
+    if (!branchAccessTarget || !branchAccessUserId) {
+      setBranchAccessError('Select a user account before saving branch access.')
+      return
+    }
+    setBranchAccessSaving(true)
+    setBranchAccessError('')
+    try {
+      const result = await assignBranchAccess(branchAccessTarget.id, { userId: branchAccessUserId, roleAccess: branchAccessRole })
+      const updatedBranch = result?.branch
+      setBranches((current) => current.map((item) => {
+        if (item.id !== branchAccessTarget.id) return item
+        if (result?.accessType === 'SALES_ADMIN') return item
+        return { ...item, ...(updatedBranch || {}), branchAdminName: result?.user?.fullName || item.branchAdminName, adminUserId: updatedBranch?.adminUserId || item.adminUserId }
+      }))
+      setSuccessTitle('Branch access updated')
+      setSuccessMessage(`${result?.user?.fullName || 'The selected account'} can now access ${branchAccessTarget.branchName}.`)
+      closeBranchAccess()
+      setIsSuccessOpen(true)
+    } catch (reason) {
+      setBranchAccessError(String(reason?.message || 'Unable to update branch access.'))
+    } finally {
+      setBranchAccessSaving(false)
+    }
+  }
+
   const closeBranchModal = () => {
     setIsAddBranchOpen(false)
     setEditingBranchId(null)
@@ -1533,6 +1636,7 @@ const filteredBranches = useMemo(() => {
   // View Dashboard Handlers
   const openViewDashboardConfirm = (branch) => {
     setViewDashboardBranch(branch)
+    setViewDashboardMode(activeSection === 'sales-admin' ? 'sales' : 'branch')
     setIsViewDashboardConfirmOpen(true)
     setActionMenuBranchId(null)
   }
@@ -1544,7 +1648,8 @@ const filteredBranches = useMemo(() => {
   }
 
   const handleConfirmViewDashboard = () => {
-    setEmbeddedBranch(viewDashboardBranch)
+    if (viewDashboardMode === 'sales') setEmbeddedSalesAdmin(viewDashboardBranch)
+    else setEmbeddedBranch(viewDashboardBranch)
     setImpersonateBranchId(viewDashboardBranch?.id || viewDashboardBranch?.branchId || null)
     setIsViewDashboardConfirmOpen(false)
     setViewDashboardBranch(null)
@@ -1561,6 +1666,7 @@ const filteredBranches = useMemo(() => {
 
   const handleConfirmExitDashboard = () => {
     setEmbeddedBranch(null)
+    setEmbeddedSalesAdmin(null)
     setEmbeddedStudentEditId('')
     setImpersonateBranchId(null)
     setIsExitDashboardConfirmOpen(false)
@@ -1848,6 +1954,11 @@ const filteredBranches = useMemo(() => {
   const profileEmail = user?.email || 'superadmin.manager@cispro.com'
   const selectedBranch = viewTargetBranch
   const closeMobileSidebar = () => setIsMobileSidebarOpen(false)
+  const openSuperAdminForgotPassword = () => {
+    setIsSuperAdminProfileOpen(false)
+    const suffix = profileEmail ? `?email=${encodeURIComponent(profileEmail)}` : ''
+    navigate(`/forgot-password${suffix}`)
+  }
 
   useEffect(() => {
     try { window.localStorage.setItem('cispro.super-admin-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* ignore storage failures */ }
@@ -1918,6 +2029,35 @@ const filteredBranches = useMemo(() => {
                   Exit Dashboard
                 </button>
               </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (embeddedSalesAdmin) {
+    return (
+      <div className="sa-embedded-wrapper">
+        <div className="sa-embedded-banner">
+          <button type="button" className="sa-embedded-exit-btn" onClick={handleExitDashboardClick}>
+            <LogOut size={16} strokeWidth={2.3} />
+            Exit Dashboard
+          </button>
+        </div>
+        <SalesAdminDashboardPage
+          embeddedSuperAdmin
+          salesBranchId={embeddedSalesAdmin.id || embeddedSalesAdmin.branchId || ''}
+          readOnlySalesAdmin={String(embeddedSalesAdmin.salesAdminStatus || embeddedSalesAdmin.status || '').toUpperCase() === 'INACTIVE' || embeddedSalesAdmin.salesAdminActive === false || embeddedSalesAdmin.active === false}
+          embeddedSalesAdmin={embeddedSalesAdmin}
+          onSwitchDashboard={handleExitDashboardClick}
+        />
+        {isExitDashboardConfirmOpen ? (
+          <div className="branch-modal-backdrop" role="presentation" style={{ zIndex: 9999 }}>
+            <div className="branch-delete-modal" role="dialog" aria-modal="true" aria-labelledby="exit-sales-dashboard-title" onClick={(event) => event.stopPropagation()}>
+              <div className="branch-delete-header"><div className="branch-delete-icon" aria-hidden="true"><LogOut size={24} strokeWidth={2.1} /></div><h2 id="exit-sales-dashboard-title">Exit Dashboard</h2></div>
+              <p>Are you sure you want to leave the Sales Admin dashboard and return to the Super Admin panel?</p>
+              <div className="branch-delete-actions"><button type="button" className="branch-delete-cancel" onClick={closeExitDashboardConfirm}>Cancel</button><button type="button" className="sa-view-dashboard-btn" onClick={handleConfirmExitDashboard} style={{ background: '#0f4fb8', color: '#fff', border: 'none' }}>Exit Dashboard</button></div>
             </div>
           </div>
         ) : null}
@@ -2226,6 +2366,10 @@ const filteredBranches = useMemo(() => {
                     <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><Shield size={15} strokeWidth={2.1} /></span>
                     <span>Branch Admin</span>
                   </button>
+                  <button type="button" className="super-admin-sidebar-subitem" onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('sales-admin'); setIsMobileSidebarOpen(false) }}>
+                    <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><BriefcaseBusiness size={15} strokeWidth={2.1} /></span>
+                    <span>Sales Admin</span>
+                  </button>
                   <button type="button" className="super-admin-sidebar-subitem" onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('faculty'); setIsMobileSidebarOpen(false) }}>
                     <span className="super-admin-sidebar-subitem-icon" aria-hidden="true"><UserRound size={15} strokeWidth={2.1} /></span>
                     <span>Faculty Management</span>
@@ -2234,7 +2378,7 @@ const filteredBranches = useMemo(() => {
               </div>
               <button
                 type="button"
-                className={`super-admin-sidebar-section-toggle ${['branch-admin', 'faculty'].includes(activeSection) ? 'is-active' : ''}`.trim()}
+                className={`super-admin-sidebar-section-toggle ${['branch-admin', 'sales-admin', 'faculty'].includes(activeSection) ? 'is-active' : ''}`.trim()}
                 aria-expanded={isUserRoleManagementExpanded}
                 onClick={() => setIsUserRoleManagementExpanded((current) => !current)}
               >
@@ -2255,6 +2399,15 @@ const filteredBranches = useMemo(() => {
                   >
                     <span className="super-admin-sidebar-icon" aria-hidden="true"><Shield size={18} strokeWidth={2.2} /></span>
                     <span>Branch Admin</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`super-admin-sidebar-item ${activeSection === 'sales-admin' ? 'is-active' : ''}`.trim()}
+                    data-tooltip="Sales Admin"
+                    onClick={() => { setIsSidebarFlyoutDismissed(true); setIsBranchManagementExpanded(false); setActiveSection('sales-admin'); setIsMobileSidebarOpen(false) }}
+                  >
+                    <span className="super-admin-sidebar-icon" aria-hidden="true"><BriefcaseBusiness size={18} strokeWidth={2.2} /></span>
+                    <span>Sales Admin</span>
                   </button>
                   <button
                     type="button"
@@ -2573,11 +2726,6 @@ const filteredBranches = useMemo(() => {
                   </div>
 
                   <div className="branch-management-actions">
-                    <button type="button" className="branch-add-button" onClick={openAddBranch}>
-                      <span>+</span>
-                      <span>Create Branch</span>
-                    </button>
-
                     <p className="branch-management-subtitle">
                       Total branches: <strong>{totalBranches}</strong>
                     </p>
@@ -2716,21 +2864,17 @@ const filteredBranches = useMemo(() => {
                               <strong>{branch.studentCount ?? 0}</strong>
                             </td>
                             <td className="branch-table-col-dashboard" style={{ textAlign: 'center' }}>
-                              {getNormalizedBranchStatus(branch) === 'Active' ? (
-                                <button 
-                                  type="button" 
-                                  className="sa-view-dashboard-btn"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    openViewDashboardConfirm(branch)
-                                  }}
-                                >
-                                  <LayoutDashboard size={14} strokeWidth={2.3} />
-                                  View
-                                </button>
-                              ) : (
-                                <span className="branch-contact-email" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Inactive</span>
-                              )}
+                              <button 
+                                type="button" 
+                                className="sa-view-dashboard-btn"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openViewDashboardConfirm(branch)
+                                }}
+                              >
+                                <LayoutDashboard size={14} strokeWidth={2.3} />
+                                View
+                              </button>
                             </td>
                             <td
                               className="branch-table-col-actions"
@@ -2744,7 +2888,8 @@ const filteredBranches = useMemo(() => {
                                 onMouseLeave={() => {
                                   actionMenuCloseTimerRef.current = setTimeout(() => {
                                     setActionMenuBranchId(null)
-                                  }, 200)
+                                    setActionMenuPosition(null)
+                                  }, 350)
                                 }}
                               >
                                 <button
@@ -2753,6 +2898,7 @@ const filteredBranches = useMemo(() => {
                                   aria-label={`Open actions for ${branch.branchName}`}
                                   aria-haspopup="menu"
                                   aria-expanded={actionMenuBranchId === branch.id}
+                                  onMouseEnter={(event) => openActionMenu(branch.id, event.currentTarget)}
                                   onClick={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 >
                                   <MoreVertical size={18} strokeWidth={2.3} />
@@ -2762,6 +2908,15 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
+                                  onMouseEnter={() => {
+                                    if (actionMenuCloseTimerRef.current) clearTimeout(actionMenuCloseTimerRef.current)
+                                  }}
+                                  onMouseLeave={() => {
+                                    actionMenuCloseTimerRef.current = setTimeout(() => {
+                                      setActionMenuBranchId(null)
+                                      setActionMenuPosition(null)
+                                    }, 350)
+                                  }}
                                   style={actionMenuPosition ? {
                                     position: 'fixed',
                                     top: String(actionMenuPosition.top) + 'px',
@@ -2774,17 +2929,11 @@ const filteredBranches = useMemo(() => {
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
                                   </button>
-                                  <button type="button" role="menuitem" onClick={() => openEditBranch(branch)}>
-                                    Edit
-                                  </button>
                                   {!isResendMailActiveBranch ? (
                                     <button type="button" role="menuitem" className="is-warning" onClick={() => openResendMail(branch)}>
                                       Resend Mail
                                     </button>
                                   ) : null}
-                                  <button type="button" role="menuitem" className="is-danger" onClick={() => openDeleteConfirm(branch)}>
-                                    Delete
-                                  </button>
                                 </div>
                               </div>
                             </td>
@@ -2817,7 +2966,8 @@ const filteredBranches = useMemo(() => {
                                 onMouseLeave={() => {
                                   actionMenuCloseTimerRef.current = setTimeout(() => {
                                     setActionMenuBranchId(null)
-                                  }, 200)
+                                    setActionMenuPosition(null)
+                                  }, 350)
                                 }}
                               >
                                 <button
@@ -2826,6 +2976,7 @@ const filteredBranches = useMemo(() => {
                                   aria-label={`Open actions for ${branch.branchName}`}
                                   aria-haspopup="menu"
                                   aria-expanded={actionMenuBranchId === branch.id}
+                                  onMouseEnter={(event) => openActionMenu(branch.id, event.currentTarget)}
                                   onClick={(event) => openActionMenu(branch.id, event.currentTarget)}
                                 >
                                   <MoreVertical size={18} strokeWidth={2.3} />
@@ -2835,6 +2986,15 @@ const filteredBranches = useMemo(() => {
                                   className="branch-actions-menu"
                                   role="menu"
                                   aria-label={`${branch.branchName} actions`}
+                                  onMouseEnter={() => {
+                                    if (actionMenuCloseTimerRef.current) clearTimeout(actionMenuCloseTimerRef.current)
+                                  }}
+                                  onMouseLeave={() => {
+                                    actionMenuCloseTimerRef.current = setTimeout(() => {
+                                      setActionMenuBranchId(null)
+                                      setActionMenuPosition(null)
+                                    }, 350)
+                                  }}
                                   style={actionMenuPosition ? {
                                     position: 'fixed',
                                     top: String(actionMenuPosition.top) + 'px',
@@ -2846,12 +3006,6 @@ const filteredBranches = useMemo(() => {
                                 >
                                   <button type="button" role="menuitem" onClick={() => openViewBranch(branch)}>
                                     View
-                                  </button>
-                                  <button type="button" role="menuitem" onClick={() => openEditBranch(branch)}>
-                                    Edit
-                                  </button>
-                                  <button type="button" role="menuitem" className="is-danger" onClick={() => openDeleteConfirm(branch)}>
-                                    Delete
                                   </button>
                                 </div>
                               </div>
@@ -2949,25 +3103,14 @@ const filteredBranches = useMemo(() => {
                   </div>
                 </div>
               </section>
+            ) : activeSection === 'user-role' ? (
+              <UserRoleManagementPage pageType="branch" onViewDashboard={openViewDashboardConfirm} />
+            ) : activeSection === 'sales-admin' && ['leads', 'admissions'].includes(new URLSearchParams(location.search).get('view')) ? (
+              <SuperAdminSalesCrmPanel view={new URLSearchParams(location.search).get('view')} students={allBranchStudents} studentsLoading={isGlobalStudentsLoading} branches={globalBranchFilterOptions} />
             ) : activeSection === 'sales-admin' ? (
-              <SalesAdminManagementPage />
+              <UserRoleManagementPage pageType="sales" onViewSalesDashboard={openViewDashboardConfirm} />
             ) : activeSection === 'branch-admin' ? (
-              <section className="super-admin-global-panel">
-                <div className="super-admin-global-header">
-                  <div><p className="branch-management-kicker">User &amp; Role Management</p><h1>Branch Admin</h1></div>
-                  <span className="super-admin-global-count">{filteredBranches.length} branch admins</span>
-                </div>
-                <div className="super-admin-global-table-wrap">
-                  <table className="super-admin-global-table">
-                    <thead><tr><th>S.No</th><th>Branch ID</th><th>Admin Name</th><th>Mobile Number</th><th>Branch</th><th>Branch Address</th></tr></thead>
-                    <tbody>
-                      {paginatedBranches.map((branch, index) => <tr key={branch.id || branch.branchId} role="button" tabIndex={0} className="super-admin-global-table-row-action" aria-label={`View ${branch.branchName || branch.branchId || 'branch'} details`} onClick={() => openViewBranch(branch)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openViewBranch(branch) } }}><td>{(safeCurrentPage - 1) * rowsPerPage + index + 1}</td><td><strong>{branch.branchId || '-'}</strong></td><td><strong>{branch.branchAdminName || 'Branch admin not set'}</strong><small>{branch.branchAdminEmail || branch.branchEmail || '-'}</small></td><td>{branch.branchAdminPhone || branch.adminPhone || branch.branchPhone || '-'}</td><td><strong>{branch.branchName || '-'}</strong></td><td>{branch.branchAddress || '-'}</td></tr>)}
-                      {!filteredBranches.length ? <tr><td colSpan="6" className="super-admin-global-empty">No branch admin records found.</td></tr> : null}
-                    </tbody>
-                  </table>
-                </div>
-                {filteredBranches.length > rowsPerPage ? <PaginationBar className="super-admin-pagination" currentPage={safeCurrentPage} totalPages={totalPages} onPageChange={setCurrentPage} label="Branch admin pagination" previousLabel="Prev" nextLabel="Next" /> : null}
-              </section>
+              <UserRoleManagementPage pageType="branch" onViewDashboard={openViewDashboardConfirm} />
             ) : activeSection === 'faculty' ? (
               <section className="super-admin-global-panel">
                 <div className="super-admin-global-header">
@@ -2982,6 +3125,31 @@ const filteredBranches = useMemo(() => {
                   {filteredGlobalFaculty.length > globalFacultyRowsPerPage ? <PaginationBar className="super-admin-pagination" currentPage={safeGlobalFacultyPage} totalPages={globalFacultyTotalPages} onPageChange={setGlobalFacultyPage} label="Faculty pagination" previousLabel="Prev" nextLabel="Next" visiblePageCount={3} /> : null}</>
                 )}
               </section>
+            ) : activeSection === 'reports' ? (
+              new URLSearchParams(location.search).get('view') === 'lead-monthly' ? <SalesCrmReportPage /> : <BranchReportsAnalyticsPage
+                students={allBranchStudents}
+                batchGroups={[{ batches: allBranchBatches }]}
+                branchId=""
+              />
+            ) : activeSection === 'helpdesk' ? (
+              <HelpdeskSupportPanel
+                roleLabel="your Super Admin workspace"
+                activeView={new URLSearchParams(location.search).get('view') || 'helpdesk'}
+              />
+            ) : activeSection === 'settings' ? (
+              <AccountSettingsPanel
+                displayName="Super Admin"
+                email={profileEmail}
+                roleLabel="Super Admin"
+                onForgotPassword={openSuperAdminForgotPassword}
+              />
+            ) : activeSection === 'profile' ? (
+              <SuperAdminProfilePanel
+                displayName="Super Admin"
+                email={profileEmail}
+                roleLabel="Super Admin"
+                onForgotPassword={openSuperAdminForgotPassword}
+              />
              ) : activeSection === 'students' ? (
                <section className="super-admin-global-panel">
                  <div className="super-admin-global-header"><div><p className="branch-management-kicker">Academic Operations</p><h1>Student Management</h1><p>All students registered across every active branch.</p></div><div className="super-admin-global-header-actions"><label className="super-admin-student-search"><input type="search" value={globalStudentSearch} onChange={(event) => { setGlobalStudentSearch(event.target.value); setGlobalStudentPage(1) }} placeholder="Search student or ID" aria-label="Search students" /></label><SuperAdminOptionSelect value={globalStudentSort} onChange={setGlobalStudentSort} ariaLabel="Sort students" options={[{ value: 'createdAt', label: 'Newest' }, { value: 'name', label: 'Name' }, { value: 'branch', label: 'Branch' }]} width={116} /><div className="super-admin-global-filter-field"><BranchFilterSelect value={globalStudentBranchFilter} branches={globalBranchFilterOptions} onChange={(nextValue) => setGlobalStudentBranchFilter(nextValue)} ariaLabel="Filter students by branch" /></div><span className="super-admin-global-count">{filteredGlobalStudents.length} students</span></div></div>
@@ -2993,6 +3161,8 @@ const filteredBranches = useMemo(() => {
                </section>
             ) : activeSection === 'discontinuations' ? (
               <SuperAdminDiscontinuationPage />
+            ) : activeSection === 'leave-management' && new URLSearchParams(location.search).get('view') === 'institute' ? (
+              <SuperAdminInstituteLeavePanel leaves={allInstituteLeaves} branches={globalBranchFilterOptions} loading={isGlobalManagementLoading} />
             ) : ['leave-management', 'faculty-leave'].includes(activeSection) ? (
               <section className="super-admin-global-panel">
                 <div className="super-admin-global-header"><div><p className="branch-management-kicker">Academic Operations</p><h1>Faculty Leave Management</h1><p>Faculty leave requests across every active branch.</p></div><div className="super-admin-global-header-actions"><label className="super-admin-student-search"><input type="search" value={globalLeaveSearch} onChange={(event) => setGlobalLeaveSearch(event.target.value)} placeholder="Search faculty, reason or branch" aria-label="Search faculty leave requests" /></label><SuperAdminOptionSelect value={globalLeaveSort} onChange={setGlobalLeaveSort} ariaLabel="Sort faculty leave requests" options={[{ value: 'createdAt', label: 'Newest' }, { value: 'oldest', label: 'Oldest' }, { value: 'person', label: 'Faculty' }, { value: 'status', label: 'Status' }]} width={116} /><SuperAdminOptionSelect value={globalLeaveStatusFilter} onChange={setGlobalLeaveStatusFilter} ariaLabel="Filter faculty leave request status" options={[{ value: 'all', label: 'All status' }, { value: 'pending', label: 'Pending' }, { value: 'approved', label: 'Approved' }, { value: 'rejected', label: 'Rejected' }]} width={128} /><span className="super-admin-global-count">{filteredGlobalLeaves.length} requests</span></div></div>
@@ -3586,7 +3756,7 @@ const filteredBranches = useMemo(() => {
             </div>
             
             <p>
-              Are you sure you want to view <strong>{viewDashboardBranch.branchName}</strong>'s dashboard? You will be able to manage this branch's data.
+              Are you sure you want to view <strong>{viewDashboardBranch.branchName}</strong>'s {viewDashboardMode === 'sales' ? 'Sales Admin dashboard? You will be able to manage this branch\'s sales data.' : 'dashboard? You will be able to manage this branch\'s data.'}
             </p>
 
             <div className="branch-delete-actions">
@@ -3597,6 +3767,26 @@ const filteredBranches = useMemo(() => {
                 View Dashboard
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {branchAccessTarget ? (
+        <div className="branch-modal-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) closeBranchAccess() }}>
+          <div className="branch-access-modal" role="dialog" aria-modal="true" aria-labelledby="branch-access-title" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="branch-modal-close" aria-label="Close branch access" onClick={closeBranchAccess} disabled={branchAccessSaving}>
+              <X size={22} strokeWidth={2.5} />
+            </button>
+            <div className="branch-access-modal-heading">
+              <span className="branch-access-modal-icon"><UserPlus size={19} /></span>
+              <div><p className="branch-management-kicker">BRANCH ACCESS</p><h2 id="branch-access-title">Assign access</h2><p>{branchAccessTarget.branchName} · {branchAccessTarget.branchId}</p></div>
+            </div>
+            <label className="branch-access-field"><span>User account</span><select value={branchAccessUserId} onChange={(event) => setBranchAccessUserId(event.target.value)} disabled={branchAccessLoading || branchAccessSaving}><option value="">Select a Branch Admin or Sales Admin</option>{branchAccessUsers.map((user) => <option key={user.id} value={user.id}>{user.fullName} · {user.role === 'SALES_ADMIN' ? 'Sales Admin' : 'Branch Admin'}{user.managedBranch ? ` · Assigned to ${user.managedBranch.branchName}` : ''}</option>)}</select></label>
+            <label className="branch-access-field"><span>Branch admin access</span><select value={branchAccessRole} onChange={(event) => setBranchAccessRole(event.target.value)} disabled={branchAccessSaving}><option value="BRANCH_ADMIN_ONLY">Branch Admin</option><option value="BRANCH_ADMIN_SALES_ADMIN">Branch Admin + Sales Admin</option></select></label>
+            {branchAccessLoading ? <p className="branch-access-state">Loading active user accounts...</p> : null}
+            {!branchAccessLoading && !branchAccessUsers.length ? <p className="branch-access-state">No active Branch Admin or Sales Admin accounts found. Create the account first from Users.</p> : null}
+            {branchAccessError ? <p className="branch-access-error" role="alert">{branchAccessError}</p> : null}
+            <div className="branch-delete-actions"><button type="button" className="branch-delete-cancel" onClick={closeBranchAccess} disabled={branchAccessSaving}>Cancel</button><button type="button" className="branch-access-save" onClick={handleAssignBranchAccess} disabled={branchAccessLoading || branchAccessSaving || !branchAccessUserId}>{branchAccessSaving ? 'Saving...' : 'Save access'}</button></div>
           </div>
         </div>
       ) : null}

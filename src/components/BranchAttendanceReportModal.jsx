@@ -23,6 +23,17 @@ export function BranchAttendanceReportModal({ isOpen, mode = 'student', record =
   const [errorMessage, setErrorMessage] = useState('')
   const [isDownloading, setIsDownloading] = useState(false)
 
+  // The same modal is reused for student and batch downloads. Reset the
+  // range whenever a new download is opened so dates from the previous
+  // report cannot carry over to the next one.
+  useEffect(() => {
+    if (!isOpen) return
+    setForm({ fromDate: '', toDate: '' })
+    setErrorMessage('')
+    setIsDownloading(false)
+    setSelectedCourseId(requestedCourseId || courseOptions[0]?.courseId || '')
+  }, [isOpen, mode, record?.id, record?.studentId, record?.batchId, requestedCourseId, courseOptions])
+
   useEffect(() => {
     if (!isOpen) return undefined
     const previous = document.body.style.overflow

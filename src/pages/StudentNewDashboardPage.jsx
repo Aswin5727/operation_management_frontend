@@ -24,6 +24,7 @@ import {
   Building2,
   BarChart3,
   Clock3,
+  ShieldCheck,
   PanelLeftOpen,
   PanelLeftClose,
 } from 'lucide-react'
@@ -634,6 +635,44 @@ function AttendanceChart({ items, period }) {
   )
 }
 
+function StudentPageSkeleton({ section = 'dashboard' }) {
+  if (section === 'profile') {
+    return <section className="student-page-skeleton student-profile-skeleton" aria-label="Loading profile">
+      <div className="student-skeleton-profile-hero"><span className="student-skeleton-avatar" /><div><span className="student-skeleton-line student-skeleton-line-wide" /><span className="student-skeleton-line student-skeleton-line-medium" /></div></div>
+      <div className="student-skeleton-card-grid">{Array.from({ length: 4 }, (_, index) => <div className="student-skeleton-card" key={index}><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-wide" /><span className="student-skeleton-line student-skeleton-line-medium" /></div>)}</div>
+    </section>
+  }
+
+  if (section === 'course') {
+    return <section className="student-page-skeleton student-course-page-skeleton" aria-label="Loading course">
+      <div className="student-skeleton-heading"><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-wide" /></div>
+      <div className="student-skeleton-summary-grid">{Array.from({ length: 5 }, (_, index) => <div className="student-skeleton-card" key={index}><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-medium" /></div>)}</div>
+      <div className="student-skeleton-module-list">{Array.from({ length: 4 }, (_, index) => <div className="student-skeleton-module" key={index}><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-wide" /></div>)}</div>
+    </section>
+  }
+
+  if (section === 'payments') {
+    return <section className="student-page-skeleton student-payment-page-skeleton" aria-label="Loading fees and payments">
+      <div className="student-skeleton-heading"><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-wide" /></div>
+      <div className="student-skeleton-summary-grid">{Array.from({ length: 4 }, (_, index) => <div className="student-skeleton-card" key={index}><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-medium" /><span className="student-skeleton-line student-skeleton-line-short" /></div>)}</div>
+      <div className="student-skeleton-payment-table"><span className="student-skeleton-line student-skeleton-line-wide" />{Array.from({ length: 5 }, (_, index) => <span className="student-skeleton-line" key={index} />)}</div>
+    </section>
+  }
+
+  if (section === 'leave-management') {
+    return <section className="student-page-skeleton student-leave-page-skeleton" aria-label="Loading leave management">
+      <div className="student-skeleton-heading"><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-wide" /><span className="student-skeleton-line student-skeleton-line-medium" /></div>
+      <div className="student-skeleton-leave-card"><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-wide" /><span className="student-skeleton-line student-skeleton-line-medium" /><span className="student-skeleton-button" /></div>
+    </section>
+  }
+
+  return <section className="student-page-skeleton student-dashboard-page-skeleton" aria-label="Loading dashboard">
+    <div className="student-skeleton-welcome"><span className="student-skeleton-line student-skeleton-line-medium" /><span className="student-skeleton-line student-skeleton-line-wide" /></div>
+    <div className="student-skeleton-summary-grid">{Array.from({ length: 5 }, (_, index) => <div className="student-skeleton-card" key={index}><span className="student-skeleton-line student-skeleton-line-short" /><span className="student-skeleton-line student-skeleton-line-wide" /><span className="student-skeleton-line student-skeleton-line-medium" /></div>)}</div>
+    <div className="student-skeleton-panel-grid"><div className="student-skeleton-panel" /><div className="student-skeleton-panel" /></div>
+  </section>
+}
+
 export function StudentNewDashboardPage() {
  const navigate = useNavigate()
  const location = useLocation()
@@ -643,17 +682,28 @@ export function StudentNewDashboardPage() {
  const isAssessmentRoute = isExamsRoute && new URLSearchParams(location.search).get('tab') === 'assessments'
  const isAcademicTestReportRoute = isExamsRoute && new URLSearchParams(location.search).get('tab') === 'academic-report'
  const isAcademicTestRoute = isExamsRoute && ['academic', 'academic-report'].includes(new URLSearchParams(location.search).get('tab'))
- const [activeSection, setActiveSection] = useState(isExamsRoute ? 'exams' : 'dashboard')
+ const sectionFromPath = {
+   '/student-new-dashboard/profile': 'profile',
+   '/student-new-dashboard/course': 'course',
+   '/student-new-dashboard/calendar': 'calendar',
+   '/student-new-dashboard/attendance': 'attendance',
+   '/student-new-dashboard/payments': 'payments',
+   '/student-new-dashboard/leave-management': 'leave-management',
+ }[location.pathname] || (isExamsRoute ? 'exams' : 'dashboard')
+ const [activeSection, setActiveSection] = useState(sectionFromPath)
+ const currentSection = sectionFromPath === 'dashboard' ? activeSection : sectionFromPath
  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
    try { return window.localStorage.getItem('cispro.student-sidebar-collapsed') === 'true' } catch { return false }
  })
  const [isExamsExpanded, setIsExamsExpanded] = useState(isExamsRoute)
  const [isSyllabusTestExpanded, setIsSyllabusTestExpanded] = useState(isExamsRoute)
+ const [isAcademicTestExpanded, setIsAcademicTestExpanded] = useState(isExamsRoute)
 
  useEffect(() => {
    setIsExamsExpanded(isExamsRoute)
    setIsSyllabusTestExpanded(isExamsRoute)
+   setIsAcademicTestExpanded(isExamsRoute)
  }, [isExamsRoute])
 
  useEffect(() => {
@@ -690,6 +740,7 @@ export function StudentNewDashboardPage() {
  const [isLoading, setIsLoading] = useState(true)
  const [loadError, setLoadError] = useState('')
  const [paymentEntries, setPaymentEntries] = useState([])
+ const [paymentLoading, setPaymentLoading] = useState(false)
  const [paymentLoadError, setPaymentLoadError] = useState('')
  const [selectedPaymentCourseId, setSelectedPaymentCourseId] = useState('')
  const [attendanceOverview, setAttendanceOverview] = useState(null)
@@ -711,6 +762,7 @@ export function StudentNewDashboardPage() {
    }
    let isMounted = true
    const loadPayments = async () => {
+     setPaymentLoading(true)
      try {
        const identifiers = [...new Set([student.studentId, student.id].map((value) => String(value || '').trim()).filter(Boolean))]
        let ledger = await getBranchStudentLedger(identifiers[0])
@@ -727,6 +779,9 @@ export function StudentNewDashboardPage() {
          setPaymentEntries([])
          setPaymentLoadError(error?.message || 'Payment details are temporarily unavailable.')
        }
+     }
+     finally {
+       if (isMounted) setPaymentLoading(false)
      }
    }
    void loadPayments()
@@ -761,7 +816,7 @@ export function StudentNewDashboardPage() {
    // Dashboard summary cards also need the course-specific progress for every
    // active enrollment. Previously this request ran only on the Course tab,
    // so multi-course students saw 0% and null module counts on the dashboard.
-   if (activeSection !== 'dashboard' && activeSection !== 'course') return undefined
+   if (currentSection !== 'dashboard' && currentSection !== 'course') return undefined
    let isMounted = true
    Promise.resolve().then(() => {
      if (!isMounted) return
@@ -783,7 +838,7 @@ export function StudentNewDashboardPage() {
    return () => { isMounted = false }
 // Enrollment IDs represent the stable set; avoid refetching for student object updates.
 // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [student?.studentId, student?.id, dashboardCourseIdsKey, defaultAttendanceCourseId, activeSection])
+ }, [student?.studentId, student?.id, dashboardCourseIdsKey, defaultAttendanceCourseId, currentSection])
 
  useEffect(() => {
    if (!student?.studentId && !student?.id) return undefined
@@ -1069,7 +1124,16 @@ export function StudentNewDashboardPage() {
   const handleMenuClick = (section) => {
     setActiveSection(section)
     setIsMobileSidebarOpen(false)
-    if (section !== 'exams') navigate('/student-new-dashboard')
+    const paths = {
+      dashboard: '/student-new-dashboard',
+      profile: '/student-new-dashboard/profile',
+      course: '/student-new-dashboard/course',
+      calendar: '/student-new-dashboard/calendar',
+      attendance: '/student-new-dashboard/attendance',
+      payments: '/student-new-dashboard/payments',
+      'leave-management': '/student-new-dashboard/leave-management',
+    }
+    if (section !== 'exams') navigate(paths[section] || '/student-new-dashboard')
   }
 
 const handleLogout = () => {
@@ -1191,7 +1255,7 @@ const handleLogoutConfirm = async () => {
               <button
                 type="button"
                 className={`student-new-sidebar-item ${
-                  activeSection === 'dashboard' ? 'is-active' : ''
+                  currentSection === 'dashboard' ? 'is-active' : ''
                 }`.trim()}
                 data-tooltip="Dashboard"
                 onClick={() => handleMenuClick('dashboard')}
@@ -1216,7 +1280,7 @@ const handleLogoutConfirm = async () => {
               <button
                 type="button"
                 className={`student-new-sidebar-item ${
-                  activeSection === 'profile' ? 'is-active' : ''
+                  currentSection === 'profile' ? 'is-active' : ''
                 }`.trim()}
                 data-tooltip="My Profile"
                 onClick={() => handleMenuClick('profile')}
@@ -1234,7 +1298,7 @@ const handleLogoutConfirm = async () => {
               <button
                 type="button"
                 className={`student-new-sidebar-item ${
-                  activeSection === 'course' ? 'is-active' : ''
+                  currentSection === 'course' ? 'is-active' : ''
                 }`.trim()}
                 data-tooltip="Course"
                 onClick={() => handleMenuClick('course')}
@@ -1252,7 +1316,7 @@ const handleLogoutConfirm = async () => {
               <button
                 type="button"
                 className={`student-new-sidebar-item ${
-                  activeSection === 'calendar' ? 'is-active' : ''
+                  currentSection === 'calendar' ? 'is-active' : ''
                 }`.trim()}
                 data-tooltip="Calendar"
                 onClick={() => handleMenuClick('calendar')}
@@ -1270,7 +1334,7 @@ const handleLogoutConfirm = async () => {
               <button
                 type="button"
                 className={`student-new-sidebar-item ${
-                  activeSection === 'payments' ? 'is-active' : ''
+                  currentSection === 'payments' ? 'is-active' : ''
                 }`.trim()}
                 data-tooltip="Fees & Payments"
                 onClick={() => handleMenuClick('payments')}
@@ -1288,7 +1352,7 @@ const handleLogoutConfirm = async () => {
               <button
                 type="button"
                 className={`student-new-sidebar-item ${
-                  activeSection === 'leave-management' ? 'is-active' : ''
+                  currentSection === 'leave-management' ? 'is-active' : ''
                 }`.trim()}
                 data-tooltip="Leave Management"
                 onClick={() => handleMenuClick('leave-management')}
@@ -1302,7 +1366,7 @@ const handleLogoutConfirm = async () => {
 
               <button
                 type="button"
-                className={`student-new-sidebar-item ${activeSection === 'exams' || isExamsRoute ? 'is-active' : ''}`.trim()}
+                className={`student-new-sidebar-item ${currentSection === 'exams' || isExamsRoute ? 'is-active' : ''}`.trim()}
                 data-tooltip="Exams and Result"
                 aria-expanded={isExamsExpanded}
                 onClick={() => setIsExamsExpanded((current) => !current)}
@@ -1311,11 +1375,11 @@ const handleLogoutConfirm = async () => {
                 <span>Exams and Result</span>
                 <ChevronDown className={`student-new-sidebar-chevron ${isExamsExpanded ? 'is-expanded' : ''}`.trim()} size={16} strokeWidth={2.2} aria-hidden="true" />
               </button>
-              {isExamsExpanded ? <div className="student-new-sidebar-subnav"><button type="button" className={`student-new-sidebar-subnav-parent ${isExamsRoute ? 'is-active' : ''}`.trim()} aria-expanded={isSyllabusTestExpanded} onClick={() => setIsSyllabusTestExpanded((current) => !current)}><span>Syllabus Test</span><ChevronDown className={isSyllabusTestExpanded ? 'is-expanded' : ''} size={14} strokeWidth={2.1} aria-hidden="true" /></button>{isSyllabusTestExpanded ? <div className="student-new-sidebar-subnav student-new-sidebar-nested-subnav"><button type="button" className={!isExamReportsRoute && !isAssessmentRoute && !isAcademicTestRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=tests')}>Test</button><button type="button" className={isAssessmentRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=assessments')}>Assessment</button><button type="button" className={isExamReportsRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=reports')}>Report</button></div> : null}<button type="button" className={`student-new-sidebar-subitem ${isAcademicTestRoute ? 'is-active' : ''}`.trim()} onClick={() => navigate('/student-new-dashboard/exams?tab=academic')}>Academic Test</button>{isAcademicTestRoute ? <button type="button" className={`student-new-sidebar-subitem ${isAcademicTestReportRoute ? 'is-active' : ''}`.trim()} onClick={() => navigate('/student-new-dashboard/exams?tab=academic-report')}>Report</button> : null}</div> : null}
+              {isExamsExpanded ? <div className="student-new-sidebar-subnav"><button type="button" className={`student-new-sidebar-subnav-parent ${isExamsRoute ? 'is-active' : ''}`.trim()} aria-expanded={isSyllabusTestExpanded} onClick={() => setIsSyllabusTestExpanded((current) => !current)}><span>Syllabus Test</span><ChevronDown className={isSyllabusTestExpanded ? 'is-expanded' : ''} size={14} strokeWidth={2.1} aria-hidden="true" /></button>{isSyllabusTestExpanded ? <div className="student-new-sidebar-subnav student-new-sidebar-nested-subnav"><button type="button" className={!isExamReportsRoute && !isAssessmentRoute && !isAcademicTestRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=tests')}>Test</button><button type="button" className={isAssessmentRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=assessments')}>Assessment</button><button type="button" className={isExamReportsRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=reports')}>Report</button></div> : null}<button type="button" className={`student-new-sidebar-subitem student-new-sidebar-subitem-parent ${isAcademicTestRoute ? 'is-active' : ''}`.trim()} aria-expanded={isAcademicTestExpanded} onClick={() => { setIsAcademicTestExpanded((current) => !current); navigate('/student-new-dashboard/exams?tab=academic') }}><span>Academic Test</span><ChevronDown className={isAcademicTestExpanded ? 'is-expanded' : ''} size={14} strokeWidth={2.1} aria-hidden="true" /></button>{isAcademicTestExpanded ? <div className="student-new-sidebar-subnav student-new-academic-test-subnav"><button type="button" className={isAcademicTestReportRoute ? 'is-active' : ''} onClick={() => navigate('/student-new-dashboard/exams?tab=academic-report')}>Report</button></div> : null}</div> : null}
 
               <button
                 type="button"
-                className={`student-new-sidebar-item ${activeSection === 'notifications' ? 'is-active' : ''}`.trim()}
+                className={`student-new-sidebar-item ${currentSection === 'notifications' ? 'is-active' : ''}`.trim()}
                 data-tooltip="Notifications"
                 onClick={() => navigate('/student-new-dashboard/notifications')}
               >
@@ -1412,14 +1476,22 @@ const handleLogoutConfirm = async () => {
                   <ChevronDown className="student-new-profile-chevron" size={17} strokeWidth={2.2} />
                 </button>
 
-                {isProfileMenuOpen ? (
-                  <div className="student-new-profile-menu" role="menu">
-                    <button type="button" role="menuitem" onClick={handleLogout}>
-                      <LogOut size={16} strokeWidth={2.2} />
-                      Logout
+                {isProfileMenuOpen ? (<>
+                  <button type="button" className="student-new-profile-backdrop" aria-label="Close profile popup" onClick={() => setIsProfileMenuOpen(false)} />
+                  <div className="student-new-profile-dropdown" role="menu">
+                    <button type="button" className="student-new-profile-dropdown-header" role="menuitem" onClick={() => { setIsProfileMenuOpen(false); handleMenuClick('profile') }}>
+                      <span className="student-new-profile-dropdown-avatar"><CircleUserRound size={25} /></span>
+                      <span><strong>{displayName}</strong><small>Student</small></span>
                     </button>
+                    <div className="student-new-profile-details">
+                      <div><Mail size={16} /><span><small>Email</small><strong>{student?.emailAddress || student?.email || 'Not available'}</strong></span></div>
+                      <div><ShieldCheck size={16} /><span><small>Role</small><strong>Student</strong></span></div>
+                    </div>
+                    <div className="student-new-profile-dropdown-actions">
+                      <button type="button" role="menuitem" onClick={handleLogout}><LogOut size={16} strokeWidth={2.2} />Logout</button>
+                    </div>
                   </div>
-                ) : null}
+                </>) : null}
               </div>
 
             </div>
@@ -1443,9 +1515,9 @@ const handleLogoutConfirm = async () => {
             ) : null}
 
             {isExamsRoute && activeDashboardCourses.length > 1 && !(isAssessmentRoute && isAssessmentDetailOpen) ? <div className="student-course-course-tabs student-exam-course-tabs" role="tablist" aria-label="Choose course for exams">{activeDashboardCourses.map((course, index) => { const courseId = String(course.courseId || ''); const selected = courseId === examCourseId; return <button type="button" role="tab" aria-selected={selected} className={selected ? 'is-active' : ''} key={courseId || index} onClick={() => selectExamCourse(courseId)}><small>COURSE {index + 1}</small><strong>{course.courseName}</strong></button> })}</div> : null}
-            {isExamsRoute && isAcademicTestReportRoute ? <StudentAcademicTestReportPage embedded courseId={examCourseId} /> : isExamsRoute && isAcademicTestRoute ? <StudentAcademicTestsPage embedded courseId={examCourseId} /> : isExamsRoute && isAssessmentRoute ? <StudentAssessmentsPage embedded courseId={examCourseId} onDetailChange={setIsAssessmentDetailOpen} /> : isExamsRoute ? <StudentExamsPage embedded student={student} courseId={examCourseId} /> : null}
+            {isExamsRoute && isAcademicTestReportRoute ? <StudentAcademicTestReportPage key={`academic-report-${examCourseId}`} embedded courseId={examCourseId} /> : isExamsRoute && isAcademicTestRoute ? <StudentAcademicTestsPage key={`academic-${examCourseId}`} embedded courseId={examCourseId} /> : isExamsRoute && isAssessmentRoute ? <StudentAssessmentsPage key={`assessments-${examCourseId}`} embedded courseId={examCourseId} onDetailChange={setIsAssessmentDetailOpen} /> : isExamsRoute ? <StudentExamsPage key={`${isExamReportsRoute ? `reports-${new URLSearchParams(location.search).get('report') || 'tests'}` : 'tests'}-${examCourseId}`} embedded student={student} courseId={examCourseId} /> : null}
 
-            {!isExamsRoute && !isLoading && !loadError && activeSection === 'dashboard' ? (
+            {!isExamsRoute && !isLoading && !loadError && currentSection === 'dashboard' ? (
               <div className="student-new-dashboard student-dashboard-redesign">
                 <section className="student-dashboard-welcome">
                   <div><p className="student-new-dashboard-kicker">STUDENT DASHBOARD</p><h1>Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'}, {displayName}</h1><p>Here&apos;s an overview of your learning progress.</p></div>
@@ -1512,12 +1584,7 @@ const handleLogoutConfirm = async () => {
               </div>
             ) : null}
 
-            {isLoading ? (
-              <section className="student-new-placeholder-page">
-                <p className="student-new-dashboard-kicker">STUDENT</p>
-                <h1>Loading your details...</h1>
-              </section>
-            ) : null}
+            {isLoading ? <StudentPageSkeleton section={currentSection} /> : null}
 
             {!isLoading && loadError && !isExamsRoute ? (
               <section className="student-new-placeholder-page">
@@ -1527,7 +1594,7 @@ const handleLogoutConfirm = async () => {
               </section>
             ) : null}
 
-            {!isLoading && !loadError && activeSection === 'profile' ? (
+            {!isLoading && !loadError && currentSection === 'profile' ? (
               <section className="student-new-profile-page">
                 <div className="student-new-profile-header-card">
                   <div className="student-new-profile-header-actions" ref={profileActionsRef}>
@@ -1651,7 +1718,7 @@ const handleLogoutConfirm = async () => {
               </section>
             ) : null}
 
-            {!isLoading && !loadError && activeSection === 'course' ? (
+            {!isLoading && !loadError && currentSection === 'course' ? (
               <section className="student-course-page">
                 {activeDashboardCourses.length > 1 ? <div className="student-course-course-tabs" role="tablist" aria-label="My courses">{activeDashboardCourses.map((course, index) => { const courseId = String(course.courseId || ''); const isSelected = (selectedCourseDetailsId || String(student?.courseId || student?.course?.id || '')) === courseId; return <button type="button" role="tab" aria-selected={isSelected} className={isSelected ? 'is-active' : ''} key={courseId || index} onClick={() => { if (courseId !== selectedCourseDetailsId) reloadCourse(courseId) }}><small>COURSE {index + 1}</small><strong>{course.courseName}</strong></button> })}</div> : null}
                 <div className="student-course-page-heading"><div><p className="student-new-dashboard-kicker">MY COURSE</p><h1>{courseLoading ? 'Loading course details...' : courseDetails?.course?.name || 'My Course'}</h1></div></div>
@@ -1668,7 +1735,7 @@ const handleLogoutConfirm = async () => {
               </section>
             ) : null}
 
-            {!isLoading && !loadError && activeSection === 'attendance' ? (
+            {!isLoading && !loadError && currentSection === 'attendance' ? (
               <section className="student-new-placeholder-page">
                 <p className="student-new-dashboard-kicker">
                   STUDENT
@@ -1684,10 +1751,11 @@ const handleLogoutConfirm = async () => {
               </section>
             ) : null}
 
-            {!isLoading && !loadError && activeSection === 'payments' ? (
+            {!isLoading && !loadError && currentSection === 'payments' ? (
               <section className="student-new-payment-page">
                 <p className="student-new-dashboard-kicker">STUDENT</p>
                 <div className="student-new-payment-heading"><div><h1>Payment History</h1><p>{student?.studentName || 'Student'} · {student?.studentId || '-'}</p></div><span className={`student-new-payment-badge ${(isSequentialMultiCourse ? displayedPaymentStatus : paymentStatus).toLowerCase().replace(/\s+/g, '-')}`}>{isSequentialMultiCourse ? displayedPaymentStatus : paymentStatus}</span></div>
+                {paymentLoading ? <StudentPageSkeleton section="payments" /> : <>
                 {paymentLoadError ? <p className="student-new-payment-note">{paymentLoadError}</p> : null}
                 {isSequentialMultiCourse ? <div className="student-payment-course-tabs" role="tablist" aria-label="Course payments">{dashboardCourses.map((course, index) => { const courseId = String(course.courseId || ''); const isSelected = courseId === String(selectedPaymentCourse?.courseId || ''); return <button type="button" role="tab" aria-selected={isSelected} className={isSelected ? 'is-active' : ''} key={courseId || index} onClick={() => setSelectedPaymentCourseId(courseId)}><small>COURSE {index + 1}</small><strong>{course.courseName}</strong></button> })}</div> : null}
                 <div className="student-new-payment-summary">
@@ -1699,14 +1767,15 @@ const handleLogoutConfirm = async () => {
                 <div className="student-new-payment-card"><h2>Installment Details{isSequentialMultiCourse && selectedPaymentCourse ? ` · ${selectedPaymentCourse.courseName}` : ''}</h2><p>Each installment shows the due date, payment mode, and status.</p><div className="student-new-payment-table-wrap"><table><thead><tr><th>Installment</th><th>Amount</th><th>Due Date</th><th>Payment Mode</th><th>Paid Date</th><th>Status</th></tr></thead><tbody>{displayedInstallmentRows.length ? displayedInstallmentRows.map((row) => <tr key={row.number}><td>{row.number}/{displayedInstallmentRows.length}</td><td>{formatPaymentAmount(row.amount)}</td><td>{formatPaymentDate(row.dueDate)}</td><td>{row.paymentMode}</td><td>{formatPaymentDate(row.paidDate)}</td><td><span className={`student-new-status ${String(row.status).toLowerCase()}`}>{row.status}</span></td></tr>) : <tr><td colSpan="6" className="student-new-payment-empty">No installment plan has been configured.</td></tr>}</tbody></table></div></div>
                 <div className="student-new-payment-card"><h2>Payment History{isSequentialMultiCourse && selectedPaymentCourse ? ` · ${selectedPaymentCourse.courseName}` : ''}</h2><p>Download any receipt directly from the history rows.</p><div className="student-new-payment-table-wrap"><table><thead><tr><th>Payment Date</th><th>Amount</th><th>Payment Mode</th><th>Receipt Download</th><th>Payment Status</th></tr></thead><tbody>{displayedPaymentHistoryRows.length ? displayedPaymentHistoryRows.map((row) => <tr key={row.id}><td>{formatPaymentDate(row.dateRaw || row.date)}</td><td><strong>{formatPaymentAmount(row.amount || row.credit)}</strong></td><td>{row.paymentMode || '-'}</td><td><button type="button" className="student-new-receipt-button" onClick={() => void downloadStudentReceipt(row, paymentStudent, displayedPaidAmount, displayedPaymentHistoryRows, displayedInstallmentRows)}><Download size={14} /> Download</button></td><td><span className="student-new-status paid">{row.status || 'Paid'}</span></td></tr>) : <tr><td colSpan="5" className="student-new-payment-empty">No payments recorded yet.</td></tr>}</tbody></table></div></div>
                 {nextInstallment ? <div className="student-new-next-payment"><span>Next Payment</span><strong>{formatPaymentAmount(nextInstallment.amount)}</strong><span>Due Date</span><strong>{formatPaymentDate(nextInstallment.dueDate)}</strong><span>Status</span><strong className="pending">{nextInstallment.status}</strong></div> : null}
+                </>}
               </section>
             ) : null}
 
-            {!isLoading && !loadError && activeSection === 'calendar' ? (
+            {!isLoading && !loadError && currentSection === 'calendar' ? (
               <StudentCalendarPanel student={student} />
             ) : null}
 
-            {!isLoading && !loadError && activeSection === 'leave-management' ? (
+            {!isLoading && !loadError && currentSection === 'leave-management' ? (
               <section className="student-new-leave-management-page">
                 <div className="student-new-page-heading">
                   <div>
@@ -1791,6 +1860,8 @@ function StudentDiscontinuationPanel({ showPanel = true, openSignal = 0 }) {
   const [financePreview, setFinancePreview] = useState(null)
   const [isOpen, setIsOpen] = useState(false)
   const [reason, setReason] = useState('')
+  const [reasonError, setReasonError] = useState('')
+  const [checkboxError, setCheckboxError] = useState('')
   const [details, setDetails] = useState('')
   const [refundRequested, setRefundRequested] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -1825,9 +1896,15 @@ function StudentDiscontinuationPanel({ showPanel = true, openSignal = 0 }) {
   const submitRequest = async (event) => {
     event.preventDefault()
     if (!reason.trim()) {
-      setError('Please select a reason for your request.')
+      setReasonError('This field is required')
       return
     }
+    setReasonError('')
+    if (!refundRequested) {
+      setCheckboxError('This field is required')
+      return
+    }
+    setCheckboxError('')
 
     setSubmitting(true)
     setError('')
@@ -1893,7 +1970,9 @@ function StudentDiscontinuationPanel({ showPanel = true, openSignal = 0 }) {
       </div>
 
       {loading ? (
-        <span className="student-discontinuation-loading">Checking request status...</span>
+        <div className="student-discontinuation-loading-skeleton" aria-label="Loading leave management">
+          <span /><span /><span />
+        </div>
       ) : request ? (
         <div className="student-discontinuation-status">
           <strong>{statusLabel}</strong>
@@ -1961,9 +2040,9 @@ function StudentDiscontinuationPanel({ showPanel = true, openSignal = 0 }) {
                 <strong>{formatPaymentAmount(financePreview.outstandingAmount)}</strong>
               </div>
             ) : null}
-            <label>
+            <label className={reasonError ? 'has-error' : ''}>
               Reason
-              <select value={reason} onChange={(event) => setReason(event.target.value)} required>
+              <select value={reason} onChange={(event) => { setReason(event.target.value); if (event.target.value) setReasonError('') }}>
                 <option value="">Select a reason</option>
                 <option value="Financial difficulty">Financial difficulty</option>
                 <option value="Health or personal reason">Health or personal reason</option>
@@ -1971,15 +2050,17 @@ function StudentDiscontinuationPanel({ showPanel = true, openSignal = 0 }) {
                 <option value="Course change">Course change</option>
                 <option value="Other">Other</option>
               </select>
+              {reasonError ? <span className="student-discontinuation-field-error">{reasonError}</span> : null}
             </label>
             <label>
               Additional details
               <textarea value={details} onChange={(event) => setDetails(event.target.value)} rows={4} placeholder="Share any information that will help the branch support you." />
             </label>
             <label className="student-discontinuation-refund-option">
-              <input type="checkbox" checked={refundRequested} onChange={(event) => setRefundRequested(event.target.checked)} />
+              <input type="checkbox" checked={refundRequested} onChange={(event) => { setRefundRequested(event.target.checked); if (event.target.checked) setCheckboxError('') }} />
               <span>Request refund review for any amount paid above the completed course progress.</span>
             </label>
+            {checkboxError ? <span className="student-discontinuation-field-error student-discontinuation-checkbox-error">{checkboxError}</span> : null}
             {error ? <p className="student-discontinuation-error">{error}</p> : null}
             <div className="student-discontinuation-actions">
               <button type="button" className="student-discontinuation-secondary" onClick={() => setIsOpen(false)}>Keep Course</button>

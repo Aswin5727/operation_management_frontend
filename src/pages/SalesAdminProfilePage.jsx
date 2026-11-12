@@ -22,10 +22,10 @@ function initialsFor(name) {
   return String(name || 'Sales Admin').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('') || 'SA'
 }
 
-export function SalesAdminProfilePage() {
+export function SalesAdminProfilePage({ embeddedProfile = null, readOnly = false }) {
   const { setSession } = useAuth()
   const navigate = useNavigate()
-  const [profile, setProfile] = useState(null)
+  const [profile, setProfile] = useState(() => embeddedProfile ? { id: embeddedProfile.salesAdminId, userCode: embeddedProfile.salesAdminUserCode, fullName: embeddedProfile.salesAdminName, email: embeddedProfile.salesAdminEmail, phone: embeddedProfile.salesAdminPhone, address: embeddedProfile.salesAdminAddress, createdAt: embeddedProfile.salesAdminCreatedAt, lastLoginAt: embeddedProfile.salesAdminLastLoginAt, status: embeddedProfile.salesAdminStatus, active: embeddedProfile.salesAdminActive, branches: [embeddedProfile] } : null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -35,6 +35,10 @@ export function SalesAdminProfilePage() {
   const [success, setSuccess] = useState('')
 
   const loadProfile = useCallback(async () => {
+    if (embeddedProfile) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setLoadError('')
     try {
@@ -45,7 +49,7 @@ export function SalesAdminProfilePage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [embeddedProfile])
 
   useEffect(() => {
     let active = true
@@ -106,7 +110,7 @@ export function SalesAdminProfilePage() {
             <div className="sales-admin-profile-meta"><span>{displayValue(profile.userCode)}</span><i /> <span>Sales Admin</span><i /> <span className={`sales-admin-profile-status ${profile.active ? 'is-active' : 'is-inactive'}`}>{statusLabel}</span></div>
           </div>
         </div>
-        <button type="button" className="sales-admin-profile-change-password" onClick={() => navigate(`/forgot-password${profile.email ? `?email=${encodeURIComponent(profile.email)}` : ''}`)}>Change Password <ChevronRight size={16} /></button>
+        {!readOnly ? <button type="button" className="sales-admin-profile-change-password" onClick={() => navigate(`/forgot-password${profile.email ? `?email=${encodeURIComponent(profile.email)}` : ''}`)}>Change Password <ChevronRight size={16} /></button> : null}
       </header>
 
       {success ? <div className="sales-admin-profile-success" role="status">{success}</div> : null}

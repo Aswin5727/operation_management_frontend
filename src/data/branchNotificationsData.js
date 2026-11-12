@@ -55,7 +55,7 @@ function getNotificationIcon(kind) {
 }
 
 export function normalizeBranchNotification(notification = {}) {
-  const kind = String(notification.kind || '').trim()
+  const kind = String(notification.kind || '').trim().toLowerCase()
   const title = String(notification.title || '').trim()
   const normalizedMessage = normalizeNotificationMessage(notification.message).trim()
   const message = kind === 'sales-crm-admission'
@@ -77,6 +77,9 @@ export function normalizeBranchNotification(notification = {}) {
     kind === 'faculty-progress-status' || kind === 'branch-progress-status'
   const isFacultyReportShared = kind === 'faculty-report-shared'
   const isSequentialCourseScheduling = kind === 'sequential-course-scheduling-required'
+  const isAccountRoleUpdated = kind === 'account-role-updated'
+  const isEmailChanged = kind === 'email-changed'
+  const isBranchAdminReplaced = kind === 'branch-admin-replaced'
   const branchId = String(notification.branchId || notification.targetBranchId || '').trim()
   const branchEmail = String(notification.targetBranchEmail || '').trim().toLowerCase()
 
@@ -88,7 +91,13 @@ export function normalizeBranchNotification(notification = {}) {
         .trim() || 'blue',
     title:
       title ||
-      (isFacultyLogin
+      (isAccountRoleUpdated
+        ? 'Account Role Updated'
+        : isEmailChanged
+          ? 'Email Changed'
+          : isBranchAdminReplaced
+            ? 'Branch Admin Replaced'
+      : isFacultyLogin
         ? `${notification.facultyName || notification.facultyEmail || 'Faculty'} logged in`
         : isCourseEditRequest
           ? `${notification.courseName || 'Course'} edit request`
@@ -105,7 +114,13 @@ export function normalizeBranchNotification(notification = {}) {
           : 'Notification'),
     message:
       message ||
-      (isFacultyLogin
+      (isAccountRoleUpdated
+        ? `${notification.targetBranchName || 'Your branch'} account access was updated to ${notification.newAccountType || notification.accountType || 'a new role'}.`
+        : isEmailChanged
+          ? 'Your account email address was changed successfully.'
+          : isBranchAdminReplaced
+            ? 'A new Branch Admin was assigned to your branch.'
+      : isFacultyLogin
         ? `${notification.facultyName || 'Faculty'} signed in with ${notification.facultyEmail || 'their account'}.`
         : isCourseEditRequest
           ? `${notification.facultyName || 'Faculty'} requested changes for ${notification.courseName || 'the course'}.`
@@ -140,7 +155,13 @@ export function normalizeBranchNotification(notification = {}) {
                   ? 'Faculty report'
                   : isSequentialCourseScheduling
                     ? 'Course scheduling'
-                  : isFacultyLogin
+                : isAccountRoleUpdated
+                  ? 'Account access'
+                  : isEmailChanged
+                    ? 'Account'
+                    : isBranchAdminReplaced
+                      ? 'Branch Admin'
+                : isFacultyLogin
                   ? 'Faculty'
                   : String(notification.actionLabel || '').trim() || 'View',
     unread: !notification.read,
@@ -155,6 +176,8 @@ export function normalizeBranchNotification(notification = {}) {
           ? 'exams-results'
         : isSequentialCourseScheduling
           ? 'students'
+        : isAccountRoleUpdated || isEmailChanged || isBranchAdminReplaced
+          ? 'account'
         : isFacultyLogin
           ? 'faculty'
           : 'batches'),
@@ -183,6 +206,8 @@ export function normalizeBranchNotification(notification = {}) {
     statusKey: String(notification.statusKey || '').trim(),
     statusLabel: String(notification.statusLabel || '').trim(),
     recipientLabel: String(notification.recipientLabel || '').trim(),
+    accountType: String(notification.accountType || '').trim(),
+    newAccountType: String(notification.newAccountType || '').trim(),
   }
 }
 

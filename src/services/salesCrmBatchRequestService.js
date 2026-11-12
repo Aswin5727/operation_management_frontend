@@ -9,6 +9,10 @@ export async function createSalesAdminBatchRequest(leadId) {
   return request(`/sales-admins/admissions/leads/${encodeURIComponent(leadId)}/batch-requests`, { method: 'POST' })
 }
 
+export async function resendSalesAdminBatchRequest(requestId) {
+  return request(`/sales-admins/admissions/batch-requests/${encodeURIComponent(requestId)}/resend`, { method: 'POST' })
+}
+
 export async function listBranchSalesCrmBatchRequests() {
   const response = await request('/branch-batch-requests')
   return Array.isArray(response?.data) ? response.data : []
