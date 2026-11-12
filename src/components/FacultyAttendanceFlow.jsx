@@ -168,5 +168,6 @@ export const FacultyAttendanceFlow = forwardRef(function FacultyAttendanceFlow({
     </div>, document.body,
   ) : null
 
-  return <><button type="button" className="faculty-attendance-chip" onClick={() => { dismissedMandatoryRef.current = false; setIsOpen(true); setNow(Date.now()) }} aria-haspopup="dialog" aria-expanded={isOpen}><CalendarDays size={18} /><span>Work Log</span></button>{modal}</>
+  const isExempt = Boolean(status?.exemption?.exempt)
+  return <><button type="button" className="faculty-attendance-chip" disabled={isExempt} title={isExempt ? 'Work Log is not required today' : 'Open Work Log'} onClick={() => { dismissedMandatoryRef.current = false; setIsOpen(true); setNow(Date.now()) }} aria-haspopup="dialog" aria-expanded={isOpen} aria-disabled={isExempt}><CalendarDays size={18} /><span>Work Log</span></button>{modal}</>
 })
