@@ -1718,3 +1718,8 @@
     min-width: 620px;
   }
 }
+.installment-page .installment-page-hero h2 { font-size: clamp(1.35rem, 2.2vw, 1.8rem); }
+.installment-page .installment-card-header h3 { font-size: 1.05rem; }
+.installment-page .installment-field-label { font-size: .78rem; font-weight: 700; }
+.installment-page .installment-field small { font-size: .7rem; }
+.installment-page .installment-template-name-copy strong, .installment-page .installment-template-value { font-size: .82rem; }

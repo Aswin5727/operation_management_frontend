@@ -4295,7 +4295,6 @@ export function BranchDashboardPage({ embeddedMode = false, branchData = null, i
     : studentCalendarId
       ? 'student-calendar'
       : requestedSidebarSection || routeSection
-
   const [resolvedBranchRoleAccess, setResolvedBranchRoleAccess] = useState('')
   const [isSalesAdminDashboardMode, setIsSalesAdminDashboardMode] = useState(false)
   const hasLeadManagementAccess = String(resolvedBranchRoleAccess || user?.roleAccess || session?.user?.roleAccess || '').toUpperCase() === 'BRANCH_ADMIN_SALES_ADMIN'
@@ -6805,8 +6804,23 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     [branchInstallmentTemplates],
   )
   const addCoursePaymentPlanOptions = useMemo(
-    () =>
-      branchInstallmentTemplates.filter((template) => String(template?.status || '').trim().toUpperCase() === 'ACTIVE'),
+    () => {
+      const activeTemplates = branchInstallmentTemplates.filter((template) => String(template?.status || '').trim().toUpperCase() === 'ACTIVE')
+      const planOrder = (template) => {
+        const name = String(template?.templateName || '').trim().toLowerCase()
+        const isFullPayment = String(template?.planType || '').trim().toUpperCase() === 'FULL_PAYMENT'
+          || name.includes('full payment')
+          || name.includes('full installment')
+        if (isFullPayment) return 0
+        const count = Number(template?.installmentCount) || Number(name.match(/(\d+)\s*(?:installment|instalment)/)?.[1]) || Number.MAX_SAFE_INTEGER
+        return count
+      }
+      return [...activeTemplates].sort((left, right) => {
+        const orderDifference = planOrder(left) - planOrder(right)
+        if (orderDifference !== 0) return orderDifference
+        return String(left?.templateName || '').localeCompare(String(right?.templateName || ''), undefined, { sensitivity: 'base' })
+      })
+    },
     [branchInstallmentTemplates],
   )
   const addCoursePaymentPlanSelectedIds = useMemo(
@@ -8672,10 +8686,7 @@ const studentCourseOptions = useMemo(() => {
       const coursePlans = Array.isArray(selectedStudentCourse?.paymentPlans)
         ? selectedStudentCourse.paymentPlans
         : []
-      const mergedPlans = normalizeBranchCoursePaymentPlanSelections([
-        ...coursePlans,
-        ...(Array.isArray(branchInstallmentTemplates) ? branchInstallmentTemplates : []),
-      ])
+      const mergedPlans = normalizeBranchCoursePaymentPlanSelections(coursePlans)
       const seenNames = new Set()
 
       return mergedPlans.filter((plan) => {
@@ -8685,7 +8696,7 @@ const studentCourseOptions = useMemo(() => {
         return true
       })
     },
-    [branchInstallmentTemplates, selectedStudentCourse],
+    [selectedStudentCourse],
   )
 
   const selectedStudentPaymentPlan = useMemo(
@@ -11994,6 +12005,17 @@ useEffect(() => {
 
             {isProfileMenuOpen ? (
               <div className="branch-dashboard-profile-menu" role="menu" aria-label="Branch profile menu">
+                <div className="branch-dashboard-profile-menu-header">
+                  <AvatarBadge />
+                  <div>
+                    <strong>{branchAdminDisplay}</strong>
+                    <span>{hasLeadManagementAccess ? 'Branch Admin & Sales Admin' : 'Branch Administrator'}</span>
+                  </div>
+                </div>
+                <div className="branch-dashboard-profile-menu-details">
+                  <div><Mail size={15} /><span><small>Email</small><strong>{branchProfile?.branchEmail || user?.email || '—'}</strong></span></div>
+                  <div><Shield size={15} /><span><small>Role</small><strong>{hasLeadManagementAccess ? 'Branch Admin + Sales Admin' : 'Branch Admin'}</strong></span></div>
+                </div>
                 <button type="button" role="menuitem" className="branch-dashboard-profile-menu-item" onClick={openProfile}>
                   <CircleUserRound size={16} strokeWidth={2.1} />
                   <span>Profile</span>
