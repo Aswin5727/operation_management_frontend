@@ -52,7 +52,7 @@ import {
   saveFacultyBatchAttendanceState,
 } from '../lib/facultyAttendanceStore'
 import { enrichStudentsWithFacultyReferences, getFacultyBatchEntriesForCourse, getFacultyBatchStudentRecords, getFacultyCourseIds, getFacultyCourses, getMatchingStudents, getUniqueStudentCountForFacultyRecords, getUniqueStudentCountForFacultyScope } from '../lib/facultyFlow'
-import { editBranchStudentAttendance, getCurrentFacultyAttendanceOverview, markFacultyStudentAttendance } from '../services/attendanceService'
+import { editBranchStudentAttendance, getCurrentFacultyAttendanceOverview, markFacultyStudentAttendance, logoutFacultyAttendance, logoutFacultyWebsite } from '../services/attendanceService'
 import { getFacultyDashboardOverview, getFacultyMyBatchesSummary } from '../services/dashboardService'
 import { PaginationBar } from '../components/PaginationBar'
 import { listCourses } from '../services/courseService'
@@ -2387,6 +2387,10 @@ export function FacultyDashboardPage() {
   const [hasTemporaryAssignments, setHasTemporaryAssignments] = useState(false)
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false)
+  const [facultyWorkLogStatus, setFacultyWorkLogStatus] = useState(null)
+  const [logoutLoading, setLogoutLoading] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
+  const facultyAttendanceRef = useRef(null)
   const profileMenuRef = useRef(null)
   const notificationRef = useRef(null)
 
@@ -6166,12 +6170,37 @@ const nextName = trimmedValue
 
   const handleLogoutClick = () => {
     setIsLogoutConfirmOpen(true)
+    setLogoutError('')
     setIsProfileMenuOpen(false)
   }
 
-  const handleConfirmLogout = async () => {
-    await signOut()
-    navigate('/login')
+  const handleConfirmLogout = async (mode = 'return') => {
+    if (logoutLoading) return
+    setLogoutLoading(true)
+    setLogoutError('')
+    try {
+      if (mode === 'return') {
+        await logoutFacultyWebsite()
+      } else {
+        try {
+          const completedStatus = await logoutFacultyAttendance([])
+          if (completedStatus) setFacultyWorkLogStatus(completedStatus)
+        } catch (error) {
+          const message = String(error?.body?.message || error?.message || '')
+          // A completed Work Log is already a successful final logout. Keep
+          // the website logout idempotent instead of trapping the user in the
+          // confirmation dialog on a second click.
+          if (!/attendance day is already closed|no active faculty attendance login session/i.test(message)) throw error
+        }
+        await logoutFacultyWebsite()
+      }
+      await signOut()
+      navigate('/login')
+    } catch (error) {
+      setLogoutError(error?.body?.message || error?.message || 'Unable to complete logout. Please try again.')
+    } finally {
+      setLogoutLoading(false)
+    }
   }
 
   const openResetPassword = () => {
@@ -6185,7 +6214,22 @@ const nextName = trimmedValue
     navigate(`/forgot-password${suffix}`)
   }
 
+  const requireWorkLogLogin = () => {
+    if (!facultyWorkLogStatus?.mandatoryLoginRequired) return false
+    facultyAttendanceRef.current?.open?.()
+    return true
+  }
+
+  useEffect(() => {
+    if (!facultyWorkLogStatus?.mandatoryLoginRequired) return
+    if (location.pathname !== '/dashboard/faculty/dashboard') {
+      navigate('/dashboard/faculty/dashboard', { replace: true })
+    }
+    facultyAttendanceRef.current?.open?.()
+  }, [facultyWorkLogStatus?.mandatoryLoginRequired, location.pathname, navigate])
+
   const handleSidebarSectionChange = (section) => {
+    if (requireWorkLogLogin()) return
     const routeBySection = { dashboard: '/dashboard/faculty/dashboard', 'my-courses': '/dashboard/faculty/courses', 'my-batches': '/dashboard/faculty/batches', 'my-calendar': '/dashboard/faculty/calendar', exams: '/dashboard/faculty/exams', students: '/dashboard/faculty/students', 'leave-requests': '/dashboard/faculty/leave-requests', notifications: '/dashboard/faculty/notifications', profile: '/dashboard/faculty/profile', 'skill-development': '/dashboard/faculty/skill-development' }
     if (routeBySection[section]) {
       navigate(routeBySection[section])
@@ -6200,6 +6244,7 @@ const nextName = trimmedValue
   }
 
   const navigateToFacultyStudentView = (view) => {
+    if (requireWorkLogLogin()) return false
     const normalizedView = normalizeFacultyStudentView(view)
     if (!normalizedView) return false
     setDismissedSidebarGroup('students')
@@ -6213,6 +6258,7 @@ const nextName = trimmedValue
   }
 
   const openFacultyNotificationDestination = (notification) => {
+    if (requireWorkLogLogin()) return false
     const studentView = getFacultyNotificationStudentView(notification)
     if (studentView) {
       navigateToFacultyStudentView(studentView)
@@ -6416,8 +6462,10 @@ const nextName = trimmedValue
       <div className="super-admin-topbar-right">
         <div className="faculty-dashboard-header-attendance">
           <FacultyAttendanceFlow
+            ref={facultyAttendanceRef}
             profileName={currentFacultyIdentity.facultyName || facultyName}
             facultyId={currentFacultyIdentity.facultyId}
+            onStatusChange={setFacultyWorkLogStatus}
           />
         </div>
         <div
@@ -9489,17 +9537,19 @@ const nextName = trimmedValue
               ×
             </button>
 
-            <h2 id="branch-logout-title">Are you sure you want to logout?</h2>
-            <p id="branch-logout-description" className="branch-logout-description sr-only">
-              You can always sign in again if you need access later.
+            <h2 id="branch-logout-title">Confirm Logout</h2>
+            <p id="branch-logout-description" className="branch-logout-description">
+              Are you leaving for the day, or will you return to continue your work?
             </p>
 
+            {logoutError ? <p className="faculty-attendance-error" role="alert">{logoutError}</p> : null}
+
             <div className="branch-logout-actions">
-              <button type="button" className="branch-logout-cancel" onClick={() => setIsLogoutConfirmOpen(false)}>
-                Cancel
+              <button type="button" className="branch-logout-cancel" disabled={logoutLoading} onClick={() => handleConfirmLogout('return')}>
+                {logoutLoading ? 'Saving…' : 'Yes, I’ll Return'}
               </button>
-              <button type="button" className="branch-logout-submit" onClick={handleConfirmLogout}>
-                Logout
+              <button type="button" className="branch-logout-submit" disabled={logoutLoading} onClick={() => handleConfirmLogout('done')}>
+                {logoutLoading ? 'Saving…' : 'No, I’m Done for Today'}
               </button>
             </div>
           </div>

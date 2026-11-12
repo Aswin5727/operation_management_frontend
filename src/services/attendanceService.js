@@ -314,6 +314,11 @@ export async function logoutFacultyAttendance(batchWork = [], payload = {}) {
   }
 }
 
+export async function logoutFacultyWebsite() {
+  const response = await request('/faculty/attendance/website-logout', { method: 'POST' })
+  return unwrapFacultyAttendanceResponse(response)
+}
+
 export async function getCurrentStudentAttendanceOverview(date = '') {
   const params = new URLSearchParams()
   if (String(date || '').trim()) {

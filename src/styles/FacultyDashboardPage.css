@@ -31,11 +31,11 @@ body.faculty-notification-menu-open .super-admin-content {
   position: relative;
 
   /* Popup width reduced */
-  width: 500px;
+  width: min(560px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
-  min-height: 220px;
+  min-height: 250px;
 
-  padding: 42px 34px 26px;
+  padding: 42px 38px 30px;
 
   background: #fff;
   border-radius: 32px;
@@ -99,7 +99,7 @@ body.faculty-notification-menu-open .super-admin-content {
   border-radius: 10px;
   background: transparent;
   color: #64748b;
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
 }
@@ -871,7 +871,8 @@ body.faculty-notification-menu-open .super-admin-content {
 
   color: #1e293b;
 
-  font-size: 24px;
+  font-size: 20px;
+  letter-spacing: -0.02em;
   font-weight: 700;
   line-height: 1.3;
 }
@@ -892,7 +893,13 @@ body.faculty-notification-menu-open .super-admin-content {
 
 /* Description hidden */
 .branch-logout-description {
-  display: none;
+  display: block;
+  margin: 14px auto 0;
+  max-width: 430px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: center;
 }
 
 /* Buttons container */
@@ -901,22 +908,24 @@ body.faculty-notification-menu-open .super-admin-content {
   align-items: center;
   justify-content: center;
 
-  gap: 16px;
-  margin-top: 18px;
+  gap: 12px;
+  margin-top: 24px;
 }
 
 /* Buttons */
 .branch-logout-cancel,
 .branch-logout-submit {
-  width: 180px;
+  flex: 1 1 0;
+  min-width: 0;
 
   /* Height reduced */
-  height: 52px;
+  height: 50px;
+  padding: 0 14px;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
 
   border-radius: 16px;
-
-  font-size: 20px;
-  font-weight: 700;
 
   cursor: pointer;
 
@@ -951,23 +960,25 @@ body.faculty-notification-menu-open .super-admin-content {
 @media (max-width: 640px) {
   .branch-logout-modal {
     width: calc(100vw - 28px);
-    padding: 38px 20px 22px;
+    padding: 38px 18px 22px;
     border-radius: 28px;
   }
 
   .branch-logout-modal h2 {
-    font-size: 20px;
+    font-size: 18px;
   }
 
   .branch-logout-actions {
-    gap: 10px;
+    gap: 8px;
   }
 
   .branch-logout-cancel,
   .branch-logout-submit {
-    width: 50%;
+    flex: 1 1 0;
+    min-width: 0;
     height: 48px;
-    font-size: 18px;
+    padding: 0 8px;
+    font-size: 13px;
   }
 }
 
