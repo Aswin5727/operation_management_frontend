@@ -6802,8 +6802,23 @@ const branchInstallmentTemplatesRequestRef = useRef(null)
     [branchInstallmentTemplates],
   )
   const addCoursePaymentPlanOptions = useMemo(
-    () =>
-      branchInstallmentTemplates.filter((template) => String(template?.status || '').trim().toUpperCase() === 'ACTIVE'),
+    () => {
+      const activeTemplates = branchInstallmentTemplates.filter((template) => String(template?.status || '').trim().toUpperCase() === 'ACTIVE')
+      const planOrder = (template) => {
+        const name = String(template?.templateName || '').trim().toLowerCase()
+        const isFullPayment = String(template?.planType || '').trim().toUpperCase() === 'FULL_PAYMENT'
+          || name.includes('full payment')
+          || name.includes('full installment')
+        if (isFullPayment) return 0
+        const count = Number(template?.installmentCount) || Number(name.match(/(\d+)\s*(?:installment|instalment)/)?.[1]) || Number.MAX_SAFE_INTEGER
+        return count
+      }
+      return [...activeTemplates].sort((left, right) => {
+        const orderDifference = planOrder(left) - planOrder(right)
+        if (orderDifference !== 0) return orderDifference
+        return String(left?.templateName || '').localeCompare(String(right?.templateName || ''), undefined, { sensitivity: 'base' })
+      })
+    },
     [branchInstallmentTemplates],
   )
   const addCoursePaymentPlanSelectedIds = useMemo(
