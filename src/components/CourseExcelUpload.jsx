@@ -69,6 +69,7 @@ export function CourseExcelUpload({ onImported, onView, onStart, onClose, pageMo
   const [selectedImportCourse, setSelectedImportCourse] = useState(null)
   const [showImportConfirmation, setShowImportConfirmation] = useState(false)
   const [showImportSuccess, setShowImportSuccess] = useState(false)
+  const [showDuplicateWarning, setShowDuplicateWarning] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -420,7 +421,14 @@ export function CourseExcelUpload({ onImported, onView, onStart, onClose, pageMo
                           {filteredSheetRows.length > 0 ? <div className="course-import-pagination"><button type="button" disabled={Boolean(busy) || page <= 1} onClick={() => setPage(page - 1)}>Previous</button><span>Showing {Math.min((page - 1) * PAGE_SIZE + 1, filteredSheetRows.length)}-{Math.min(page * PAGE_SIZE, filteredSheetRows.length)} of {filteredSheetRows.length} rows &middot; page {page} of {pages}</span><button type="button" disabled={Boolean(busy) || page >= pages} onClick={() => setPage(page + 1)}>Next</button></div> : null}
                         </div>
                       </section>
-                      {pageMode && !showImportReview ? <div className="course-import-page-actions course-import-page-next"><button type="button" className="button button-solid" disabled={Boolean(busy) || !preview?.valid || editsPending || courseTotalCount === 0} onClick={() => { setShowImportReview(true); window.requestAnimationFrame(() => importReviewSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })) }}>Next Import results</button></div> : null}
+                      {pageMode && !showImportReview ? <div className="course-import-page-actions course-import-page-next"><button type="button" className="button button-solid" disabled={Boolean(busy) || !preview?.valid || editsPending || courseTotalCount === 0} onClick={() => {
+                        if (duplicateCourseCount > 0) {
+                          setShowDuplicateWarning(true)
+                          return
+                        }
+                        setShowImportReview(true)
+                        window.requestAnimationFrame(() => importReviewSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+                      }}>Next Import results</button></div> : null}
 {(pageMode ? showImportReview : activeSheet === 'Courses') ? <section ref={pageMode ? importReviewSection : undefined} className={pageMode ? 'course-import-import-review' : undefined} aria-label={pageMode ? 'Import results review' : 'Calculated course payment and weights preview'}><div className="course-import-section-title"><h3>{pageMode ? 'Import results' : 'Modules and payment details'}</h3><span>{pageMode ? 'Select a course to review its details, modules, submodules and payment plans.' : editsPending ? 'Details below use the last validated values; validate changes to refresh them.' : 'Select a course to review hierarchy and installment amounts.'}</span></div>
                         {courses.slice((coursePage - 1) * PAGE_SIZE, coursePage * PAGE_SIZE).map((course, index) => {
                           const name = edits.Courses?.[course.row]?.['Course Name'] ?? course.name ?? 'Unnamed course'
@@ -479,6 +487,20 @@ export function CourseExcelUpload({ onImported, onView, onStart, onClose, pageMo
               <div className="course-import-workflow-content"><p id="course-import-workflow-message">{result?.courses?.length || 0} {result?.courses?.length === 1 ? 'course is' : 'courses are'} available in Course Management.</p></div>
               <footer className="course-import-workflow-actions is-success"><button type="button" className="button button-solid" onClick={finishImportSuccess}>OK</button></footer>
             </>}
+          </section>
+        </div>,
+        document.body
+      ) : null}
+      {showDuplicateWarning ? createPortal(
+        <div className="course-import-workflow-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowDuplicateWarning(false) }}>
+          <section className="course-import-workflow-dialog" role="dialog" aria-modal="true" aria-labelledby="course-import-duplicate-title" aria-describedby="course-import-duplicate-message">
+            <header className="course-import-workflow-header">
+              <span className="course-import-workflow-icon is-confirm"><X size={22} /></span>
+              <div><p>COURSE MANAGEMENT</p><h2 id="course-import-duplicate-title">Duplicate courses found</h2></div>
+              <button type="button" aria-label="Close duplicate warning" onClick={() => setShowDuplicateWarning(false)}><X size={19} /></button>
+            </header>
+            <div className="course-import-workflow-content"><p id="course-import-duplicate-message">Please remove the {duplicateCourseCount} duplicate course{duplicateCourseCount === 1 ? '' : 's'} before continuing to Import results.</p></div>
+            <footer className="course-import-workflow-actions"><button type="button" className="button button-solid" onClick={() => setShowDuplicateWarning(false)}>OK</button></footer>
           </section>
         </div>,
         document.body

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarDays,
   CirclePlus,
+  Pencil,
   Trash2,
   X,
 } from 'lucide-react'
@@ -14,6 +15,7 @@ import {
   deleteBranchInstallmentTemplate,
   getBranchInstallmentTemplateSignature,
   listBranchInstallmentTemplates,
+  updateBranchInstallmentTemplate,
 } from '../services/branchInstallmentTemplateService'
 import '../styles/BranchInstallmentTemplatesPage.css'
 
@@ -92,7 +94,7 @@ function createValidationErrors(form) {
   }
 }
 
-async function findBranchDuplicateTemplate({ installmentCount }) {
+async function findBranchDuplicateTemplate({ installmentCount, ignoreTemplateId = '' }) {
   const normalizedCount = Number(installmentCount || 0)
   if (!normalizedCount) return null
 
@@ -117,6 +119,7 @@ async function findBranchDuplicateTemplate({ installmentCount }) {
 
   return (
     aggregatedTemplates.find((template) => {
+      if (ignoreTemplateId && String(template.id) === String(ignoreTemplateId)) return false
       if (isCourseLinkedTemplate(template)) return false
       const existingCount = Number(template.installmentCount || 0)
       return existingCount === normalizedCount
@@ -139,6 +142,7 @@ export function BranchInstallmentTemplatesPage() {
   const [touched, setTouched] = useState({})
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState(null)
   const validation = useMemo(() => createValidationErrors(form), [form])
   const [openActionMenuId, setOpenActionMenuId] = useState(null)
   const submitLockRef = useRef(false)
@@ -277,6 +281,7 @@ export function BranchInstallmentTemplatesPage() {
 
       const duplicateExists = await findBranchDuplicateTemplate({
         installmentCount: form.installmentCount,
+        ignoreTemplateId: editingTemplate?.id,
 
       })
 
@@ -303,10 +308,12 @@ export function BranchInstallmentTemplatesPage() {
           status: String(form.status || 'ACTIVE').trim(),
         }
 
-        await createBranchInstallmentTemplate(payload)
+        if (editingTemplate) await updateBranchInstallmentTemplate(editingTemplate.id, payload)
+        else await createBranchInstallmentTemplate(payload)
 
         resetForm()
         setIsCreateOpen(false)
+        setEditingTemplate(null)
         await loadTemplates(1)
       } catch (err) {
         if (err?.status === 409) {
@@ -334,6 +341,15 @@ export function BranchInstallmentTemplatesPage() {
 
   const confirmDelete = (template) => {
     setDeleteTarget(template)
+  }
+
+  const openEditTemplate = (template) => {
+    setEditingTemplate(template)
+    setForm({ templateName: template.templateName || '', installmentCount: String(template.installmentCount || 1), allowCustomization: Boolean(template.allowCustomization ?? true), status: template.status || 'ACTIVE' })
+    setTouched({})
+    setError('')
+    setOpenActionMenuId(null)
+    setIsCreateOpen(true)
   }
 
   const handleDelete = async () => {
@@ -410,6 +426,7 @@ export function BranchInstallmentTemplatesPage() {
             className="installment-create-button"
             onClick={() => {
               resetForm()
+              setEditingTemplate(null)
               setIsCreateOpen(true)
             }}
           >
@@ -435,7 +452,7 @@ export function BranchInstallmentTemplatesPage() {
           </p>
 
           <h3>
-            Create Installment Template
+            {editingTemplate ? 'Edit Installment Template' : 'Create Installment Template'}
           </h3>
         </div>
 
@@ -444,6 +461,7 @@ export function BranchInstallmentTemplatesPage() {
           className="installment-modal-close"
           onClick={() => {
             setIsCreateOpen(false)
+            setEditingTemplate(null)
             resetForm()
           }}
         >
@@ -548,6 +566,7 @@ export function BranchInstallmentTemplatesPage() {
           variant="ghost"
           onClick={() => {
             resetForm()
+            setEditingTemplate(null)
             setIsCreateOpen(false)
           }}
           disabled={saving}
@@ -560,7 +579,7 @@ export function BranchInstallmentTemplatesPage() {
           disabled={saving}
           onClick={submitForm}
         >
-          {saving ? 'Saving...' : 'Create Template'}
+          {saving ? 'Saving...' : editingTemplate ? 'Update Template' : 'Create Template'}
         </Button>
 
       </div>
@@ -721,6 +740,13 @@ export function BranchInstallmentTemplatesPage() {
                 </summary>
 
                 <div className="installment-action-dropdown">
+                  <button
+                    type="button"
+                    onClick={() => openEditTemplate(template)}
+                  >
+                    <Pencil size={14} strokeWidth={2.2} />
+                    Edit
+                  </button>
                   <button
                     type="button"
                     className="is-danger"

@@ -126,6 +126,8 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
   const [facultyList, setFacultyList] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [appliedSearchQuery, setAppliedSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [sortBy, setSortBy] = useState('name')
   const [isFacultyLoading, setIsFacultyLoading] = useState(true)
   
   const [currentPage, setCurrentPage] = useState(1)
@@ -428,6 +430,7 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
     const query = appliedSearchQuery.trim().toLowerCase()
 
     return facultyList.filter((faculty) => {
+      if (statusFilter !== 'ALL' && String(faculty.status || '').toUpperCase() !== statusFilter) return false
       return (
         !query ||
         [
@@ -450,9 +453,14 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
           .includes(query)
       )
     })
-  }, [appliedSearchQuery, facultyList])
+  }, [appliedSearchQuery, facultyList, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filteredFaculty.length / rowsPerPage))
+  const sortedFaculty = useMemo(() => [...filteredFaculty].sort((left, right) => {
+    if (sortBy === 'status') return String(left.status || '').localeCompare(String(right.status || ''))
+    return String(left.name || '').localeCompare(String(right.name || ''))
+  }), [filteredFaculty, sortBy])
+
+  const totalPages = Math.max(1, Math.ceil(sortedFaculty.length / rowsPerPage))
   const safeCurrentPage = Math.min(currentPage, totalPages)
 
   useEffect(() => {
@@ -461,8 +469,8 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
 
   const paginatedFaculty = useMemo(() => {
     const startIndex = (safeCurrentPage - 1) * rowsPerPage
-    return filteredFaculty.slice(startIndex, startIndex + rowsPerPage)
-  }, [filteredFaculty, safeCurrentPage])
+    return sortedFaculty.slice(startIndex, startIndex + rowsPerPage)
+  }, [safeCurrentPage, sortedFaculty])
 
   const facultyBatchDetails = useMemo(() => {
     if (!viewFaculty) return []
@@ -1042,6 +1050,15 @@ export function BranchFacultyPage({ branchCode = '', branchId = '', branchBatchG
     </button>
   </div>
 </div>
+    <select aria-label="Filter faculty status" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setCurrentPage(1) }}>
+      <option value="ALL">All statuses</option>
+      <option value="ACTIVE">Active</option>
+      <option value="INACTIVE">Inactive</option>
+    </select>
+    <select aria-label="Sort faculty" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1) }}>
+      <option value="name">Name A-Z</option>
+      <option value="status">Status</option>
+    </select>
 
     </div>
 

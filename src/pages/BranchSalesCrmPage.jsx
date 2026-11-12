@@ -28,6 +28,8 @@ export default function BranchSalesCrmPage({ view = 'admins', title = 'Sales & C
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [salesAdminFilter, setSalesAdminFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [sortBy, setSortBy] = useState('name')
   const [sendReportOpen, setSendReportOpen] = useState(false)
 
   const loadSalesAdmins = useCallback(async () => {
@@ -76,6 +78,7 @@ export default function BranchSalesCrmPage({ view = 'admins', title = 'Sales & C
   const filteredRows = useMemo(() => {
     const rows = activeTab === 'admins' ? salesAdmins : admissions.filter((item) => item.status === 'ADMITTED')
     return rows.filter((item) => {
+      if (activeTab === 'admins' && statusFilter !== 'ALL' && String(item.status || '').toUpperCase() !== statusFilter) return false
       if (activeTab === 'admissions') {
         if (salesAdminFilter !== 'ALL' && item.salesAdminId !== salesAdminFilter) return false
       }
@@ -85,9 +88,14 @@ export default function BranchSalesCrmPage({ view = 'admins', title = 'Sales & C
         : [item.studentId, item.studentName, item.email, item.phone, item.leadId, item.courseName, item.salesAdminId, item.salesAdminName]
       return values.some((value) => String(value || '').toLowerCase().includes(query))
     })
-  }, [activeTab, admissions, branch, query, salesAdminFilter, salesAdmins])
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
-  const pageRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  }, [activeTab, admissions, branch, query, salesAdminFilter, salesAdmins, statusFilter])
+  const sortedRows = useMemo(() => [...filteredRows].sort((left, right) => {
+    const value = (item) => activeTab === 'admins' ? (sortBy === 'status' ? item.status : item.name) : (sortBy === 'admissionDate' ? item.admissionDate : item.studentName)
+    if (sortBy === 'admissionDate') return new Date(value(right) || 0) - new Date(value(left) || 0)
+    return String(value(left) || '').localeCompare(String(value(right) || ''))
+  }), [activeTab, filteredRows, sortBy])
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE))
+  const pageRows = sortedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const loading = activeTab === 'admins' ? loadingAdmins : loadingAdmissions
   const error = activeTab === 'admins' ? adminsError : admissionsError
   const hasLoaded = activeTab === 'admins' ? adminsLoaded : admissionsLoaded
@@ -134,6 +142,8 @@ export default function BranchSalesCrmPage({ view = 'admins', title = 'Sales & C
             </select>
           </div>
         ) : null}
+        {activeTab === 'admins' ? <select aria-label="Filter Sales Admin status" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1) }}><option value="ALL">All statuses</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select> : null}
+        <select aria-label="Sort records" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setPage(1) }}><option value={activeTab === 'admins' ? 'name' : 'studentName'}>Name A-Z</option>{activeTab === 'admins' ? <option value="status">Status</option> : <option value="admissionDate">Latest admission</option>}</select>
       </div>
 
       <div className="branch-sales-crm-table-wrap">

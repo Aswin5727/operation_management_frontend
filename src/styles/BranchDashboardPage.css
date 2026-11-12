@@ -15455,3 +15455,36 @@ body.branch-notification-menu-open .main-area {
   .branch-dashboard-fee-skeleton > div { width: min(100%, 270px); }
   .branch-dashboard-mini-skeleton-meta { width: 78px; flex-basis: 78px; }
 }
+.branch-dashboard-profile-menu-header { display: flex; align-items: center; gap: 11px; padding: 16px 18px 13px; border-bottom: 1px solid #e8eef6; }
+.branch-dashboard-profile-menu-header > div { display: grid; gap: 3px; min-width: 0; }
+.branch-dashboard-profile-menu-header strong { color: #173d6c; font-size: .86rem; }
+.branch-dashboard-profile-menu-header span { color: #8193aa; font-size: .7rem; }
+.branch-dashboard-profile-menu-details { display: grid; gap: 10px; padding: 13px 18px; border-bottom: 1px solid #e8eef6; }
+.branch-dashboard-profile-menu-details > div { display: flex; align-items: flex-start; gap: 9px; color: #64809e; }
+.branch-dashboard-profile-menu-details > div > span { display: grid; gap: 2px; min-width: 0; }
+.branch-dashboard-profile-menu-details small { color: #91a3b8; font-size: .65rem; }
+.branch-dashboard-profile-menu-details strong { overflow: hidden; color: #365475; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.faculty-delete-modal-card,
+.installment-delete-modal,
+.course-module-delete-modal,
+.branch-success-modal.super-admin-logout-modal {
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 26px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 35, 65, .22);
+}
+.faculty-delete-modal-card h2,
+.installment-delete-modal h3,
+.course-module-delete-modal h2,
+.branch-success-modal.super-admin-logout-modal h2 { margin: 12px 0 8px; color: #173d6c; font-size: 1.15rem; }
+.faculty-delete-copy,
+.faculty-delete-subcopy,
+.installment-delete-modal p,
+.course-module-delete-modal p,
+.branch-success-modal.super-admin-logout-modal .branch-delete-copy { margin: 0 0 8px; color: #647991; font-size: .82rem; line-height: 1.55; }
+.faculty-delete-actions,
+.installment-delete-actions,
+.course-module-delete-modal .branch-modal-actions,
+.branch-success-modal.super-admin-logout-modal .branch-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }

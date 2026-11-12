@@ -9,6 +9,18 @@ const dateLabel = (value) => {
   return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+function SalesCrmTableSkeleton({ isAdmissions }) {
+  const columnCount = isAdmissions ? 7 : 8
+  return (
+    <div className="super-admin-sales-crm-table-wrap super-admin-sales-crm-skeleton-wrap" role="status" aria-label={`Loading ${isAdmissions ? 'admission students' : 'leads'}`}>
+      <table className="super-admin-sales-crm-table super-admin-sales-crm-skeleton-table" aria-hidden="true">
+        <thead><tr>{(isAdmissions ? ['Student', 'Student ID', 'Branch', 'Course', 'Admission Date', 'Assigned To', 'Payment'] : ['Lead', 'Phone', 'Branch', 'Course', 'Stage', 'Status', 'Assigned To', 'Lead Date']).map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+        <tbody>{Array.from({ length: 5 }, (_, rowIndex) => <tr key={rowIndex}>{Array.from({ length: columnCount }, (_, cellIndex) => <td key={cellIndex}><span /></td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  )
+}
+
 export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], studentsLoading = false, branches = [] }) {
   const isAdmissions = view === 'admissions'
   const [rows, setRows] = useState([])
@@ -115,7 +127,7 @@ export function SuperAdminSalesCrmPanel({ view = 'leads', students = [], student
       </header>
       <div className="super-admin-sales-crm-toolbar"><div className="super-admin-sales-crm-filters"><label className="super-admin-sales-crm-search"><Search size={17} /><input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setCurrentPage(1) }} placeholder={isAdmissions ? 'Search admission student, branch, course...' : 'Search lead, student, branch, course...'} aria-label={`Search ${title}`} /></label><label className="super-admin-sales-crm-branch-filter"><span className="sr-only">Filter by branch</span><select value={branchFilter} onChange={(event) => { setBranchFilter(event.target.value); setCurrentPage(1) }} aria-label="Filter leads by branch"><option value="all">All branches</option>{branches.map((branch) => { const value = branch.id || branch.branchId; return <option key={value} value={value}>{branch.branchName || branch.branchId || 'Unnamed branch'}</option> })}</select></label></div><span>{filteredRows.length} records</span></div>
       {error ? <div className="super-admin-global-state is-error" role="alert">{error}</div> : null}
-      {((isAdmissions ? studentsLoading : loading)) ? <div className="super-admin-sales-crm-loading" role="status">Loading {isAdmissions ? 'admission students' : 'leads'}...</div> : (
+      {((isAdmissions ? studentsLoading : loading)) ? <SalesCrmTableSkeleton isAdmissions={isAdmissions} /> : (
         <div className="super-admin-sales-crm-table-wrap">
           <table className="super-admin-sales-crm-table">
             <thead>{isAdmissions ? <tr><th>Student</th><th>Student ID</th><th>Branch</th><th>Course</th><th>Admission Date</th><th>Assigned To</th><th>Payment</th></tr> : <tr><th>Lead</th><th>Phone</th><th>Branch</th><th>Course</th><th>Stage</th><th>Status</th><th>Assigned To</th><th>Lead Date</th></tr>}</thead>

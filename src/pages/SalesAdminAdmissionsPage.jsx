@@ -130,6 +130,7 @@ export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false, salesAdmi
   const [branchId, setBranchId] = useState('')
   const [courseId, setCourseId] = useState('')
   const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('createdAt')
   const [branches, setBranches] = useState([])
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
@@ -181,7 +182,7 @@ export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false, salesAdmi
     setLoading(true)
     setError('')
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '5', status, ...(salesAdminId ? { salesAdminId } : {}) })
+      const params = new URLSearchParams({ page: String(page), limit: '5', status, sortBy, sortOrder: sortBy === 'studentName' ? 'asc' : 'desc', ...(salesAdminId ? { salesAdminId } : {}) })
       if (branchId) params.set('branchId', branchId)
       if (courseId) params.set('courseId', courseId)
       if (search.trim()) params.set('search', search.trim())
@@ -204,7 +205,7 @@ export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false, salesAdmi
       loadInFlightRef.current = false
       setLoading(false)
     }
-  }, [branchId, courseId, page, search, status])
+  }, [branchId, courseId, page, search, sortBy, status])
   useEffect(() => {
     const timer = window.setTimeout(() => { void load() }, 0)
     return () => window.clearTimeout(timer)
@@ -308,10 +309,10 @@ export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false, salesAdmi
   return <section className="sales-admissions-page">
     <header className="sales-admissions-header"><div><p className="eyebrow">SALES CRM</p><h1>Student Admission</h1><p>Manage HOT leads and complete student admissions.</p></div><button type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} className={loading ? 'is-spinning' : ''} />Refresh</button></header>
     <div className="sales-admissions-summary">
-      <article><span><GraduationCap size={18} /></span><div><small>Total HOT Leads</small><strong>{summary.hotLeads}</strong></div></article>
-      <article><span><BookOpen size={18} /></span><div><small>Pending Admissions</small><strong>{summary.pendingAdmissions}</strong></div></article>
-      <article><span><UserRoundCheck size={18} /></span><div><small>Completed Admissions</small><strong>{summary.completedAdmissions}</strong></div></article>
-      <article><span>₹</span><div><small>Total Admission Collections</small><strong>{money(summary.totalCollections)}</strong></div></article>
+      <article><span><GraduationCap size={18} /></span><div><small>Total HOT Leads</small><strong>{loading ? <i className="sales-admissions-count-skeleton" aria-label="Loading count" /> : summary.hotLeads}</strong></div></article>
+      <article><span><BookOpen size={18} /></span><div><small>Pending Admissions</small><strong>{loading ? <i className="sales-admissions-count-skeleton" aria-label="Loading count" /> : summary.pendingAdmissions}</strong></div></article>
+      <article><span><UserRoundCheck size={18} /></span><div><small>Completed Admissions</small><strong>{loading ? <i className="sales-admissions-count-skeleton" aria-label="Loading count" /> : summary.completedAdmissions}</strong></div></article>
+      <article><span>₹</span><div><small>Total Admission Collections</small><strong>{loading ? <i className="sales-admissions-count-skeleton is-wide" aria-label="Loading amount" /> : money(summary.totalCollections)}</strong></div></article>
     </div>
     {success ? <div className="sales-admission-success" role="status"><UserRoundCheck size={19} /><div><strong>Student Admission Completed Successfully</strong><span>{success.studentName} · Student ID {success.studentId} · Original Lead ID {success.sourceLead?.leadId || activeLead?.leadId || success.sourceLeadId}</span><span>{success.branchName || activeLead?.branchName || activeLead?.branch?.branchName || '—'} · {success.courseName || '—'} · {success.facultyName || 'Faculty pending'} · {success.batchName || 'Batch pending'}</span><span>Total Fee {money(success.courseAmount)} · Amount Paid {money((success.payments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0))} · Remaining {money(Math.max(Number(success.courseAmount || 0) - (success.payments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0), 0))}</span></div><button type="button" onClick={() => setSuccess(null)}>Dismiss</button></div> : null}
     {error ? <div className="sales-admission-error" role="alert"><AlertCircle size={18} />{error}<button type="button" onClick={() => void load()}>Retry</button></div> : null}
@@ -320,6 +321,7 @@ export function SalesAdminAdmissionsPage({ readOnlySalesAdmin = false, salesAdmi
       <select aria-label="Admission status" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}>{status === 'PENDING_HOT' ? <option value="PENDING_HOT" hidden>My pending HOT admissions</option> : null}{statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
       <select aria-label="Branch" value={branchId} onChange={(event) => { setBranchId(event.target.value); setPage(1) }}><option value="">All branches</option>{branches.map((branch) => <option value={branch.id} key={branch.id}>{branch.branchName}</option>)}</select>
       <select aria-label="Course" value={courseId} onChange={(event) => { setCourseId(event.target.value); setPage(1) }}><option value="">All courses</option>{courses.map((course) => <option value={course.id} key={course.id}>{course.name}</option>)}</select>
+      <select aria-label="Sort admissions" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setPage(1) }}><option value="createdAt">Newest first</option><option value="studentName">Student name</option><option value="admissionStatus">Admission status</option></select>
     </div>
     <div className="sales-admissions-table-wrap"><table><thead><tr><th>Lead / Student ID</th><th>Student</th><th>Phone</th><th>Branch</th><th>Course</th><th>Training</th><th>Schedule</th><th>Stage</th><th>Lead Payment</th><th>Available Batches</th><th>Admission</th><th>Assigned To</th><th>Actions</th></tr></thead><tbody>
     {loading ? <tr><td colSpan="13" className="sales-admissions-state">Loading admissions…</td></tr> : rows.length ? rows.map((row) => { const batchRequest = requestsForLead(row)[0]; const hasOpenRequest = batchRequest && batchRequest.status !== 'RESOLVED'; const noBatches = Number(row.availableBatchCount) === 0; return <tr key={row.leadId}><td><strong>{row.leadId}</strong><small>Student: {row.studentId || '—'}</small></td><td>{row.studentName}</td><td>{row.phoneNumber || '—'}</td><td>{row.branchName || '—'}</td><td>{row.courseName || row.otherCourse || '—'}</td><td>{row.trainingMode || '—'}</td><td>{row.classSchedule || '—'}</td><td><span className="sales-admission-stage">{row.stage}</span></td><td>{String(row.paymentStatus || 'NOT PAID').replace(/[_-]+/g, ' ')}{row.paymentAmount != null ? <small>{money(row.paymentAmount)} entered</small> : null}</td><td><span className={`sales-admission-batch-count${Number(row.availableBatchCount) > 0 ? ' is-available' : ''}`}>{row.availableBatchCount == null ? 'Unavailable' : `${row.availableBatchCount} Available`}</span></td><td><span className={`sales-admission-status is-${String(row.admissionStatus || 'PENDING').toLowerCase().replace('_', '-')}`}>{String(row.admissionStatus || 'PENDING').replace('_', ' ')}</span></td><td>{row.assignedAdminName || '—'}</td><td className="sales-admission-actions"><button type="button" className="sales-admission-view-batches" onClick={() => void openAvailableBatches(row)}><Layers3 size={14} />View Batches</button>{noBatches && row.canRequestBatch && row.admissionStatus !== 'ADMITTED' ? <button type="button" className="sales-admission-send-request" onClick={() => { setRequestError(''); setRequestingBatchRequest(batchRequest || null); setRequestingLead(row) }}><Send size={14} />{hasOpenRequest ? 'Resend Request' : 'Send Request'}</button> : null}{row.admissionStatus === 'ADMITTED' ? <button type="button" className="sales-admission-view" onClick={() => void openStudentDetails(row)}>View Student</button> : <button type="button" className="sales-admission-start" onClick={() => void startAdmission(row.id)}>{row.admissionStatus === 'IN_PROGRESS' ? 'Continue Admission' : 'Start Admission'}</button>}</td></tr> }) : <tr><td colSpan="13" className="sales-admissions-state"><GraduationCap size={27} /><strong>No admissions found</strong><span>HOT leads within your authorized branches will appear here.</span></td></tr>}

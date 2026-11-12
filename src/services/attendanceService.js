@@ -88,6 +88,14 @@ export async function markFacultyStudentAttendance(payload = {}) {
   return unwrapData(response)
 }
 
+export async function editBranchStudentAttendance(payload = {}) {
+  const response = await request('/attendance/edit', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return unwrapData(response)
+}
+
 const BRANCH_ATTENDANCE_DEDUPE_MS = 2000
 const branchAttendanceRecentRequests = new Map()
 
@@ -304,6 +312,11 @@ export async function logoutFacultyAttendance(batchWork = [], payload = {}) {
     if (![404, 405].includes(Number(error?.status || 0))) throw error
     return recordFacultyAttendanceLogout({ date: new Date().toISOString().slice(0, 10), facultyId: payload?.facultyId || '', facultyName: payload?.facultyName || '', logoutType: 'normal', workReport: batchWork.map((item) => `${item.batchId}: ${item.workSummary}`).join('\n'), logoutAt: new Date().toISOString(), logoutTimestamp: Date.now() })
   }
+}
+
+export async function logoutFacultyWebsite() {
+  const response = await request('/faculty/attendance/website-logout', { method: 'POST' })
+  return unwrapFacultyAttendanceResponse(response)
 }
 
 export async function getCurrentStudentAttendanceOverview(date = '') {
