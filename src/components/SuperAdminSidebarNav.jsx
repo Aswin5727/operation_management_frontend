@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell,
@@ -32,6 +32,9 @@ function isActiveBranch(branch) {
 }
 
 function isSelectedEntry(activeSection, activeView, entry) {
+  // Sales CRM and User & Role Management share the sales-admin section;
+  // their views are intentionally kept mutually exclusive in the sidebar.
+  if (entry.id === 'sales-admin' && ['leads', 'admissions'].includes(activeView)) return false
   if (entry.id === 'branch-reports' && activeSection === 'reports' && activeView !== 'lead-monthly') return true
   if (entry.section && activeSection !== entry.section) return false
   if (entry.view && activeView !== entry.view) return false
@@ -45,9 +48,21 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
   const activeView = getView(location.search)
   const isNotifications = location.pathname.endsWith('/notifications')
   const activeBranches = useMemo(() => branches.filter(isActiveBranch), [branches])
-  const [expandedGroups, setExpandedGroups] = useState({ salesCrm: true, userRole: true, academic: true, leaveManagement: true, reports: true, helpdesk: false })
+  const defaultExpandedGroups = { salesCrm: true, userRole: true, academic: true, leaveManagement: true, reports: true, helpdesk: false }
+  const [expandedGroups, setExpandedGroups] = useState(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem('cispro.super-admin-sidebar-expanded-groups') || '{}')
+      return { ...defaultExpandedGroups, ...(saved && typeof saved === 'object' ? saved : {}) }
+    } catch {
+      return defaultExpandedGroups
+    }
+  })
   const [isBranchExpanded, setIsBranchExpanded] = useState(false)
   const [isFlyoutDismissed, setIsFlyoutDismissed] = useState(false)
+
+  useEffect(() => {
+    try { window.localStorage.setItem('cispro.super-admin-sidebar-expanded-groups', JSON.stringify(expandedGroups)) } catch { /* storage may be unavailable */ }
+  }, [expandedGroups])
 
   const go = (path) => {
     if (path === '/dashboard/super-admin' || path === '/dashboard/super-admin/notifications') setIsBranchExpanded(false)
@@ -135,7 +150,7 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
   const renderNestedEntry = (entry, mode = 'inline') => {
     const Icon = entry.icon
     const active = isEntryActive(entry)
-    const expanded = Boolean(expandedGroups[entry.id]) || active
+    const expanded = expandedGroups[entry.id] ?? active
     return (
       <div key={entry.id} className={`super-admin-sidebar-nested-group ${active ? 'is-active' : ''}`.trim()}>
         <button type="button" role={mode === 'flyout' ? 'menuitem' : undefined} className={`super-admin-sidebar-subitem super-admin-sidebar-nested-toggle ${active ? 'is-active' : ''}`.trim()} aria-expanded={expanded} onClick={() => setExpandedGroups((current) => ({ ...current, [entry.id]: !current[entry.id] }))}>
@@ -164,7 +179,7 @@ export function SuperAdminSidebarNav({ branches = [], isSidebarCollapsed, onClos
       )
     }
     const groupActive = group.children.some(isEntryActive)
-    const expanded = Boolean(expandedGroups[group.id]) || groupActive
+    const expanded = expandedGroups[group.id] ?? groupActive
     return (
       <div key={group.id} className={`super-admin-sidebar-section super-admin-sidebar-group ${groupActive ? 'is-active' : ''}`.trim()}>
         <div className={`super-admin-sidebar-collapsed-group ${isFlyoutDismissed ? 'is-flyout-dismissed' : ''}`.trim()} onMouseEnter={() => setIsFlyoutDismissed(false)} onMouseLeave={() => setIsFlyoutDismissed(true)}>

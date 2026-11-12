@@ -453,6 +453,18 @@ function SuperAdminTableSkeleton({ columns = 6, label = 'Loading records' }) {
   )
 }
 
+function SuperAdminSectionSkeleton({ section = 'dashboard' }) {
+  const isTableSection = ['branches', 'sales-admin', 'branch-admin', 'faculty', 'students', 'exams-results', 'faculty-leave', 'leave-management', 'discontinuations', 'reports'].includes(section)
+  const title = section === 'dashboard' ? 'Loading dashboard' : 'Loading page'
+  return (
+    <section className="super-admin-section-skeleton" role="status" aria-label={title}>
+      <div className="super-admin-section-skeleton-heading"><span /><span /><span /></div>
+      <div className="super-admin-section-skeleton-summary">{Array.from({ length: 4 }, (_, index) => <article key={index}><span /><strong /></article>)}</div>
+      {isTableSection ? <SuperAdminTableSkeleton columns={section === 'sales-admin' ? 8 : 6} label={title} /> : <div className="super-admin-section-skeleton-panels"><span /><span /></div>}
+    </section>
+  )
+}
+
 const DEFAULT_BRANCH_COUNTRY_NAME = 'India'
 const DEFAULT_BRANCH_STATE_NAME = 'Tamil Nadu'
 
@@ -583,12 +595,14 @@ export function SuperAdminDashboardPage() {
   const location = useLocation()
   const { signOut, user } = useAuth()
   const [activeSection, setActiveSection] = useState(() => getInitialSuperAdminSection(location.search))
+  const [isSectionLoading, setIsSectionLoading] = useState(true)
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try { return window.localStorage.getItem('cispro.super-admin-sidebar-collapsed') === 'true' } catch { return false }
   })
   const [isBranchesExpanded, setIsBranchesExpanded] = useState(false)
   const [branches, setBranches] = useState([])
+  const [isBranchesLoading, setIsBranchesLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [allBranchStudents, setAllBranchStudents] = useState([])
   const [allBranchFaculty, setAllBranchFaculty] = useState([])
@@ -683,6 +697,7 @@ export function SuperAdminDashboardPage() {
     roleAccess: 'BRANCH_ADMIN_ONLY',
   })
   const loadBranches = useCallback(async () => {
+    setIsBranchesLoading(true)
     try {
       const result = await listBranches({
         page: 1,
@@ -730,6 +745,8 @@ export function SuperAdminDashboardPage() {
       setBranches(nextBranches)
     } catch {
       setBranches([])
+    } finally {
+      setIsBranchesLoading(false)
     }
   }, [])
   const isOverlayOpen =
@@ -1239,6 +1256,12 @@ useEffect(() => {
 
     return () => window.clearTimeout(timerId)
   }, [location.search])
+
+  useEffect(() => {
+    setIsSectionLoading(true)
+    const timerId = window.setTimeout(() => setIsSectionLoading(false), 380)
+    return () => window.clearTimeout(timerId)
+  }, [activeSection, location.pathname, new URLSearchParams(location.search).get('view')])
 
   useEffect(() => {
     if (!isOverlayOpen) {
@@ -2706,7 +2729,7 @@ const filteredBranches = useMemo(() => {
           </header>
 
           <main className="super-admin-content">
-            {activeSection.startsWith('metric-') ? (
+            {isSectionLoading ? <SuperAdminSectionSkeleton section={activeSection} /> : activeSection.startsWith('metric-') ? (
               <SuperAdminMetricDetailPage
                 metric={activeSection.replace('metric-', '')}
                 students={allBranchStudents}
@@ -2727,7 +2750,7 @@ const filteredBranches = useMemo(() => {
 
                   <div className="branch-management-actions">
                     <p className="branch-management-subtitle">
-                      Total branches: <strong>{totalBranches}</strong>
+                      Total branches: {isBranchesLoading ? <span className="branch-inline-skeleton branch-count-skeleton" aria-label="Loading branch count" /> : <strong>{totalBranches}</strong>}
                     </p>
                   </div>
                 </div>
@@ -2797,6 +2820,11 @@ const filteredBranches = useMemo(() => {
 </div>
 
                 <div className="branch-table-shell">
+                  {isBranchesLoading ? <div className="branch-management-loading" role="status" aria-label="Loading branches">
+                    <div className="branch-loading-cards">{Array.from({ length: 3 }, (_, index) => <div className="branch-loading-card" key={index}><span /><span /><span /><span /></div>)}</div>
+                    <SuperAdminTableSkeleton columns={7} label="Loading branch rows" />
+                  </div> : null}
+                  {!isBranchesLoading ? <>
                   <table className="branch-table">
                     <thead>
                       <tr>
@@ -3101,6 +3129,7 @@ const filteredBranches = useMemo(() => {
                       showSummary={false}
                     />
                   </div>
+                  </> : null}
                 </div>
               </section>
             ) : activeSection === 'user-role' ? (

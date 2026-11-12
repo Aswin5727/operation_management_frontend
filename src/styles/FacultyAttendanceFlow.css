@@ -1,4 +1,6 @@
 .faculty-attendance-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid #cbdaf0;border-radius:10px;padding:10px 15px;color:#1d4ed8;background:#fff;font:inherit;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 5px 14px rgba(37,99,235,.08)}
+.faculty-attendance-chip:disabled{color:#94a3b8;background:#f1f5f9;border-color:#e2e8f0;cursor:not-allowed;box-shadow:none;opacity:.85}
+.faculty-attendance-chip:disabled:hover{background:#f1f5f9}
 .faculty-attendance-chip:hover{background:#eff6ff}
 .faculty-attendance-branch-group{display:grid;gap:8px;margin-top:14px;padding:0;border:0;border-radius:0;background:transparent}.faculty-attendance-branch-title{color:#172b4d;font-size:14px}.faculty-attendance-branch-group .faculty-attendance-batch{margin-top:4px;background:#fff}
 .faculty-attendance-overlay{position:fixed;inset:0;z-index:1800;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.52);backdrop-filter:blur(3px);overflow:auto}
