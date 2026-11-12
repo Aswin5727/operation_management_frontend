@@ -98,10 +98,11 @@ export default function CourseImportSheetTable({ sheetName, sheet, panelId, rows
                             : sheetName === 'Payment Plans' && column === 'Payment Plan Name' ? <select {...props}>
                               {value && !exactPlanChoiceExists ? <option value={value}>{value} ({matchingPaymentPlan ? 'alias for ' + matchingPaymentPlan.templateName : 'not a valid plan name'})</option> : null}
                               <option value="">Select an active payment plan</option>
-                              {availablePaymentPlans.flatMap((plan) => [
-                                <option key={'plan-' + plan.templateName} value={plan.templateName}>{plan.templateName} ({plan.installmentCount} installments)</option>,
-                                ...(plan.aliases || []).map((alias) => <option key={'alias-' + plan.templateName + '-' + alias} value={alias}>{alias} (alias for {plan.templateName})</option>),
-                              ])}
+                              {availablePaymentPlans.map((plan) => (
+                                <option key={'plan-' + plan.templateName} value={plan.templateName}>
+                                  {plan.templateName} ({plan.installmentCount} installments)
+                                </option>
+                              ))}
                             </select>
                             : <input {...props} type="text" inputMode={sheetName === 'Courses' && NUMBER_COLUMNS.has(column) ? 'numeric' : 'text'} />
                         : <span className="course-import-cell-display" title={displayValue}>{displayValue}</span>}
