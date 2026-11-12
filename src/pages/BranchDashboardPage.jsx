@@ -4295,7 +4295,6 @@ export function BranchDashboardPage({ embeddedMode = false, branchData = null, i
     : studentCalendarId
       ? 'student-calendar'
       : requestedSidebarSection || routeSection
-
   const [resolvedBranchRoleAccess, setResolvedBranchRoleAccess] = useState('')
   const [isSalesAdminDashboardMode, setIsSalesAdminDashboardMode] = useState(false)
   const hasLeadManagementAccess = String(resolvedBranchRoleAccess || user?.roleAccess || session?.user?.roleAccess || '').toUpperCase() === 'BRANCH_ADMIN_SALES_ADMIN'
@@ -11992,6 +11991,17 @@ useEffect(() => {
 
             {isProfileMenuOpen ? (
               <div className="branch-dashboard-profile-menu" role="menu" aria-label="Branch profile menu">
+                <div className="branch-dashboard-profile-menu-header">
+                  <AvatarBadge />
+                  <div>
+                    <strong>{branchAdminDisplay}</strong>
+                    <span>{hasLeadManagementAccess ? 'Branch Admin & Sales Admin' : 'Branch Administrator'}</span>
+                  </div>
+                </div>
+                <div className="branch-dashboard-profile-menu-details">
+                  <div><Mail size={15} /><span><small>Email</small><strong>{branchProfile?.branchEmail || user?.email || '—'}</strong></span></div>
+                  <div><Shield size={15} /><span><small>Role</small><strong>{hasLeadManagementAccess ? 'Branch Admin + Sales Admin' : 'Branch Admin'}</strong></span></div>
+                </div>
                 <button type="button" role="menuitem" className="branch-dashboard-profile-menu-item" onClick={openProfile}>
                   <CircleUserRound size={16} strokeWidth={2.1} />
                   <span>Profile</span>

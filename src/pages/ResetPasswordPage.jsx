@@ -9,28 +9,6 @@ import { clearPendingLoginEmail, savePendingLoginEmail } from '../lib/session'
 import { changePassword, resetPassword } from '../services/apiClient'
 import '../styles/LoginPage.css'
 
-function ShieldIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path
-        d="M12 3.5 19 6.6v5.2c0 4.4-2.9 8.4-7 9.9-4.1-1.5-7-5.5-7-9.9V6.6L12 3.5z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="m9.5 12.1 1.8 1.8 3.9-4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 function WarningIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -120,6 +98,11 @@ export function ResetPasswordPage() {
 
     if (!nextPassword || !nextConfirmPassword) {
       setErrorMessage('Both password fields are required.')
+      return
+    }
+
+    if (!/^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(nextPassword)) {
+      setErrorMessage('Password must be at least 8 characters and include one uppercase letter, one number, and one special character.')
       return
     }
 
@@ -217,30 +200,25 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <Card className="panel reset-password-shell reset-password-page">
-      <div className="reset-password-header">
-        <div className="reset-password-badge" aria-hidden="true">
-          <ShieldIcon />
+    <Card className="auth-card login-shell login-page reset-password-page">
+      <section className="login-form-panel reset-password-form-panel">
+        <div className="login-topbar">
+          <div className="login-brand-pill">
+            <img className="login-brand-icon" src="/logo1.JPG" alt="CISPRO logo" />
+          </div>
         </div>
-        <div className="reset-password-copy">
-          <p className="eyebrow">Security</p>
+
+        <div className="login-copy">
           <h2>Reset password</h2>
-          <p className="reset-password-intro">
+          <p>
             {isBranchResetFlow
-              ? 'You are still using your temporary password. Create a new password now to continue using your dashboard safely.'
+              ? 'Create a new password to continue using your dashboard safely.'
               : 'Create a new, strong password for your account.'}
           </p>
         </div>
-      </div>
 
-      <form className="form compact reset-password-form" onSubmit={onSubmit} autoComplete="off">
+        <form className="form login-form reset-password-form" onSubmit={onSubmit} autoComplete="off">
         <input type="hidden" name="token" value={token} />
-
-        {errorMessage ? (
-          <div className="form-message form-message-error" role="alert">
-            {errorMessage}
-          </div>
-        ) : null}
 
         <FormField label="New password">
           <div className="reset-password-input-wrap">
@@ -294,6 +272,12 @@ export function ResetPasswordPage() {
           </div>
         </FormField>
 
+        {errorMessage ? (
+          <div className="form-message form-message-error reset-password-confirm-error" role="alert">
+            {errorMessage}
+          </div>
+        ) : null}
+
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting ? 'Updating...' : 'Update Password'}
         </Button>
@@ -301,7 +285,12 @@ export function ResetPasswordPage() {
         <Link to={redirectTo} className="text-link reset-password-back-link">
           Back to Login
         </Link>
-      </form>
+        </form>
+      </section>
+
+      <aside className="login-visual-panel" aria-hidden="true">
+        <img className="login-visual-image" src="/cispro.png" alt="" />
+      </aside>
     </Card>
   )
 }

@@ -1774,3 +1774,108 @@
   padding-left: 12px;
   text-indent: 0;
 }
+.auth-card.login-shell.login-page.reset-password-page {
+  position: relative;
+  width: 100%;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow: none;
+}
+
+.auth-card.login-shell.login-page.reset-password-page .reset-password-form-panel {
+  justify-content: center;
+  align-items: center;
+  padding: clamp(24px, 3vw, 40px);
+  gap: 12px;
+}
+
+.auth-card.login-shell.login-page.reset-password-page .login-topbar,
+.auth-card.login-shell.login-page.reset-password-page .login-copy,
+.auth-card.login-shell.login-page.reset-password-page .reset-password-form {
+  width: min(100%, 470px);
+}
+
+.auth-card.login-shell.login-page.reset-password-page .login-topbar {
+  justify-content: center;
+  margin: 0;
+}
+
+.auth-card.login-shell.login-page.reset-password-page .login-copy {
+  justify-items: center;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.auth-card.login-shell.login-page.reset-password-page .reset-password-form {
+  max-width: 470px;
+  gap: 10px;
+}
+
+.auth-card.login-shell.login-page.reset-password-page .reset-password-form .form-field {
+  gap: 6px;
+}
+
+.auth-card.login-shell.login-page.reset-password-page .reset-password-form .form-field > span {
+  color: #1e3a8a;
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.auth-card.login-shell.login-page.reset-password-page .reset-password-input-wrap input {
+  min-height: 50px;
+  border-radius: 10px;
+  border-color: #c9d9ee;
+  box-shadow: 0 8px 18px rgba(38, 83, 145, .06);
+}
+
+.auth-card.login-shell.login-page.reset-password-page .reset-password-form .button-solid {
+  min-height: 50px;
+  margin-top: 10px;
+  border-radius: 8px;
+}
+
+.auth-card.login-shell.login-page.reset-password-page .reset-password-confirm-error {
+  margin: 3px 0 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: .78rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 900px) {
+  .auth-card.login-shell.login-page.reset-password-page {
+    width: min(980px, calc(100vw - 24px));
+    min-height: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .auth-card.login-shell.login-page.reset-password-page .login-visual-panel {
+    padding: 0 14px 14px;
+    min-height: 280px;
+  }
+}
+
+@media (max-width: 720px) {
+  .auth-card.login-shell.login-page.reset-password-page {
+    width: calc(100vw - 32px);
+    max-width: 500px;
+    min-height: auto;
+    border-radius: 28px;
+  }
+
+  .auth-card.login-shell.login-page.reset-password-page .reset-password-form-panel {
+    padding: 24px 16px 20px;
+  }
+
+  .auth-card.login-shell.login-page.reset-password-page .login-visual-panel {
+    display: none;
+  }
+}
