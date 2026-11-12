@@ -8684,10 +8684,7 @@ const studentCourseOptions = useMemo(() => {
       const coursePlans = Array.isArray(selectedStudentCourse?.paymentPlans)
         ? selectedStudentCourse.paymentPlans
         : []
-      const mergedPlans = normalizeBranchCoursePaymentPlanSelections([
-        ...coursePlans,
-        ...(Array.isArray(branchInstallmentTemplates) ? branchInstallmentTemplates : []),
-      ])
+      const mergedPlans = normalizeBranchCoursePaymentPlanSelections(coursePlans)
       const seenNames = new Set()
 
       return mergedPlans.filter((plan) => {
@@ -8697,7 +8694,7 @@ const studentCourseOptions = useMemo(() => {
         return true
       })
     },
-    [branchInstallmentTemplates, selectedStudentCourse],
+    [selectedStudentCourse],
   )
 
   const selectedStudentPaymentPlan = useMemo(
