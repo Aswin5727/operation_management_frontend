@@ -52,7 +52,7 @@ import {
   saveFacultyBatchAttendanceState,
 } from '../lib/facultyAttendanceStore'
 import { enrichStudentsWithFacultyReferences, getFacultyBatchEntriesForCourse, getFacultyBatchStudentRecords, getFacultyCourseIds, getFacultyCourses, getMatchingStudents, getUniqueStudentCountForFacultyRecords, getUniqueStudentCountForFacultyScope } from '../lib/facultyFlow'
-import { getCurrentFacultyAttendanceOverview, markFacultyStudentAttendance } from '../services/attendanceService'
+import { editBranchStudentAttendance, getCurrentFacultyAttendanceOverview, markFacultyStudentAttendance } from '../services/attendanceService'
 import { getFacultyDashboardOverview, getFacultyMyBatchesSummary } from '../services/dashboardService'
 import { PaginationBar } from '../components/PaginationBar'
 import { listCourses } from '../services/courseService'
@@ -835,7 +835,12 @@ function getTodayWorkStudentId(student = {}) {
 }
 
 function isAttendanceMarkedStatus(value) {
-  return ['PRESENT', 'ABSENT'].includes(String(value || '').trim().toUpperCase())
+  return ['PRESENT', 'ABSENT', 'LATE'].includes(String(value || '').trim().toUpperCase())
+}
+
+function displayAttendanceStatus(value) {
+  const status = String(value || '').trim().toUpperCase()
+  return status === 'LATE' ? 'PRESENT' : status
 }
 
 function extractStudentAttendanceStatuses(payload = {}) {
@@ -855,7 +860,7 @@ function extractStudentAttendanceStatuses(payload = {}) {
   rows.forEach((row) => {
     const studentKeys = getStudentAttendanceKeys(row)
     const saveStatus = (value) => {
-      const status = String(value || '').trim().toUpperCase()
+      const status = displayAttendanceStatus(value)
       if (!studentKeys.length || !isAttendanceMarkedStatus(status)) return
       studentKeys.forEach((key) => {
         statuses[key] = status
@@ -883,14 +888,14 @@ function getStudentAttendanceStatus(statuses = {}, student = {}) {
   // `attendanceStatus` and `attendance.status` can be the latest historical
   // value from the student list. They must not be reused for another date.
   // Only trust an explicitly date-scoped today value here.
-  const directStatus = String(student?.todayAttendanceStatus || '').trim().toUpperCase()
+  const directStatus = displayAttendanceStatus(student?.todayAttendanceStatus)
   if (isAttendanceMarkedStatus(directStatus)) return directStatus
 
   const today = getAttendanceDateKey()
   const todayRecord = (Array.isArray(student?.records) ? student.records : []).find((record) => (
     String(record?.attendanceDate || record?.date || '').slice(0, 10) === today
   ))
-  const recordStatus = String(todayRecord?.attendanceStatus || todayRecord?.status || '').trim().toUpperCase()
+  const recordStatus = displayAttendanceStatus(todayRecord?.attendanceStatus || todayRecord?.status)
   return isAttendanceMarkedStatus(recordStatus) ? recordStatus : ''
 }
 
@@ -2529,6 +2534,15 @@ export function FacultyDashboardPage() {
     submoduleStatusById: {},
   })
   const [todayWorkMode, setTodayWorkMode] = useState('attendance')
+  const [attendanceAction, setAttendanceAction] = useState(() => {
+    try {
+      return window.localStorage.getItem('cispro:faculty-attendance-action') || 'normal'
+    } catch {
+      return 'normal'
+    }
+  })
+  const [attendanceEditReason, setAttendanceEditReason] = useState('')
+  const [attendanceLateReason, setAttendanceLateReason] = useState('')
   const [todayWorkError, setTodayWorkError] = useState('')
   const [isTodayWorkSaving, setIsTodayWorkSaving] = useState(false)
   const [isTodayWorkConfirmOpen, setIsTodayWorkConfirmOpen] = useState(false)
@@ -2547,6 +2561,11 @@ export function FacultyDashboardPage() {
   const [isCourseEditSaving, setIsCourseEditSaving] = useState(false)
   const [coursesLoading, setCoursesLoading] = useState(false)
   const [coursesError, setCoursesError] = useState('')
+
+  const setAttendanceMode = (mode) => {
+    setAttendanceAction(mode)
+    try { window.localStorage.setItem('cispro:faculty-attendance-action', mode) } catch {}
+  }
 
   useEffect(() => {
     if (!selectedStudentsBatchId) return undefined
@@ -4801,6 +4820,9 @@ export function FacultyDashboardPage() {
       return
     }
     setTodayWorkMode(mode)
+    if (mode === 'attendance') {
+      try { setAttendanceAction(window.localStorage.getItem('cispro:faculty-attendance-action') || 'normal') } catch {}
+    }
     const activeTodayWorkCourse = todayWorkCourse || null
     const nextSelection = getNextPendingTodayWorkSelection(
       activeTodayWorkCourse || {},
@@ -5047,7 +5069,7 @@ export function FacultyDashboardPage() {
     const attendanceWindow = resolveBatchAttendanceWindow(
       attendanceBatchTiming,
     )
-    if (!attendanceWindow.isEditable) {
+    if (attendanceAction === 'normal' && !attendanceWindow.isEditable) {
       setTodayWorkError(attendanceWindow.reason || 'Attendance is closed for this batch.')
       return
     }
@@ -5146,7 +5168,7 @@ export function FacultyDashboardPage() {
     const attendanceWindow = resolveBatchAttendanceWindow(
       attendanceBatchTiming,
     )
-    if (!attendanceWindow.isEditable) {
+    if (attendanceAction === 'normal' && !attendanceWindow.isEditable) {
       setTodayWorkError(attendanceWindow.reason || 'Attendance is closed for this batch.')
       return
     }
@@ -5166,8 +5188,24 @@ export function FacultyDashboardPage() {
       courseId: String(todayWorkCourse?.id || todayWorkCourse?.courseId || '').trim(),
       batchId: String(selectedStudentsBatch?.batchId || selectedStudentsBatch?.batchEntryId || selectedStudentsBatch?.id || '').trim(),
       status: String(todayWorkForm.attendanceByStudent?.[getTodayWorkStudentId(student)] || '').toUpperCase(),
+      lateReason: attendanceLateReason.trim(),
     }))
-    if (students.some((student) => !['PRESENT', 'ABSENT'].includes(student.status))) {
+    if (attendanceAction === 'late') {
+      students.forEach((student) => { student.status = 'LATE' })
+      if (!attendanceLateReason.trim()) {
+        setTodayWorkError('Late reason is required.')
+        return
+      }
+    } else if (attendanceAction === 'edit') {
+      if (!attendanceEditReason.trim()) {
+        setTodayWorkError('Edit reason is required.')
+        return
+      }
+      if (students.some((student) => !['PRESENT', 'ABSENT', 'LATE', 'UNMARKED'].includes(student.status))) {
+        setTodayWorkError('Choose Present, Absent, Late, or Unmarked for every selected student.')
+        return
+      }
+    } else if (students.some((student) => !['PRESENT', 'ABSENT'].includes(student.status))) {
       setTodayWorkError('Please mark Present or Absent for every selected student.')
       return
     }
@@ -5188,7 +5226,7 @@ export function FacultyDashboardPage() {
     setIsTodayWorkSaving(true)
     setTodayWorkError('')
     try {
-      const response = await markFacultyStudentAttendance({
+      const request = {
         date: getAttendanceDateKey(),
         attendanceDate: getAttendanceDateKey(),
         facultyId: String(selectedStudentsBatch?.facultyId || currentFacultyIdentity.facultyId).trim(),
@@ -5208,11 +5246,14 @@ export function FacultyDashboardPage() {
         batchName: String(selectedStudentsBatch?.batchName || selectedStudentsBatch?.code || '').trim(),
         submissionMode: 'faculty-dashboard-attendance',
         students,
-      })
+      }
+      const response = attendanceAction === 'edit'
+        ? await editBranchStudentAttendance({ ...request, editReason: attendanceEditReason.trim(), date: getAttendanceDateKey(), attendanceDate: getAttendanceDateKey() })
+        : await markFacultyStudentAttendance(request)
       const savedStatuses = selectedStudents.reduce((statusMap, student) => {
         const payloadStudentId = getTodayWorkStudentId(student)
         const status = String(todayWorkForm.attendanceByStudent?.[payloadStudentId] || '').trim().toUpperCase()
-        if (!isAttendanceMarkedStatus(status)) return statusMap
+        if (!isAttendanceMarkedStatus(status) && status !== 'LATE') return statusMap
 
         // Branch attendance uses an internal profile id while the faculty
         // table may be built from the public student id. Keep both aliases
@@ -6596,7 +6637,7 @@ const nextName = trimmedValue
     })
   }, [isTodayWorkModalOpen, studentAttendanceStatuses, studentsFlowVisibleStudents, todayWorkForm.attendanceByStudent])
   const temporarySessionWindowLocked = Boolean(temporarySessionContext) && !isTemporarySessionEditable(temporarySessionContext.item, attendanceClock)
-  const attendanceWindowLocked = temporarySessionWindowLocked || (todayWorkMode === 'attendance' && !todayWorkAttendanceWindow.isEditable)
+  const attendanceWindowLocked = temporarySessionWindowLocked || (todayWorkMode === 'attendance' && attendanceAction === 'normal' && !todayWorkAttendanceWindow.isEditable)
   const hasTemporaryAttendanceOverride = Boolean(activeTemporaryAttendanceSession)
   const attendanceWeekTypeLocked = Boolean(selectedStudentsBatch) && (
     activeTemporaryAttendanceSession?.isOriginalRescheduledSession
@@ -6626,7 +6667,7 @@ const nextName = trimmedValue
       .some((value) => value.includes(normalizedAttendanceSearch))
   })
   const markedAttendanceCount = studentsFlowActionableStudents.filter((student) => (
-    ['PRESENT', 'ABSENT'].includes(todayWorkForm.attendanceByStudent?.[getTodayWorkStudentId(student)] || '')
+    ['PRESENT', 'ABSENT', 'LATE'].includes(todayWorkForm.attendanceByStudent?.[getTodayWorkStudentId(student)] || '')
   )).length
   const allTodayWorkStudentsPresent = studentsFlowActionableStudents.length > 0 && studentsFlowActionableStudents.every((student) => (
     todayWorkForm.attendanceByStudent?.[getTodayWorkStudentId(student)] === 'PRESENT'
@@ -7518,6 +7559,7 @@ const nextName = trimmedValue
                           <strong>{selectedStudentsCourse?.name || selectedStudentsCourse?.courseName || 'Course'}</strong>
                           <span>{selectedStudentsCourse?.courseCode || selectedStudentsCourse?.id || '-'}</span>
                           <strong>{selectedStudentsBatch?.batchName || selectedStudentsBatch?.code || selectedStudentsBatch?.timing || 'Batch'}</strong>
+                          <span>Timing: {selectedStudentsBatch?.timing || selectedStudentsBatch?.batchTiming || `${selectedStudentsBatch?.startTime || ''}${selectedStudentsBatch?.startTime && selectedStudentsBatch?.endTime ? ' - ' : ''}${selectedStudentsBatch?.endTime || ''}` || '-'}</span>
                         </div>
                       </div>
 
@@ -8438,15 +8480,25 @@ const nextName = trimmedValue
                       ) : null}
                     </h4>
                     {todayWorkMode === 'attendance' ? (
-                      todayWorkAttendanceWindow.isReminder ? null : (
-                        <p
-                          className={attendanceWindowLocked ? 'faculty-today-work-attendance-window-note is-locked' : 'faculty-today-work-attendance-window-note'}
-                          role="status"
-                          aria-live="polite"
-                        >
-                          {todayWorkAttendanceWindow.reason || 'Attendance timing is not configured for this batch.'}
+                      <>
+                        <p className="faculty-today-work-attendance-window-note">
+                          Batch: {selectedStudentsBatch?.batchName || selectedStudentsBatch?.code || '-'} · Timing: {selectedStudentsBatch?.timing || selectedStudentsBatch?.batchTiming || `${selectedStudentsBatch?.startTime || ''}${selectedStudentsBatch?.startTime && selectedStudentsBatch?.endTime ? ' - ' : ''}${selectedStudentsBatch?.endTime || ''}` || '-'}
                         </p>
-                      )
+                        {!todayWorkAttendanceWindow.isReminder ? (
+                          <p
+                            className={attendanceWindowLocked ? 'faculty-today-work-attendance-window-note is-locked' : 'faculty-today-work-attendance-window-note'}
+                            role="status"
+                            aria-live="polite"
+                          >
+                            {todayWorkAttendanceWindow.reason || 'Attendance timing is not configured for this batch.'}
+                          </p>
+                        ) : null}
+                        {todayWorkAttendanceWindow.isLateAvailable ? (
+                          <p className="faculty-today-work-attendance-window-note is-locked" role="status">
+                            Normal attendance closed. You can mark late attendance with a reason.
+                          </p>
+                        ) : null}
+                      </>
                     ) : (
                       <p>Choose students whose submodule progress should be updated.</p>
                     )}
@@ -8478,7 +8530,29 @@ const nextName = trimmedValue
                 </div>
 
                 {todayWorkMode === 'attendance' ? (
-                  <label className="faculty-today-work-attendance-search">
+                    <div className="faculty-today-work-attendance-mode-actions">
+                      <button type="button" className={attendanceAction === 'normal' ? 'is-active' : ''} onClick={() => { setAttendanceMode('normal'); setTodayWorkError('') }} disabled={!todayWorkAttendanceWindow.isEditable}>Normal Attendance</button>
+                      <button type="button" className={attendanceAction === 'late' ? 'is-active is-late' : 'is-late'} onClick={() => { setAttendanceMode('late'); setTodayWorkError('') }} disabled={!todayWorkAttendanceWindow.isLateAvailable}>Mark Late Attendance</button>
+                      <button type="button" className={attendanceAction === 'edit' ? 'is-active is-edit' : 'is-edit'} onClick={() => { setAttendanceMode('edit'); setTodayWorkError('') }}>Edit Attendance</button>
+                    </div>
+                  ) : null}
+                {todayWorkMode === 'attendance' && attendanceAction === 'late' ? (
+                  <label className="faculty-today-work-attendance-field">
+                    <span>Late Reason <i>*</i></span>
+                    <input value={attendanceLateReason} onChange={(event) => setAttendanceLateReason(event.target.value)} placeholder="Late reason (required)" aria-label="Late reason" />
+                    {todayWorkError === 'Late reason is required.' ? <small className="faculty-today-work-field-error">Late reason is required.</small> : null}
+                  </label>
+                ) : null}
+                {todayWorkMode === 'attendance' && attendanceAction === 'edit' ? (
+                  <label className="faculty-today-work-attendance-field">
+                    <span>Edit Reason <i>*</i></span>
+                    <input value={attendanceEditReason} onChange={(event) => setAttendanceEditReason(event.target.value)} placeholder="Edit reason (required)" aria-label="Edit reason" />
+                    {todayWorkError === 'Edit reason is required.' ? <small className="faculty-today-work-field-error">Edit reason is required.</small> : null}
+                  </label>
+                ) : null}
+
+                {todayWorkMode === 'attendance' ? (
+                  <label className="faculty-today-work-attendance-search faculty-today-work-attendance-student-search">
                     <Search size={16} aria-hidden="true" />
                     <input
                       type="search"
@@ -8564,7 +8638,7 @@ const nextName = trimmedValue
                 </div>
               </section>
 
-              {todayWorkError ? <div className="faculty-today-work-status">{todayWorkError}</div> : null}
+              {todayWorkError && !['Late reason is required.', 'Edit reason is required.'].includes(todayWorkError) ? <div className="faculty-today-work-status">{todayWorkError}</div> : null}
 
               <div className="faculty-today-work-actions">
                 <button type="button" className="faculty-today-work-cancel" onClick={closeTodayWorkModal}>

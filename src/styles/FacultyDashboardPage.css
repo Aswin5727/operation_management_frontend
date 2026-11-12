@@ -2356,6 +2356,164 @@ body.faculty-notification-menu-open .super-admin-content {
   font-weight: 700;
 }
 
+.faculty-today-work-attendance-mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 12px;
+  padding: 5px;
+  border: 1px solid #dbe7f5;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.faculty-today-work-attendance-mode-actions button {
+  flex: 1 1 0;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #cbdaf0;
+  border-radius: 8px;
+  color: #31547e;
+  background: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.faculty-today-work-attendance-mode-actions button:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.faculty-today-work-attendance-mode-actions button.is-active {
+  border-color: #2563eb;
+  color: #ffffff;
+  background: #2563eb;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.22);
+}
+
+.faculty-today-work-attendance-mode-actions button.is-late.is-active {
+  border-color: #d97706;
+  background: #d97706;
+  box-shadow: 0 3px 8px rgba(217, 119, 6, 0.22);
+}
+
+.faculty-today-work-attendance-mode-actions button.is-edit.is-active {
+  border-color: #7c3aed;
+  background: #7c3aed;
+  box-shadow: 0 3px 8px rgba(124, 58, 237, 0.22);
+}
+
+.faculty-today-work-attendance-mode-actions button.is-late:hover:not(:disabled),
+.faculty-today-work-attendance-mode-actions button.is-edit:hover:not(:disabled),
+.faculty-today-work-attendance-mode-actions button.is-late.is-active,
+.faculty-today-work-attendance-mode-actions button.is-edit.is-active {
+  color: #ffffff !important;
+}
+
+.faculty-today-work-attendance-mode-actions button.is-late:hover:not(:disabled),
+.faculty-today-work-attendance-mode-actions button.is-late.is-active {
+  border-color: #d97706;
+  background: #d97706;
+}
+
+.faculty-today-work-attendance-mode-actions button.is-edit:hover:not(:disabled),
+.faculty-today-work-attendance-mode-actions button.is-edit.is-active {
+  border-color: #7c3aed;
+  background: #7c3aed;
+}
+
+.faculty-today-work-attendance-mode-actions button:not(.is-late):not(.is-edit):hover:not(:disabled),
+.faculty-today-work-attendance-mode-actions button:not(.is-late):not(.is-edit).is-active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff !important;
+}
+
+.faculty-today-work-attendance-mode-actions button:disabled {
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  background: #f1f5f9;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.faculty-today-work-attendance-mode-actions + .faculty-today-work-attendance-search,
+.faculty-today-work-attendance-mode-actions ~ .faculty-today-work-attendance-search {
+  width: 50%;
+  max-width: 380px;
+  min-height: 42px;
+  margin-bottom: 10px;
+}
+
+.faculty-today-work-attendance-student-search {
+  width: 62% !important;
+  max-width: 480px !important;
+}
+
+.faculty-today-work-attendance-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 50%;
+  max-width: 380px;
+  margin-bottom: 10px;
+}
+
+.faculty-today-work-attendance-field > span {
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.faculty-today-work-attendance-field > span i {
+  color: #dc2626;
+  font-style: normal;
+}
+
+.faculty-today-work-attendance-field input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cbdaf0;
+  border-radius: 8px;
+  outline: none;
+  color: #1e293b;
+  background: #ffffff;
+}
+
+.faculty-today-work-attendance-field input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.faculty-today-work-field-error {
+  margin-top: 1px;
+  color: #dc2626;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .faculty-today-work-attendance-mode-actions + .faculty-today-work-attendance-search,
+  .faculty-today-work-attendance-mode-actions ~ .faculty-today-work-attendance-search {
+    width: 100%;
+    max-width: none;
+  }
+
+  .faculty-today-work-attendance-student-search {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .faculty-today-work-attendance-field {
+    width: 100%;
+    max-width: none;
+  }
+}
+
 .faculty-attendance-warning-backdrop {
   position: fixed;
   inset: 0;

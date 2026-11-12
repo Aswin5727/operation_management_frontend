@@ -88,6 +88,14 @@ export async function markFacultyStudentAttendance(payload = {}) {
   return unwrapData(response)
 }
 
+export async function editBranchStudentAttendance(payload = {}) {
+  const response = await request('/attendance/edit', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return unwrapData(response)
+}
+
 const BRANCH_ATTENDANCE_DEDUPE_MS = 2000
 const branchAttendanceRecentRequests = new Map()
 
